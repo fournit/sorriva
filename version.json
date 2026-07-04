@@ -1,0 +1,5 @@
+{
+  "version": "0.1.0",
+  "released": "2026-07-04",
+  "notes": "Initial scaffold — Flask skeleton, health endpoint, database provisioned."
+}
