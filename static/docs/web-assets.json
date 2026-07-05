@@ -1,0 +1,12 @@
+{
+  "assets": [
+    {
+      "label": "Sorriva Marketing Site",
+      "file": "sorriva-index.html",
+      "type": "marketing",
+      "version": 1,
+      "latest": true,
+      "live_url": "https://sorriva.app"
+    }
+  ]
+}

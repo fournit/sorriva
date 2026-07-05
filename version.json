@@ -1,5 +1,7 @@
 {
-  "version": "0.1.0",
+  "version": "0.0.1",
+  "build": 1,
   "released": "2026-07-04",
-  "notes": "Initial scaffold — Flask skeleton, health endpoint, database provisioned."
+  "status": "pre-build",
+  "notes": "Planning and definition complete. Architecture pivot from self-hosted server to pure App Store product. Splash page live at sorriva.app. No application code shipped yet."
 }

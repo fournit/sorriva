@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sorriva — Your Music. Your Way.</title>
+  <meta name="description" content="The intelligent music layer for your home. Every source. Every room. One app.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --parchment:   #F5F2EE;
+      --parchment-dk:#EDE9E3;
+      --near-black:  #1A1714;
+      --slate:       #3D5A99;
+      --brass:       #B07D4F;
+      --muted:       rgba(26,23,20,0.38);
+      --subtle:      rgba(26,23,20,0.12);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--parchment);
+      color: var(--near-black);
+      font-family: 'Inter', sans-serif;
+      overflow-x: hidden;
+    }
+
+    /* ── HERO ─────────────────────────────────────────── */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 48px 24px 0;
+      position: relative;
+      overflow: hidden;
+      margin-bottom: -48px;
+    }
+
+    #speaker-canvas {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -54%);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 2.4s ease;
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 28px;
+    }
+
+    /* ── WORDMARK ─────────────────────────────────────── */
+    .wordmark { display: flex; align-items: flex-start; opacity: 0; }
+
+    .wordmark-text {
+      font-size: clamp(80px, 16vw, 148px);
+      font-weight: 800;
+      letter-spacing: -0.05em;
+      color: var(--near-black);
+      line-height: 1;
+      display: flex;
+    }
+
+    .letter {
+      display: inline-block;
+      opacity: 0;
+      filter: blur(8px);
+      transform: translateY(6px);
+    }
+
+    .dot-wrap { display: flex; align-items: flex-start; padding-top: 16px; margin-left: 5px; }
+
+    .dot {
+      width: 16px; height: 16px;
+      background: var(--slate);
+      border-radius: 50%;
+      opacity: 0;
+      transform: scale(0);
+      flex-shrink: 0;
+    }
+
+    .divider { width: 0px; height: 1px; background: var(--brass); opacity: 0; }
+
+    .tagline {
+      font-size: clamp(12px, 2vw, 14px);
+      font-weight: 400;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--muted);
+      opacity: 0;
+      transform: translateY(8px);
+    }
+
+    .services {
+      display: flex; align-items: center; gap: 28px;
+      opacity: 0; transform: translateY(8px);
+    }
+
+    .services svg {
+      height: 15px; width: auto;
+      fill: var(--near-black); opacity: 0.22;
+      transition: opacity 0.2s;
+    }
+    .services svg:hover { opacity: 0.5; }
+
+    /* ── SCROLL CUE — inline ──────────────────────────── */
+    .scroll-cue {
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      opacity: 0; cursor: pointer; padding: 16px 0 20px;
+    }
+    .scroll-cue span { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+    .scroll-line {
+      width: 1px; height: 28px;
+      background: linear-gradient(to bottom, var(--brass), transparent);
+      animation: scroll-pulse 2s ease-in-out infinite;
+    }
+    @keyframes scroll-pulse { 0%,100% { opacity:.3; } 50% { opacity:.8; } }
+
+    /* ── PILLARS BRIDGE ───────────────────────────────── */
+    .pillars-bridge {
+      padding: 0 24px 0; text-align: center;
+      opacity: 0; transform: translateY(16px);
+    }
+    .pillars-eyebrow-text {
+      font-size: 11px; letter-spacing: 0.16em;
+      text-transform: uppercase; color: var(--brass);
+    }
+
+    /* ── PILLARS ──────────────────────────────────────── */
+    .pillars { padding: 64px 24px 120px; max-width: 960px; margin: 0 auto; }
+    .pillar-list { display: flex; flex-direction: column; gap: 0; }
+
+    .pillar {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 64px;
+      align-items: center; padding: 72px 0;
+      border-top: 1px solid var(--subtle);
+      opacity: 0; transform: translateY(24px);
+    }
+    .pillar:last-child { border-bottom: 1px solid var(--subtle); }
+    .pillar.reverse { direction: rtl; }
+    .pillar.reverse > * { direction: ltr; }
+
+    .pillar-number { font-size: 11px; font-weight: 500; letter-spacing: 0.14em; color: var(--brass); text-transform: uppercase; margin-bottom: 16px; }
+
+    .pillar-title {
+      font-size: clamp(26px, 4vw, 36px); font-weight: 800;
+      letter-spacing: -0.03em; line-height: 1.1;
+      color: var(--near-black); margin-bottom: 20px;
+    }
+    .pillar-title em { font-style: normal; color: var(--slate); }
+
+    .pillar-body { font-size: 15px; line-height: 1.75; color: rgba(26,23,20,0.65); max-width: 400px; }
+    .pillar-visual { display: flex; align-items: center; justify-content: center; }
+
+    /* ── ZONE ICON helper ─────────────────────────────── */
+    .zone-icon { width: 20px; height: 20px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+    .zone-icon svg { width: 18px; height: 18px; stroke: var(--muted); fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* ── VISUALS ──────────────────────────────────────── */
+    .vis-graph { width: 100%; max-width: 320px; }
+    .vis-track { background: white; border: 1px solid rgba(26,23,20,0.08); border-radius: 12px; padding: 16px 20px; margin-bottom: 12px; box-shadow: 0 2px 12px rgba(26,23,20,0.05); }
+    .vis-track-title { font-size: 13px; font-weight: 800; letter-spacing: -0.02em; color: var(--near-black); margin-bottom: 2px; }
+    .vis-track-artist { font-size: 11px; color: var(--muted); margin-bottom: 12px; }
+    .vis-sources { display: flex; flex-direction: column; gap: 6px; }
+    .vis-source { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+    .vis-source-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .vis-source-dot.local { background: var(--brass); }
+    .vis-source-dot.apple { background: #fc3c44; }
+    .vis-source-dot.spot  { background: #1DB954; }
+    .vis-source-label { color: var(--muted); flex: 1; }
+    .vis-source-badge { font-size: 9px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 7px; border-radius: 10px; }
+    .vis-source-badge.home { background: rgba(61,90,153,0.12); color: var(--slate); }
+    .vis-source-badge.away { background: rgba(26,23,20,0.06); color: var(--muted); }
+
+    .vis-zones { width: 100%; max-width: 300px; display: flex; flex-direction: column; gap: 10px; }
+    .vis-zone-group { font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--brass); margin-bottom: 4px; margin-top: 8px; }
+    .vis-zone-group:first-child { margin-top: 0; }
+    .vis-zone { display: flex; align-items: center; gap: 12px; background: white; border: 1px solid rgba(26,23,20,0.07); border-radius: 10px; padding: 11px 14px; box-shadow: 0 1px 6px rgba(26,23,20,0.04); }
+    .vis-zone-name { font-size: 12px; font-weight: 600; color: var(--near-black); flex: 1; }
+    .vis-zone-status { width: 6px; height: 6px; border-radius: 50%; background: var(--slate); box-shadow: 0 0 0 3px rgba(61,90,153,0.15); }
+
+    /* EQ */
+    .vis-eq { width: 100%; max-width: 280px; background: white; border: 1px solid rgba(26,23,20,0.08); border-radius: 14px; padding: 22px; box-shadow: 0 2px 16px rgba(26,23,20,0.06); }
+    .vis-eq-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+    .vis-eq-title { font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+    .vis-eq-device { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--slate); font-weight: 600; }
+    .vis-eq-device svg { width: 13px; height: 13px; stroke: var(--slate); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .vis-eq-row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .vis-eq-row:last-child { margin-bottom: 0; }
+    .vis-eq-label { font-size: 11px; font-weight: 500; color: var(--muted); width: 44px; flex-shrink: 0; }
+    .vis-eq-track { flex: 1; height: 3px; background: rgba(26,23,20,0.1); border-radius: 2px; position: relative; }
+    .vis-eq-fill { height: 100%; border-radius: 2px; background: var(--slate); }
+    .vis-eq-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--near-black); position: absolute; top: 50%; transform: translateY(-50%); box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
+    .vis-eq-value { font-size: 11px; font-weight: 600; color: var(--slate); width: 24px; text-align: right; flex-shrink: 0; }
+    .vis-eq-divider { height: 1px; background: rgba(26,23,20,0.07); margin: 14px 0; }
+    .vis-eq-toggle-row { display: flex; align-items: center; gap: 10px; }
+    .vis-eq-toggle-label { font-size: 11px; font-weight: 500; color: var(--muted); flex: 1; display: flex; align-items: center; gap: 6px; }
+    .vis-eq-toggle-label svg { width: 14px; height: 14px; stroke: var(--muted); fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .vis-toggle { width: 34px; height: 20px; border-radius: 10px; background: var(--slate); position: relative; cursor: pointer; flex-shrink: 0; transition: background 0.2s; }
+    .vis-toggle::after { content:''; position: absolute; top: 3px; left: 17px; width: 14px; height: 14px; border-radius: 50%; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.2); transition: left 0.2s; }
+    .vis-toggle.off { background: rgba(26,23,20,0.15); }
+    .vis-toggle.off::after { left: 3px; }
+
+    /* Deriva */
+    .vis-deriva { width: 100%; max-width: 300px; display: flex; flex-direction: column; gap: 10px; }
+    .vis-deriva-prompt { background: var(--near-black); border-radius: 12px; padding: 14px 18px; font-size: 13px; color: rgba(245,242,238,0.85); font-style: italic; line-height: 1.5; }
+    .vis-deriva-prompt span { color: var(--brass); font-style: normal; font-weight: 600; }
+    .vis-deriva-result { background: white; border: 1px solid rgba(26,23,20,0.08); border-radius: 10px; padding: 11px 14px; display: flex; align-items: center; gap: 10px; box-shadow: 0 1px 6px rgba(26,23,20,0.04); }
+    .vis-deriva-art { width: 36px; height: 36px; border-radius: 6px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+    .vis-deriva-art svg { width: 18px; height: 18px; stroke: var(--muted); fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .vis-deriva-info { flex: 1; }
+    .vis-deriva-track { font-size: 12px; font-weight: 700; color: var(--near-black); letter-spacing: -0.01em; }
+    .vis-deriva-artist { font-size: 11px; color: var(--muted); }
+    .vis-deriva-reason { font-size: 10px; color: var(--slate); font-style: italic; margin-top: 3px; }
+
+    /* ── CTA ──────────────────────────────────────────── */
+    .cta-section { padding: 80px 24px 120px; display: flex; flex-direction: column; align-items: center; gap: 28px; border-top: 1px solid var(--subtle); opacity: 0; transform: translateY(24px); }
+    .cta-wordmark { font-size: 32px; font-weight: 800; letter-spacing: -0.05em; color: var(--near-black); display: flex; align-items: flex-start; gap: 4px; }
+    .cta-wordmark-dot { width: 7px; height: 7px; background: var(--slate); border-radius: 50%; margin-top: 6px; }
+    .cta-tagline { font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+    .cta-form { display: flex; gap: 10px; width: 100%; max-width: 360px; }
+    .cta-input { flex: 1; font-family: 'Inter', sans-serif; font-size: 14px; padding: 12px 16px; background: white; border: 1px solid rgba(26,23,20,0.15); border-radius: 8px; color: var(--near-black); outline: none; transition: border-color 0.2s; }
+    .cta-input::placeholder { color: var(--muted); }
+    .cta-input:focus { border-color: var(--slate); }
+    .cta-btn { font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.02em; padding: 12px 20px; background: var(--near-black); color: var(--parchment); border: none; border-radius: 8px; cursor: pointer; transition: background 0.2s, transform 0.15s; white-space: nowrap; }
+    .cta-btn:hover { background: #2e2925; transform: translateY(-1px); }
+    .cta-note { font-size: 11px; color: var(--muted); letter-spacing: 0.04em; }
+    .cta-services { display: flex; align-items: center; gap: 24px; margin-top: 8px; }
+    .cta-services svg { height: 14px; width: auto; fill: var(--near-black); opacity: 0.2; }
+
+    .site-footer { padding: 24px; text-align: center; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); border-top: 1px solid var(--subtle); }
+
+    @media (max-width: 700px) {
+      .pillar { grid-template-columns: 1fr; gap: 40px; }
+      .pillar.reverse { direction: ltr; }
+      .pillar-visual { order: -1; }
+    }
+    @media (max-width: 480px) { .cta-form { flex-direction: column; } }
+  </style>
+</head>
+<body>
+
+  <section class="hero">
+    <canvas id="speaker-canvas"></canvas>
+
+    <div class="hero-content">
+      <div class="wordmark" id="wordmark">
+        <div class="wordmark-text" id="wm-text"></div>
+        <div class="dot-wrap"><div class="dot" id="wm-dot"></div></div>
+      </div>
+      <div class="divider" id="divider"></div>
+      <p class="tagline" id="tagline">Your Music. Your Way.</p>
+
+      <div class="services" id="services">
+        <svg role="img" viewBox="0 0 24 24"><title>Spotify</title><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>
+        <svg role="img" viewBox="0 0 24 24"><title>Apple Music</title><path d="M23.994 6.124a9.23 9.23 0 00-.24-2.19c-.317-1.31-1.062-2.31-2.18-3.043a5.022 5.022 0 00-1.877-.726 10.496 10.496 0 00-1.564-.15c-.04-.003-.083-.01-.124-.013H5.986c-.152.01-.303.017-.455.026C4.786.07 4.043.15 3.34.428 2.004.958 1.04 1.88.475 3.208A7.357 7.357 0 00.09 5.08a43.645 43.645 0 00-.09 1.554v12.702c.01.174.02.347.03.52.074 1.206.38 2.325 1.073 3.31.802 1.127 1.913 1.815 3.286 2.07a9.077 9.077 0 001.597.154c.543.013 1.085.02 1.628.02h11.357c.49 0 .98-.01 1.468-.034.49-.024.978-.068 1.46-.163 1.39-.272 2.52-.977 3.33-2.134.597-.843.88-1.79.96-2.807.02-.253.03-.507.04-.76V6.124zm-9.742 9.83c0 .62-.504 1.126-1.127 1.126H9.13c-.623 0-1.127-.504-1.127-1.127V9.875c0-.622.504-1.127 1.127-1.127h3.995c.623 0 1.127.505 1.127 1.127v6.079zm3.005-8.56c-.18.476-.698.714-1.174.534l-7.29-2.72a.915.915 0 01-.534-1.175.915.915 0 011.174-.534l7.29 2.72c.476.18.714.698.534 1.175z"/></svg>
+        <svg role="img" viewBox="0 0 24 24"><title>Qobuz</title><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm.48 17.28c-2.88 0-5.28-2.16-5.28-5.28s2.4-5.28 5.28-5.28c1.44 0 2.76.6 3.72 1.56l1.44-1.44C16.2 5.64 14.4 4.8 12.48 4.8c-3.96 0-7.2 3.24-7.2 7.2s3.24 7.2 7.2 7.2c2.04 0 3.84-.84 5.16-2.16v-3.36h-5.16v1.92h3.12v.84c-.72.48-1.8.8-3.12.8z"/></svg>
+        <svg role="img" viewBox="0 0 24 24"><title>iHeartRadio</title><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm0 4.457a3.392 3.392 0 110 6.784 3.392 3.392 0 010-6.784zm5.863 12.205c-.392.602-.96 1.068-1.63 1.337-.664.266-1.42.32-2.233.32H10c-.812 0-1.568-.054-2.233-.32-.67-.27-1.238-.735-1.63-1.337C5.648 15.78 5.4 14.828 5.4 13.67c0-1.19.261-2.17.783-2.905.528-.746 1.319-1.238 2.33-1.44a5.21 5.21 0 001.24 1.62 3.93 3.93 0 002.247.92 3.93 3.93 0 002.247-.92 5.21 5.21 0 001.24-1.62c1.011.202 1.802.694 2.33 1.44.522.735.783 1.715.783 2.905 0 1.158-.248 2.11-.737 2.992z"/></svg>
+      </div>
+
+      <div class="scroll-cue" id="scroll-cue" onclick="document.querySelector('.pillars-bridge').scrollIntoView({behavior:'smooth'})">
+        <span>Discover</span>
+        <div class="scroll-line"></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="pillars-bridge" id="pillars-bridge">
+    <p class="pillars-eyebrow-text">A new kind of music app</p>
+  </div>
+
+  <section class="pillars">
+    <div class="pillar-list">
+
+      <!-- 01 -->
+      <div class="pillar" data-pillar>
+        <div class="pillar-text">
+          <div class="pillar-number">01</div>
+          <h2 class="pillar-title">One track.<br><em>Every source.</em></h2>
+          <p class="pillar-body">Your FLAC rips, your Spotify favorites, your Apple Music library — Sorriva sees them as one. At home it plays your high-res files. Away from home it seamlessly switches to streaming. You never choose a source. It just plays.</p>
+        </div>
+        <div class="pillar-visual">
+          <div class="vis-graph">
+            <div class="vis-track">
+              <div class="vis-track-title">So What</div>
+              <div class="vis-track-artist">Miles Davis · Kind of Blue</div>
+              <div class="vis-sources">
+                <div class="vis-source"><div class="vis-source-dot local"></div><span class="vis-source-label">Local FLAC · 24-bit</span><span class="vis-source-badge home">Home</span></div>
+                <div class="vis-source"><div class="vis-source-dot apple"></div><span class="vis-source-label">Apple Music · Lossless</span><span class="vis-source-badge away">Away</span></div>
+                <div class="vis-source"><div class="vis-source-dot spot"></div><span class="vis-source-label">Spotify · Fallback</span><span class="vis-source-badge away">Away</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 02 -->
+      <div class="pillar reverse" data-pillar>
+        <div class="pillar-text">
+          <div class="pillar-number">02</div>
+          <h2 class="pillar-title">Every room.<br><em>Any speaker.</em></h2>
+          <p class="pillar-body">AirPlay 2 multi-room without the ecosystem lock-in. Save your zones once — "Downstairs", "Party Mode", "Bedroom Only" — and recall them with a tap. Works with Sonos, Bluesound, Naim, Marantz, KEF, B&W, and hundreds of other AirPlay 2 devices. Multiple streams. Multiple rooms. All at once.</p>
+        </div>
+        <div class="pillar-visual">
+          <div class="vis-zones">
+            <div class="vis-zone-group">Downstairs</div>
+            <div class="vis-zone">
+              <!-- sofa icon -->
+              <div class="zone-icon"><svg viewBox="0 0 24 24"><path d="M2 9a2 2 0 0 1 2-2h1a2 2 0 0 1 2 2v1H2V9zm15 0a2 2 0 0 1 2-2h1a2 2 0 0 1 2 2v1h-5V9zM2 10h20v5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5zm5 7v2m10-2v2"/></svg></div>
+              <div class="vis-zone-name">Living Room · Arc</div>
+              <div class="vis-zone-status"></div>
+            </div>
+            <div class="vis-zone">
+              <!-- utensils icon -->
+              <div class="zone-icon"><svg viewBox="0 0 24 24"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2M7 2v20M21 15V2a5 5 0 0 0-5 5v6h3.5a1.5 1.5 0 0 1 0 3H19v4"/></svg></div>
+              <div class="vis-zone-name">Kitchen · Era 100</div>
+              <div class="vis-zone-status"></div>
+            </div>
+            <div class="vis-zone-group">Upstairs</div>
+            <div class="vis-zone">
+              <!-- bed icon -->
+              <div class="zone-icon"><svg viewBox="0 0 24 24"><path d="M3 7v11m0-7h18m0 7V11a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4m14-4v-1a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v1"/></svg></div>
+              <div class="vis-zone-name">Bedroom · Era 300</div>
+              <div class="vis-zone-status" style="background:rgba(26,23,20,0.12);box-shadow:none;"></div>
+            </div>
+            <div class="vis-zone">
+              <!-- briefcase icon -->
+              <div class="zone-icon"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2m5 6H9"/></svg></div>
+              <div class="vis-zone-name">Office · Node</div>
+              <div class="vis-zone-status"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 03 — EQ with loudness toggle -->
+      <div class="pillar" data-pillar>
+        <div class="pillar-text">
+          <div class="pillar-number">03</div>
+          <h2 class="pillar-title">One interface.<br><em>Every device.</em></h2>
+          <p class="pillar-body">One EQ panel for every speaker in your home. Sorriva translates your adjustments into each device's native language — Sonos, BluOS, or anything in between. No hunting through separate apps.</p>
+        </div>
+        <div class="pillar-visual">
+          <div class="vis-eq">
+            <div class="vis-eq-header">
+              <div class="vis-eq-title">Living Room</div>
+              <div class="vis-eq-device">
+                <!-- speaker icon -->
+                <svg viewBox="0 0 24 24"><path d="M15 8a5 5 0 0 1 0 8M17.7 5a9 9 0 0 1 0 14M6 15H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2l3.5-4.5A.8.8 0 0 1 11 5v14a.8.8 0 0 1-1.5.5L6 15z"/></svg>
+                Arc
+              </div>
+            </div>
+            <div class="vis-eq-row">
+              <div class="vis-eq-label">Bass</div>
+              <div class="vis-eq-track"><div class="vis-eq-fill" style="width:62%"></div><div class="vis-eq-thumb" style="left:calc(62% - 6px)"></div></div>
+              <div class="vis-eq-value">+2</div>
+            </div>
+            <div class="vis-eq-row">
+              <div class="vis-eq-label">Mid</div>
+              <div class="vis-eq-track"><div class="vis-eq-fill" style="width:50%"></div><div class="vis-eq-thumb" style="left:calc(50% - 6px)"></div></div>
+              <div class="vis-eq-value">0</div>
+            </div>
+            <div class="vis-eq-row">
+              <div class="vis-eq-label">Treble</div>
+              <div class="vis-eq-track"><div class="vis-eq-fill" style="width:56%"></div><div class="vis-eq-thumb" style="left:calc(56% - 6px)"></div></div>
+              <div class="vis-eq-value">+1</div>
+            </div>
+            <div class="vis-eq-divider"></div>
+            <div class="vis-eq-toggle-row">
+              <div class="vis-eq-toggle-label">
+                <!-- ear icon -->
+                <svg viewBox="0 0 24 24"><path d="M6 10a6 6 0 1 1 12 0c0 3-2 4.5-3 6s-1 2-1 3m-6.5 1.5a2.5 2.5 0 0 0 5 0m-3-3a1 1 0 1 0 2 0 1 1 0 0 0-2 0"/></svg>
+                Loudness
+              </div>
+              <div class="vis-toggle" id="loudness-toggle" onclick="this.classList.toggle('off')"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 04 — Deriva -->
+      <div class="pillar reverse" data-pillar>
+        <div class="pillar-text">
+          <div class="pillar-number">04</div>
+          <h2 class="pillar-title">Meet<br><em>Deriva.</em></h2>
+          <p class="pillar-body">Sorriva's AI discovery engine knows your entire music world — every track you own, every service you subscribe to. Ask it anything. It finds music you forgot you loved, surfaces what you didn't know you needed, and explains why every time.</p>
+        </div>
+        <div class="pillar-visual">
+          <div class="vis-deriva">
+            <div class="vis-deriva-prompt">"<span>Late night</span>, something slow and cinematic, not jazz"</div>
+            <div class="vis-deriva-result">
+              <div class="vis-deriva-art" style="background:#f0e8de;">
+                <!-- piano keys icon -->
+                <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="18" rx="1"/><path d="M7 3v11m5-11v11m5-11v11M2 14h4m4 0h4m4 0h4"/></svg>
+              </div>
+              <div class="vis-deriva-info">
+                <div class="vis-deriva-track">On the Nature of Daylight</div>
+                <div class="vis-deriva-artist">Max Richter</div>
+                <div class="vis-deriva-reason">In your library · matches your late-night pattern</div>
+              </div>
+            </div>
+            <div class="vis-deriva-result">
+              <div class="vis-deriva-art" style="background:#e8edf5;">
+                <!-- moon icon -->
+                <svg viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+              </div>
+              <div class="vis-deriva-info">
+                <div class="vis-deriva-track">Experience</div>
+                <div class="vis-deriva-artist">Ludovico Einaudi</div>
+                <div class="vis-deriva-reason">Apple Music · similar tempo and mood</div>
+              </div>
+            </div>
+            <div class="vis-deriva-result">
+              <div class="vis-deriva-art" style="background:#f5ede8;">
+                <!-- music note icon -->
+                <svg viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+              </div>
+              <div class="vis-deriva-info">
+                <div class="vis-deriva-track">Comptine d'un autre été</div>
+                <div class="vis-deriva-artist">Yann Tiersen</div>
+                <div class="vis-deriva-reason">Spotify · you played this 3 years ago</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <div class="cta-section" id="cta">
+    <div class="cta-wordmark">sorriva<span class="cta-wordmark-dot"></span></div>
+    <p class="cta-tagline">Coming soon to the App Store</p>
+    <form class="cta-form" onsubmit="handleSubmit(event)">
+      <input class="cta-input" type="email" placeholder="your@email.com" id="email-input" autocomplete="email">
+      <button class="cta-btn" type="submit">Notify me</button>
+    </form>
+    <p class="cta-note" id="cta-note">Be first to know when Sorriva launches.</p>
+    <div class="cta-services">
+      <svg role="img" viewBox="0 0 24 24"><title>Spotify</title><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>
+      <svg role="img" viewBox="0 0 24 24"><title>Apple Music</title><path d="M23.994 6.124a9.23 9.23 0 00-.24-2.19c-.317-1.31-1.062-2.31-2.18-3.043a5.022 5.022 0 00-1.877-.726 10.496 10.496 0 00-1.564-.15c-.04-.003-.083-.01-.124-.013H5.986c-.152.01-.303.017-.455.026C4.786.07 4.043.15 3.34.428 2.004.958 1.04 1.88.475 3.208A7.357 7.357 0 00.09 5.08a43.645 43.645 0 00-.09 1.554v12.702c.01.174.02.347.03.52.074 1.206.38 2.325 1.073 3.31.802 1.127 1.913 1.815 3.286 2.07a9.077 9.077 0 001.597.154c.543.013 1.085.02 1.628.02h11.357c.49 0 .98-.01 1.468-.034.49-.024.978-.068 1.46-.163 1.39-.272 2.52-.977 3.33-2.134.597-.843.88-1.79.96-2.807.02-.253.03-.507.04-.76V6.124zm-9.742 9.83c0 .62-.504 1.126-1.127 1.126H9.13c-.623 0-1.127-.504-1.127-1.127V9.875c0-.622.504-1.127 1.127-1.127h3.995c.623 0 1.127.505 1.127 1.127v6.079zm3.005-8.56c-.18.476-.698.714-1.174.534l-7.29-2.72a.915.915 0 01-.534-1.175.915.915 0 011.174-.534l7.29 2.72c.476.18.714.698.534 1.175z"/></svg>
+      <svg role="img" viewBox="0 0 24 24"><title>Qobuz</title><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm.48 17.28c-2.88 0-5.28-2.16-5.28-5.28s2.4-5.28 5.28-5.28c1.44 0 2.76.6 3.72 1.56l1.44-1.44C16.2 5.64 14.4 4.8 12.48 4.8c-3.96 0-7.2 3.24-7.2 7.2s3.24 7.2 7.2 7.2c2.04 0 3.84-.84 5.16-2.16v-3.36h-5.16v1.92h3.12v.84c-.72.48-1.8.8-3.12.8z"/></svg>
+      <svg role="img" viewBox="0 0 24 24"><title>iHeartRadio</title><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm0 4.457a3.392 3.392 0 110 6.784 3.392 3.392 0 010-6.784zm5.863 12.205c-.392.602-.96 1.068-1.63 1.337-.664.266-1.42.32-2.233.32H10c-.812 0-1.568-.054-2.233-.32-.67-.27-1.238-.735-1.63-1.337C5.648 15.78 5.4 14.828 5.4 13.67c0-1.19.261-2.17.783-2.905.528-.746 1.319-1.238 2.33-1.44a5.21 5.21 0 001.24 1.62 3.93 3.93 0 002.247.92 3.93 3.93 0 002.247-.92 5.21 5.21 0 001.24-1.62c1.011.202 1.802.694 2.33 1.44.522.735.783 1.715.783 2.905 0 1.158-.248 2.11-.737 2.992z"/></svg>
+    </div>
+  </div>
+
+  <footer class="site-footer">© 2026 Passione · sorriva.app</footer>
+
+  <script>
+  (function () {
+    const WORD = 'sorriva';
+    const C = { nearBlack: '#1A1714', slate: '#3D5A99', brass: '#B07D4F' };
+
+    function hexRgb(h) {
+      const v = parseInt(h.slice(1), 16);
+      return [(v>>16)&255, (v>>8)&255, v&255];
+    }
+
+    // ── CANVAS SPEAKER ────────────────────────────────
+    const canvas = document.getElementById('speaker-canvas');
+    const ctx    = canvas.getContext('2d');
+    let W, H, cx, cy, R;
+
+    function resize() {
+      const size = Math.min(window.innerWidth, window.innerHeight) * 0.68;
+      canvas.width = canvas.height = size;
+      W = H = size; cx = cy = size / 2; R = size / 2;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    const waves = []; let lastWave = 0;
+    function spawnWave(t) { waves.push({ born: t }); }
+
+    function drawSpeaker(t) {
+      ctx.clearRect(0, 0, W, H);
+      const [nr, ng, nb] = hexRgb(C.nearBlack);
+      const m = a => `rgba(${nr},${ng},${nb},${a})`;
+
+      const exc = (Math.sin(t * 0.00224) + Math.sin(t * 0.00413) * 0.18) * 0.5;
+
+      // outer frame
+      const fg = ctx.createRadialGradient(cx, cy-R*.05, R*.72, cx, cy, R);
+      fg.addColorStop(0, m(.025)); fg.addColorStop(.85, m(.042)); fg.addColorStop(1, m(.015));
+      ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI*2); ctx.fillStyle=fg; ctx.fill();
+      ctx.beginPath(); ctx.arc(cx, cy, R*.985, 0, Math.PI*2);
+      ctx.strokeStyle=m(.035); ctx.lineWidth=R*.028; ctx.stroke();
+
+      // spider rings
+      [.86,.80,.75].forEach((f,i)=>{
+        ctx.beginPath(); ctx.arc(cx,cy,R*f,0,Math.PI*2);
+        ctx.strokeStyle=m(.020-i*.004); ctx.lineWidth=R*.009; ctx.stroke();
+      });
+
+      // surround
+      const sO=R*.72, sI=R*.56+exc*R*.018;
+      const sg=ctx.createRadialGradient(cx,cy,sI,cx,cy,sO);
+      sg.addColorStop(0,m(.04)); sg.addColorStop(.4,m(.025)); sg.addColorStop(1,m(.008));
+      ctx.beginPath(); ctx.arc(cx,cy,sO,0,Math.PI*2); ctx.arc(cx,cy,sI,0,Math.PI*2,true);
+      ctx.fillStyle=sg; ctx.fill();
+      ctx.beginPath(); ctx.arc(cx,cy,(sO+sI)/2,Math.PI*1.1,Math.PI*1.55);
+      ctx.strokeStyle=m(.05); ctx.lineWidth=R*.05; ctx.stroke();
+
+      // cone
+      const cR=sI, dip=exc*R*.022;
+      const cg=ctx.createRadialGradient(cx-cR*.18,cy-cR*.22+dip,cR*.05,cx,cy+dip,cR);
+      cg.addColorStop(0,m(.018)); cg.addColorStop(.5,m(.030)); cg.addColorStop(1,m(.044));
+      ctx.beginPath(); ctx.arc(cx,cy+dip,cR,0,Math.PI*2); ctx.fillStyle=cg; ctx.fill();
+      for(let i=0;i<12;i++){
+        const a=(i/12)*Math.PI*2, ra=.008+Math.sin(a-t*.0008)*.003;
+        ctx.beginPath(); ctx.moveTo(cx,cy+dip);
+        ctx.lineTo(cx+Math.cos(a)*cR,cy+dip+Math.sin(a)*cR);
+        ctx.strokeStyle=m(ra); ctx.lineWidth=R*.003; ctx.stroke();
+      }
+
+      // dust cap
+      const capR=R*.18;
+      const dg=ctx.createRadialGradient(cx-capR*.3,cy-capR*.3+dip,capR*.1,cx,cy+dip,capR);
+      dg.addColorStop(0,m(.055)); dg.addColorStop(.6,m(.036)); dg.addColorStop(1,m(.016));
+      ctx.beginPath(); ctx.arc(cx,cy+dip,capR,0,Math.PI*2); ctx.fillStyle=dg; ctx.fill();
+      ctx.beginPath(); ctx.arc(cx,cy+dip,capR,0,Math.PI*2);
+      ctx.strokeStyle=m(.032); ctx.lineWidth=R*.007; ctx.stroke();
+
+      // voice coil
+      const vg=ctx.createRadialGradient(cx,cy+dip,0,cx,cy+dip,R*.026);
+      vg.addColorStop(0,m(.14)); vg.addColorStop(1,m(.02));
+      ctx.beginPath(); ctx.arc(cx,cy+dip,R*.026,0,Math.PI*2); ctx.fillStyle=vg; ctx.fill();
+
+      // sound waves
+      if(t-lastWave>700+Math.sin(t*.001)*120){ spawnWave(t); lastWave=t; }
+      const wMax=R*1.05, wSpd=R/1800;
+      for(let i=waves.length-1;i>=0;i--){
+        const w=waves[i], r=(t-w.born)*wSpd, age=r/wMax;
+        if(age>1){waves.splice(i,1);continue;}
+        const a=age<.15?(age/.15)*.032:(1-age)*.032;
+        ctx.beginPath(); ctx.arc(cx,cy,capR+r,0,Math.PI*2);
+        ctx.strokeStyle=m(a); ctx.lineWidth=R*.004*(1-age*.5); ctx.stroke();
+      }
+    }
+
+    // ── START LOOP IMMEDIATELY — no speakerVisible gate ──
+    // Speaker is drawn from frame 1; CSS opacity handles the fade-in
+    function loop(t) { drawSpeaker(t); requestAnimationFrame(loop); }
+    requestAnimationFrame(loop);
+
+    // Fade canvas in after 300ms
+    setTimeout(() => { canvas.style.opacity = '0.48'; }, 300);
+
+    // ── WORDMARK REVEAL ───────────────────────────────
+    const wm = document.getElementById('wm-text');
+    WORD.split('').forEach(ch => {
+      const s = document.createElement('span');
+      s.className = 'letter'; s.textContent = ch; wm.appendChild(s);
+    });
+
+    const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    function reveal(el, delay, dur, opts={}) {
+      if (prefersReduced) { el.style.cssText += 'opacity:1;filter:none;transform:none;transition:none;'; return; }
+      setTimeout(() => {
+        const e = opts.easing || 'cubic-bezier(0.22,1,0.36,1)';
+        el.style.transition = `opacity ${dur}ms ${e}, filter ${dur}ms ${e}, transform ${dur}ms ${e}, width ${dur}ms ${e}`;
+        el.style.opacity    = opts.opacity   ?? '1';
+        el.style.filter     = opts.filter    ?? 'none';
+        el.style.transform  = opts.transform ?? 'none';
+        if (opts.width !== undefined) el.style.width = opts.width;
+      }, delay);
+    }
+
+    setTimeout(() => { document.getElementById('wordmark').style.opacity = '1'; }, 400);
+
+    document.querySelectorAll('.letter').forEach((l,i) => {
+      reveal(l, 500+i*120, 800, { opacity:'1', filter:'blur(0px)', transform:'translateY(0)' });
+    });
+
+    const end = 500 + (WORD.length-1)*120 + 800;
+
+    // dot spring
+    setTimeout(() => {
+      const d = document.getElementById('wm-dot');
+      d.style.transition = 'opacity 300ms ease, transform 600ms cubic-bezier(0.34,1.56,0.64,1)';
+      d.style.opacity='1'; d.style.transform='scale(1)';
+    }, end-120);
+
+    // dot pulse
+    setTimeout(() => {
+      const d = document.getElementById('wm-dot');
+      d.style.transition = 'transform 220ms cubic-bezier(0.34,1.56,0.64,1)';
+      d.style.transform = 'scale(1.6)';
+      setTimeout(() => { d.style.transform = 'scale(1)'; }, 220);
+    }, end+360);
+
+    // divider
+    setTimeout(() => {
+      const dv = document.getElementById('divider');
+      dv.style.transition = 'width 600ms cubic-bezier(0.22,1,0.36,1), opacity 400ms ease';
+      dv.style.opacity='0.6'; dv.style.width='32px';
+    }, end+100);
+
+    reveal(document.getElementById('tagline'),    end+280, 700, { opacity:'1', transform:'translateY(0)' });
+    reveal(document.getElementById('services'),   end+460, 700, { opacity:'1', transform:'translateY(0)' });
+    reveal(document.getElementById('scroll-cue'), end+640, 700, { opacity:'1', transform:'translateY(0)' });
+
+    // scroll reveals
+    const io = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.style.transition = 'opacity 700ms cubic-bezier(0.22,1,0.36,1), transform 700ms cubic-bezier(0.22,1,0.36,1)';
+          e.target.style.opacity='1'; e.target.style.transform='translateY(0)';
+          io.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.12 });
+
+    document.querySelectorAll('[data-pillar], #pillars-bridge, #cta').forEach(el => io.observe(el));
+
+    window.handleSubmit = function(e) {
+      e.preventDefault();
+      const inp  = document.getElementById('email-input');
+      const note = document.getElementById('cta-note');
+      if (inp.value && inp.value.includes('@')) {
+        note.textContent = "You're on the list. We'll be in touch.";
+        note.style.color = '#2E7D52';
+        inp.value = '';
+      }
+    };
+
+  })();
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,1464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sorriva — Project Context</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --parchment:    #F5F2EE;
+    --parchment-dk: #EDE9E3;
+    --near-black:   #1A1714;
+    --slate:        #3D5A99;
+    --slate-lt:     #5570AA;
+    --slate-dim:    rgba(61,90,153,0.12);
+    --brass:        #B07D4F;
+    --brass-lt:     rgba(176,125,79,0.15);
+    --muted:        #7A7470;
+    --border:       rgba(26,23,20,0.10);
+    --code-bg:      #EDE8E1;
+    --green:        #2E7D52;
+    --red:          #9B3333;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--parchment);
+    color: var(--near-black);
+    font-size: 15px;
+    line-height: 1.7;
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* ── SIDEBAR ─────────────────────────────────────── */
+  .sidebar {
+    width: 240px;
+    min-width: 240px;
+    background: var(--near-black);
+    color: var(--parchment);
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 32px 0 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    scrollbar-width: thin;
+    scrollbar-color: #3a3330 transparent;
+  }
+
+  .sidebar-wordmark {
+    padding: 0 24px 28px;
+    border-bottom: 1px solid rgba(245,242,238,0.08);
+    margin-bottom: 16px;
+  }
+
+  .wordmark {
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: -0.05em;
+    color: var(--parchment);
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 3px;
+    line-height: 1;
+  }
+
+  .wordmark-dot {
+    width: 7px;
+    height: 7px;
+    background: var(--slate);
+    border-radius: 50%;
+    margin-top: 3px;
+    flex-shrink: 0;
+  }
+
+  .sidebar-meta {
+    font-size: 11px;
+    color: rgba(245,242,238,0.35);
+    margin-top: 6px;
+    letter-spacing: 0.02em;
+  }
+
+  .nav-group {
+    padding: 0 12px;
+    margin-bottom: 4px;
+  }
+
+  .nav-label {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(245,242,238,0.28);
+    padding: 10px 12px 4px;
+  }
+
+  .nav-link {
+    display: block;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: rgba(245,242,238,0.6);
+    text-decoration: none;
+    padding: 5px 12px;
+    border-radius: 5px;
+    transition: background 0.15s, color 0.15s;
+    line-height: 1.4;
+  }
+
+  .nav-link:hover {
+    background: rgba(245,242,238,0.07);
+    color: var(--parchment);
+  }
+
+  .nav-link.active {
+    background: var(--slate-dim);
+    color: var(--parchment);
+  }
+
+  /* ── MAIN ────────────────────────────────────────── */
+  .main {
+    flex: 1;
+    max-width: 860px;
+    padding: 56px 56px 100px;
+    overflow-x: hidden;
+  }
+
+  /* ── DOCUMENT HEADER ─────────────────────────────── */
+  .doc-header {
+    margin-bottom: 56px;
+    padding-bottom: 40px;
+    border-bottom: 2px solid var(--near-black);
+  }
+
+  .doc-eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--brass);
+    margin-bottom: 14px;
+  }
+
+  .doc-title {
+    font-weight: 800;
+    font-size: 42px;
+    letter-spacing: -0.04em;
+    line-height: 1.05;
+    color: var(--near-black);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .doc-title-dot {
+    width: 10px;
+    height: 10px;
+    background: var(--slate);
+    border-radius: 50%;
+    margin-top: 8px;
+    flex-shrink: 0;
+  }
+
+  .doc-subtitle {
+    font-size: 17px;
+    color: var(--muted);
+    max-width: 560px;
+    line-height: 1.6;
+    margin-bottom: 20px;
+  }
+
+  .doc-meta {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+
+  .meta-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    background: var(--parchment-dk);
+    border: 1px solid var(--border);
+    padding: 4px 12px;
+    border-radius: 20px;
+  }
+
+  .meta-pill .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--slate);
+  }
+
+  .meta-pill .dot.brass { background: var(--brass); }
+  .meta-pill .dot.green { background: var(--green); }
+
+  /* ── PIVOT BANNER ────────────────────────────────── */
+  .pivot-banner {
+    background: var(--near-black);
+    color: var(--parchment);
+    border-radius: 10px;
+    padding: 24px 28px;
+    margin-bottom: 48px;
+  }
+
+  .pivot-banner h3 {
+    font-weight: 800;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--brass);
+    margin-bottom: 12px;
+  }
+
+  .pivot-list {
+    list-style: none;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 24px;
+  }
+
+  .pivot-list li {
+    font-size: 13px;
+    color: rgba(245,242,238,0.75);
+    padding-left: 16px;
+    position: relative;
+    line-height: 1.5;
+  }
+
+  .pivot-list li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 9px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--slate);
+  }
+
+  /* ── SECTIONS ────────────────────────────────────── */
+  .section {
+    margin-bottom: 56px;
+    scroll-margin-top: 32px;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-icon {
+    font-size: 18px;
+    line-height: 1;
+  }
+
+  h2 {
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: -0.03em;
+    color: var(--near-black);
+  }
+
+  h3 {
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: -0.01em;
+    color: var(--near-black);
+    margin: 28px 0 10px;
+  }
+
+  h3:first-child { margin-top: 0; }
+
+  h4 {
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--slate);
+    margin: 20px 0 8px;
+  }
+
+  p {
+    margin-bottom: 12px;
+    color: var(--near-black);
+  }
+
+  /* ── CALLOUT CARDS ───────────────────────────────── */
+  .card {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+  }
+
+  .card-slate {
+    background: var(--slate-dim);
+    border: 1px solid rgba(61,90,153,0.2);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+  }
+
+  .card-brass {
+    background: var(--brass-lt);
+    border: 1px solid rgba(176,125,79,0.25);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+  }
+
+  .what-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+
+  .what-card {
+    border-radius: 10px;
+    padding: 20px;
+  }
+
+  .what-card.is { background: var(--slate-dim); border: 1px solid rgba(61,90,153,0.2); }
+  .what-card.isnot { background: var(--parchment-dk); border: 1px solid var(--border); }
+
+  .what-card h4 {
+    margin-top: 0;
+    margin-bottom: 10px;
+  }
+
+  .what-card ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  .what-card ul li {
+    font-size: 13.5px;
+    padding: 3px 0 3px 18px;
+    position: relative;
+    color: var(--near-black);
+  }
+
+  .what-card ul li::before {
+    position: absolute;
+    left: 0;
+  }
+
+  .what-card.is ul li::before { content: '✓'; color: var(--slate); font-weight: 700; }
+  .what-card.isnot ul li::before { content: '✗'; color: var(--muted); }
+
+  /* ── CODE BLOCKS ─────────────────────────────────── */
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px 20px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    overflow-x: auto;
+    margin: 16px 0;
+    color: var(--near-black);
+  }
+
+  code {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12.5px;
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--slate);
+  }
+
+  pre code {
+    background: none;
+    padding: 0;
+    font-size: 12px;
+    color: inherit;
+  }
+
+  /* ── TABLES ──────────────────────────────────────── */
+  .table-wrap {
+    overflow-x: auto;
+    margin: 16px 0;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+
+  thead tr {
+    background: var(--near-black);
+    color: var(--parchment);
+  }
+
+  thead th {
+    padding: 11px 16px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+
+  tbody tr { border-bottom: 1px solid var(--border); }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:nth-child(even) { background: rgba(26,23,20,0.025); }
+
+  td {
+    padding: 10px 16px;
+    vertical-align: top;
+    line-height: 1.5;
+  }
+
+  td:first-child { font-weight: 600; white-space: nowrap; }
+
+  .check { color: var(--green); font-weight: 700; }
+  .cross { color: var(--red); }
+  .partial { color: var(--brass); font-weight: 500; }
+
+  /* ── FEATURE LISTS ───────────────────────────────── */
+  .feature-group {
+    margin-bottom: 28px;
+  }
+
+  .feature-list {
+    list-style: none;
+    padding: 0;
+  }
+
+  .feature-list li {
+    padding: 6px 0 6px 20px;
+    position: relative;
+    font-size: 14px;
+    border-bottom: 1px solid rgba(26,23,20,0.05);
+    line-height: 1.5;
+  }
+
+  .feature-list li:last-child { border-bottom: none; }
+
+  .feature-list li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 14px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--slate);
+    opacity: 0.5;
+  }
+
+  /* ── PHASE TIMELINE ──────────────────────────────── */
+  .phases {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    position: relative;
+    padding-left: 32px;
+  }
+
+  .phases::before {
+    content: '';
+    position: absolute;
+    left: 11px;
+    top: 12px;
+    bottom: 12px;
+    width: 2px;
+    background: var(--border);
+  }
+
+  .phase {
+    position: relative;
+    padding: 14px 0 14px 20px;
+  }
+
+  .phase-dot {
+    position: absolute;
+    left: -22px;
+    top: 18px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--parchment);
+    border: 2px solid var(--border);
+    z-index: 1;
+  }
+
+  .phase:first-child .phase-dot { border-color: var(--slate); background: var(--slate); }
+
+  .phase-num {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--brass);
+    margin-bottom: 3px;
+  }
+
+  .phase-title {
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--near-black);
+    margin-bottom: 4px;
+  }
+
+  .phase-desc {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .phase-why {
+    font-size: 12px;
+    color: var(--slate);
+    font-style: italic;
+    margin-top: 4px;
+  }
+
+  /* ── CHECKLIST ───────────────────────────────────── */
+  .checklist {
+    list-style: none;
+    padding: 0;
+  }
+
+  .checklist li {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid rgba(26,23,20,0.05);
+    font-size: 14px;
+  }
+
+  .checklist li:last-child { border-bottom: none; }
+
+  .checkbox {
+    width: 16px;
+    height: 16px;
+    min-width: 16px;
+    border: 2px solid var(--border);
+    border-radius: 4px;
+    margin-top: 3px;
+  }
+
+  /* ── TAGLINES ────────────────────────────────────── */
+  .tagline-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 12px 0;
+  }
+
+  .tagline-pill {
+    font-size: 13px;
+    font-style: italic;
+    font-weight: 500;
+    padding: 7px 16px;
+    border-radius: 24px;
+    background: var(--parchment-dk);
+    border: 1px solid var(--border);
+    color: var(--near-black);
+  }
+
+  .tagline-pill.primary {
+    background: var(--near-black);
+    color: var(--parchment);
+    border-color: transparent;
+  }
+
+  /* ── PALETTE SWATCHES ────────────────────────────── */
+  .palette {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: 16px 0;
+  }
+
+  .swatch {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .swatch-color {
+    width: 56px;
+    height: 56px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+
+  .swatch-name {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  .swatch-hex {
+    font-size: 10px;
+    color: var(--muted);
+    font-family: monospace;
+  }
+
+  /* ── STACK TABLE ─────────────────────────────────── */
+  .no-stack td:first-child { font-weight: 400; }
+
+  /* ── OPEN QUESTIONS ──────────────────────────────── */
+  .questions {
+    list-style: none;
+    padding: 0;
+  }
+
+  .questions li {
+    padding: 10px 0 10px 24px;
+    position: relative;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .questions li:last-child { border-bottom: none; }
+
+  .questions li::before {
+    content: '?';
+    position: absolute;
+    left: 0;
+    top: 10px;
+    font-weight: 800;
+    font-size: 12px;
+    color: var(--brass);
+    line-height: 1.5;
+  }
+
+  /* ── DECISION LOG ────────────────────────────────── */
+  .decision-session {
+    background: var(--parchment-dk);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+  }
+
+  .decision-session h3 {
+    margin-top: 0;
+    font-size: 14px;
+    margin-bottom: 12px;
+  }
+
+  .decision-list {
+    list-style: none;
+    padding: 0;
+  }
+
+  .decision-list li {
+    font-size: 13.5px;
+    padding: 4px 0 4px 18px;
+    position: relative;
+    line-height: 1.5;
+  }
+
+  .decision-list li::before {
+    content: '→';
+    position: absolute;
+    left: 0;
+    color: var(--slate);
+    font-weight: 600;
+  }
+
+  /* ── DIVIDER ─────────────────────────────────────── */
+  .divider {
+    height: 1px;
+    background: var(--border);
+    margin: 40px 0;
+  }
+
+  /* ── UTILITIES ───────────────────────────────────── */
+  strong { font-weight: 700; }
+  em { font-style: italic; color: var(--muted); }
+
+  .text-muted { color: var(--muted); font-size: 13px; }
+  .text-slate { color: var(--slate); }
+  .text-brass { color: var(--brass); }
+
+  .updated-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--brass);
+    background: var(--brass-lt);
+    border: 1px solid rgba(176,125,79,0.3);
+    padding: 3px 10px;
+    border-radius: 20px;
+    margin-bottom: 20px;
+  }
+
+  @media (max-width: 900px) {
+    .sidebar { display: none; }
+    .main { padding: 32px 24px 80px; }
+    .pivot-list { grid-template-columns: 1fr; }
+    .what-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── SIDEBAR ────────────────────────────────────────────── -->
+<nav class="sidebar">
+  <div class="sidebar-wordmark">
+    <div class="wordmark">sorriva<span class="wordmark-dot"></span></div>
+    <div class="sidebar-meta">Project Context · v2.0</div>
+  </div>
+
+  <div class="nav-label">Overview</div>
+  <div class="nav-group">
+    <a href="#overview" class="nav-link">Project Overview</a>
+    <a href="#pivot" class="nav-link">Architecture Pivot</a>
+  </div>
+
+  <div class="nav-label">Architecture</div>
+  <div class="nav-group">
+    <a href="#music-graph" class="nav-link">Unified Music Graph</a>
+    <a href="#multiroom" class="nav-link">Multi-Room / AirPlay 2</a>
+    <a href="#device-control" class="nav-link">Device Control</a>
+    <a href="#streaming" class="nav-link">Streaming Integration</a>
+  </div>
+
+  <div class="nav-label">Product</div>
+  <div class="nav-group">
+    <a href="#stack" class="nav-link">Stack</a>
+    <a href="#platforms" class="nav-link">Platform Strategy</a>
+    <a href="#library-sources" class="nav-link">Library Sources</a>
+    <a href="#features" class="nav-link">Feature Registry</a>
+    <a href="#phases" class="nav-link">Development Phases</a>
+  </div>
+
+  <div class="nav-label">Go-to-Market</div>
+  <div class="nav-group">
+    <a href="#marketing" class="nav-link">Marketing Positioning</a>
+    <a href="#brand" class="nav-link">Brand Identity</a>
+    <a href="#commercial" class="nav-link">Commercial Path</a>
+  </div>
+
+  <div class="nav-label">Reference</div>
+  <div class="nav-group">
+    <a href="#checklist" class="nav-link">Pre-Build Checklist</a>
+    <a href="#conventions" class="nav-link">Session Conventions</a>
+    <a href="#open-questions" class="nav-link">Open Questions</a>
+    <a href="#decisions" class="nav-link">Decision Log</a>
+  </div>
+</nav>
+
+<!-- ── MAIN ───────────────────────────────────────────────── -->
+<main class="main">
+
+  <!-- HEADER -->
+  <header class="doc-header">
+    <div class="updated-badge">↻ Updated 2026-07-03 — Architecture Pivot</div>
+    <div class="doc-eyebrow">Passione · Product Context Document</div>
+    <h1 class="doc-title">Sorriva<span class="doc-title-dot"></span></h1>
+    <p class="doc-subtitle">The intelligent music layer that sits above your hardware and streaming services — the one place that knows your entire music world and delivers it beautifully based on context.</p>
+    <div class="doc-meta">
+      <span class="meta-pill"><span class="dot"></span> Pre-build · No code yet</span>
+      <span class="meta-pill"><span class="dot green"></span> sorriva.app registered</span>
+      <span class="meta-pill"><span class="dot brass"></span> Apple ecosystem only</span>
+    </div>
+  </header>
+
+  <!-- OVERVIEW -->
+  <section class="section" id="overview">
+    <div class="section-header">
+      <span class="section-icon">🎵</span>
+      <h2>Project Overview</h2>
+    </div>
+
+    <div class="what-grid">
+      <div class="what-card is">
+        <h4>What It Is</h4>
+        <ul>
+          <li>Unified music graph across local library + every streaming service</li>
+          <li>FLAC at home, Apple Music / Spotify away — seamlessly</li>
+          <li>AirPlay 2 multi-room with saved zone groups</li>
+          <li>AI discovery via Deriva across your full music world</li>
+          <li>Pure App Store product — nothing to install at home</li>
+        </ul>
+      </div>
+      <div class="what-card isnot">
+        <h4>What It Is Not</h4>
+        <ul>
+          <li>A self-hosted server (no Mac Mini required)</li>
+          <li>A Spotify competitor (you keep your subscription)</li>
+          <li>A hardware company (no Sorriva speakers)</li>
+          <li>A Roon clone (simpler, cheaper, no server)</li>
+          <li>Android (AirPlay 2 is Apple-only — intentional)</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card-slate">
+      <h3 style="margin-top:0; margin-bottom: 8px;">The gap nobody fills</h3>
+      <p style="margin:0; font-size: 14px;">Spotify owns the catalog. Sonos owns the hardware. Roon owns the audiophile server. <strong>Nobody owns the intelligent layer that unifies all of them</strong> into one coherent, beautiful experience. That's Sorriva.</p>
+    </div>
+  </section>
+
+  <!-- PIVOT -->
+  <section class="section" id="pivot">
+    <div class="section-header">
+      <span class="section-icon">↻</span>
+      <h2>Architecture Pivot — 2026-07-03</h2>
+    </div>
+    <p class="text-muted" style="margin-bottom: 16px;">Original architecture was a self-hosted Python/Flask server on Mac Mini, positioned as a Roon replacement. Replaced entirely.</p>
+    <div class="pivot-banner">
+      <h3>Key Decisions Locked</h3>
+      <ul class="pivot-list">
+        <li>No self-hosted server — pure App Store product</li>
+        <li>AirPlay 2 as multi-room backbone</li>
+        <li>Unified music graph — one track identity, multiple sources</li>
+        <li>Spotify Connect + MusicKit — no app switching</li>
+        <li>Apple ecosystem only — intentional product decision</li>
+        <li>Mac app as optional library bridge (not required)</li>
+        <li>Windows users fully supported — app lives on Apple devices</li>
+        <li>EQService abstraction — one UI, per-device API translation</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- MUSIC GRAPH -->
+  <section class="section" id="music-graph">
+    <div class="section-header">
+      <span class="section-icon">🔗</span>
+      <h2>Unified Music Graph</h2>
+    </div>
+    <p>Every track in the user's world exists once in Sorriva's understanding. Source is just an attribute resolved at playback time. Sorriva owns the playlist, the history, the discovery, the identity.</p>
+<pre>Track: Kind of Blue — Miles Davis — So What
+  └── Sources:
+        ├── Local library (FLAC, 24-bit)     ← home, preferred
+        ├── Apple Music                       ← away, lossless
+        └── Spotify                           ← away, fallback
+  └── Sorriva playlists: ["Late Night Jazz", "Favorites"]
+  └── Play count: 12 · Last played: Tuesday
+  └── MusicBrainz ID: [canonical cross-platform identifier]</pre>
+
+    <h3>Context-Aware Source Resolution</h3>
+<pre>Playback request for a track
+        │
+        ▼
+On home network?
+        ├── YES → local library (FLAC/ALAC preferred)
+        │           fallback: Apple Music → Spotify
+        └── NO  → Apple Music → Spotify
+                  (streaming services only — no local library
+                   access without optional Mac bridge)</pre>
+    <p class="text-muted">User never thinks about this. It just plays.</p>
+
+    <h3>Track Identity Matching</h3>
+    <p>MusicBrainz IDs (MBID) as canonical cross-platform track identifiers. Open matching databases bridge Spotify IDs, Apple Music IDs, and local files. 90%+ match rate on typical libraries. Graceful fallback for live versions, remasters, and regional variants.</p>
+  </section>
+
+  <!-- MULTI-ROOM -->
+  <section class="section" id="multiroom">
+    <div class="section-header">
+      <span class="section-icon">📡</span>
+      <h2>Multi-Room · AirPlay 2</h2>
+    </div>
+
+    <div class="card-slate">
+      <p style="margin:0; font-size: 14px;"><strong>AirPlay 2 is the audio delivery protocol for all zones.</strong> Apple TV initiates streams natively — a first-class supported capability, not a workaround. All of Tom's hardware (Era 100, Era 300, Roam, Ultra Arc, Bluesound Node) confirmed AirPlay 2 compatible.</p>
+    </div>
+
+    <h3>Saved Zone Groups</h3>
+    <p>AirPlay 2 has no native persistent named groups. Sorriva builds this on top — user creates "Downstairs", "Party Mode", "Bedroom Only" once, recalls with one tap. Sorriva automates the AirPlay 2 device selection behind the scenes.</p>
+
+    <h3>Compatible Hardware Ecosystem</h3>
+    <p>This is not a consumer-device-only protocol. Audiophile-grade brands with native AirPlay 2 support:</p>
+    <div class="tagline-grid" style="gap: 8px; margin-top: 8px;">
+      <span style="font-size:13px; padding: 5px 14px; background: var(--parchment-dk); border: 1px solid var(--border); border-radius: 20px;">Sonos</span>
+      <span style="font-size:13px; padding: 5px 14px; background: var(--parchment-dk); border: 1px solid var(--border); border-radius: 20px;">Bluesound</span>
+      <span style="font-size:13px; padding: 5px 14px; background: var(--parchment-dk); border: 1px solid var(--border); border-radius: 20px;">Bang &amp; Olufsen</span>
+      <span style="font-size:13px; padding: 5px 14px; background: var(--parchment-dk); border: 1px solid var(--border); border-radius: 20px;">Bowers &amp; Wilkins</span>
+      <span style="font-size:13px; padding: 5px 14px; background: var(--parchment-dk); border: 1px solid var(--border); border-radius: 20px;">Devialet</span>
+      <span style="font-size:13px; padding: 5px 14px; background: var(--parchment-dk); border: 1px solid var(--border); border-radius: 20px;">KEF</span>
+      <span style="font-size:13px; padding: 5px 14px; background: var(--parchment-dk); border: 1px solid var(--border); border-radius: 20px;">Naim</span>
+      <span style="font-size:13px; padding: 5px 14px; background: var(--parchment-dk); border: 1px solid var(--border); border-radius: 20px;">Marantz</span>
+      <span style="font-size:13px; padding: 5px 14px; background: var(--parchment-dk); border: 1px solid var(--border); border-radius: 20px;">Denon</span>
+      <span style="font-size:13px; padding: 5px 14px; background: var(--parchment-dk); border: 1px solid var(--border); border-radius: 20px;">Yamaha</span>
+      <span style="font-size:13px; padding: 5px 14px; background: var(--parchment-dk); border: 1px solid var(--border); border-radius: 20px;">NAD</span>
+      <span style="font-size:13px; padding: 5px 14px; background: var(--parchment-dk); border: 1px solid var(--border); border-radius: 20px;">WiiM</span>
+    </div>
+  </section>
+
+  <!-- DEVICE CONTROL -->
+  <section class="section" id="device-control">
+    <div class="section-header">
+      <span class="section-icon">🎛</span>
+      <h2>Device Control · EQService</h2>
+    </div>
+    <p>AirPlay 2 and device APIs are two separate, simultaneously running layers. AirPlay 2 handles audio delivery. Native APIs handle configuration and EQ.</p>
+<pre>Sorriva
+  ├── AirPlay 2 layer     → audio delivery to all endpoints
+  └── EQService layer     → configuration, EQ, tone controls
+        ├── Sonos HTTP API   → bass, treble, loudness, balance, Trueplay
+        ├── BluOS HTTP API   → EQ, tone controls, device config
+        └── Plain AirPlay 2  → volume only (HomePod, etc.)</pre>
+
+    <div class="card-brass">
+      <h3 style="margin-top:0; margin-bottom: 8px;">Abstraction Principle</h3>
+      <p style="margin:0; font-size: 14px;">One Sorriva EQ UI. EQService translates to each device's native API behind the scenes. Users see one consistent interface regardless of device. New device type = write one driver, UI never changes. Devices without EQ APIs show a reduced panel with an honest explanation — not broken, just honest.</p>
+    </div>
+  </section>
+
+  <!-- STREAMING -->
+  <section class="section" id="streaming">
+    <div class="section-header">
+      <span class="section-icon">☁️</span>
+      <h2>Streaming Integration</h2>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Service</th><th>Protocol</th><th>In-App Playback</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Spotify</td><td>Spotify Connect</td><td><span class="check">✓</span> No app switch</td><td>Premium required. Sorriva calls Connect API, Spotify streams directly.</td></tr>
+          <tr><td>Apple Music</td><td>MusicKit</td><td><span class="check">✓</span> No app switch</td><td>Apple's framework for third-party in-app playback.</td></tr>
+          <tr><td>Qobuz</td><td>Qobuz Connect</td><td><span class="check">✓</span> No app switch</td><td>Hi-res streaming. Connect API available.</td></tr>
+          <tr><td>iHeartRadio</td><td>Unofficial API</td><td><span class="partial">~</span> Live radio</td><td>Live stations only. Future phase.</td></tr>
+          <tr><td>SiriusXM</td><td>TBD</td><td><span class="partial">~</span> Future</td><td>Legal posture for personal use TBD. Deferred.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p><strong>Source attribution is always visible.</strong> A small source badge on every now-playing screen and track cell — Spotify green, Apple Music gradient, Qobuz blue, local library icon. Honest, clean, and it reinforces the value proposition every time a user sees it.</p>
+  </section>
+
+  <!-- STACK -->
+  <section class="section" id="stack">
+    <div class="section-header">
+      <span class="section-icon">🏗</span>
+      <h2>Stack</h2>
+    </div>
+
+    <div class="table-wrap">
+      <table class="no-stack">
+        <thead><tr><th>Layer</th><th>Choice</th></tr></thead>
+        <tbody>
+          <tr><td>iOS / iPadOS</td><td>React Native (Expo Bare)</td></tr>
+          <tr><td>tvOS (Apple TV)</td><td>React Native tvOS</td></tr>
+          <tr><td>macOS</td><td>React Native macOS (optional library bridge)</td></tr>
+          <tr><td>watchOS</td><td>Future — deferred</td></tr>
+          <tr><td>Backend (cloud)</td><td>Lightweight hosted service — metadata, AI, accounts, sync</td></tr>
+          <tr><td>Database (cloud)</td><td>PostgreSQL — multi-user from day one</td></tr>
+          <tr><td>Database (local)</td><td>SQLite per device for offline cache</td></tr>
+          <tr><td>Metadata</td><td>MusicBrainz (MBID, credits), Discogs (vinyl), Last.fm (bio, similar)</td></tr>
+          <tr><td>Streaming</td><td>Spotify Connect API, MusicKit, Qobuz Connect</td></tr>
+          <tr><td>Multi-room</td><td>AirPlay 2 (native iOS/tvOS)</td></tr>
+          <tr><td>Device control</td><td>Sonos Local HTTP API, BluOS HTTP API</td></tr>
+          <tr><td>AI / Deriva</td><td>Anthropic API</td></tr>
+          <tr><td>Distribution</td><td>App Store (iOS, iPadOS, tvOS, macOS)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="text-muted">No Flask. No Mac Mini server. No Cloudflare Tunnel. No launchctl. No deployment pipeline.</p>
+  </section>
+
+  <!-- PLATFORMS -->
+  <section class="section" id="platforms">
+    <div class="section-header">
+      <span class="section-icon">📱</span>
+      <h2>Platform Strategy</h2>
+    </div>
+
+    <div class="table-wrap" style="margin-bottom: 20px;">
+      <table>
+        <thead><tr><th>Platform</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td>iPhone</td><td>Primary controller, away-from-home listening, full feature set</td></tr>
+          <tr><td>iPad</td><td>Beautiful controller surface, lean-back art display mode</td></tr>
+          <tr><td>Apple TV</td><td>Living room primary — browse, discover, zones, lean-back</td></tr>
+          <tr><td>Mac app</td><td>Desktop controller + optional always-on library bridge</td></tr>
+          <tr><td>CarPlay</td><td>Playback control while driving — future phase</td></tr>
+          <tr><td>watchOS</td><td>Future — deferred</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0;">Apple Ecosystem Only — Intentional</h3>
+      <p style="margin-bottom: 0; font-size: 14px;">AirPlay 2 is the core multi-room differentiator. Android has no AirPlay 2 support. The Android equivalent (Google Cast) has a weaker device ecosystem and would require a parallel architecture — essentially a separate product. Being Apple-first is a deliberate product decision, not an apology. Windows users are fully supported — the app lives on Apple devices; the user's PC is invisible to Sorriva.</p>
+    </div>
+  </section>
+
+  <!-- LIBRARY SOURCES -->
+  <section class="section" id="library-sources">
+    <div class="section-header">
+      <span class="section-icon">💿</span>
+      <h2>Library Sources &amp; Offline</h2>
+    </div>
+
+    <div class="table-wrap" style="margin-bottom: 20px;">
+      <table>
+        <thead><tr><th>Source</th><th>When</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>NAS via SMB</td><td>Home, primary</td><td>Synology, QNAP, any SMB share</td></tr>
+          <tr><td>Local device storage</td><td>Always</td><td>Downloaded owned tracks for offline</td></tr>
+          <tr><td>External USB-C drive</td><td>Travel</td><td>iPadOS 13+ native support — full portable library poolside</td></tr>
+          <tr><td>Mac running Sorriva</td><td>Home + remote</td><td>Optional bridge — enables full library access anywhere</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Offline State — Mixed Playlist</h3>
+<pre>Late Night Jazz (offline)
+  ✅  Kind of Blue — Miles Davis        owned, downloaded
+  ✅  A Love Supreme — Coltrane         owned, downloaded
+  ☁️  In a Silent Way — Miles Davis     Spotify — needs network
+  ✅  Time Out — Dave Brubeck           owned, downloaded
+  ☁️  Bitches Brew — Miles Davis        Apple Music — needs network</pre>
+
+    <p>Streaming service offline files (Spotify, Apple Music downloads) are DRM-encrypted and sandboxed. Sorriva cannot access them. Accepted limitation — clearly communicated in UI.</p>
+  </section>
+
+  <!-- FEATURES -->
+  <section class="section" id="features">
+    <div class="section-header">
+      <span class="section-icon">✦</span>
+      <h2>Feature Registry</h2>
+    </div>
+
+    <h3>Library &amp; Content</h3>
+    <div class="feature-group">
+      <h4>Unified Music Graph</h4>
+      <ul class="feature-list">
+        <li>Single track identity across all sources via MusicBrainz MBID</li>
+        <li>Source resolution at playback time based on network context</li>
+        <li>De-duplication across local library and streaming services</li>
+        <li>"Available on X sources" indicator per track</li>
+        <li>Source badge always shown — honest attribution</li>
+      </ul>
+    </div>
+
+    <div class="feature-group">
+      <h4>Local Library</h4>
+      <ul class="feature-list">
+        <li>SMB share scanning and indexing (NAS, attached drive, USB-C)</li>
+        <li>Metadata tagging (read/write)</li>
+        <li>File formats: FLAC, ALAC, MP3, AAC, WAV, AIFF</li>
+        <li>Auto-match to MusicBrainz for canonical ID assignment</li>
+        <li>Watch for new files — auto-import on detect</li>
+      </ul>
+    </div>
+
+    <div class="feature-group">
+      <h4>Metadata &amp; Enrichment</h4>
+      <ul class="feature-list">
+        <li>Album art — hi-res, multiple sizes, cached locally</li>
+        <li>Liner notes (Discogs)</li>
+        <li>Artist biography (Last.fm primary, Discogs fallback)</li>
+        <li>Album reviews (Pitchfork, AllMusic, RateYourMusic)</li>
+        <li>Credits — producer, engineer, session musicians (MusicBrainz)</li>
+        <li>Genre / tags (Last.fm + MusicBrainz)</li>
+        <li>Related artists</li>
+      </ul>
+    </div>
+
+    <div class="feature-group">
+      <h4>Offline / Device Download</h4>
+      <ul class="feature-list">
+        <li>Mark albums, playlists, tracks as "available offline"</li>
+        <li>Sorriva downloads from local library to device storage</li>
+        <li>External USB-C drive support for full portable library</li>
+        <li>Clear visual state — downloaded vs network-required tracks</li>
+      </ul>
+    </div>
+
+    <div class="feature-group">
+      <h4>Play Queue</h4>
+      <ul class="feature-list">
+        <li>Queue = what is waiting (not what has played)</li>
+        <li>Queue persists across sessions until explicitly cleared</li>
+        <li>Session history — past sessions recallable and replayable</li>
+        <li>Actions: Add, Delete, Play Next, Play Now, Save as playlist, Clear</li>
+        <li>Significantly more elegant than existing Bluesound/Sonos implementations</li>
+      </ul>
+    </div>
+
+    <div class="feature-group">
+      <h4>Extended Features (Phase 8)</h4>
+      <ul class="feature-list">
+        <li>Vinyl library — collection management, Discogs metadata, value estimator, wantlist</li>
+        <li>Billboard archive — Top 100 every year from 1955, resolves to best available source</li>
+        <li>Shazam integration — read library, resolve to local/service, generate playlist</li>
+        <li>Playback statistics — across all sources, ranked, annual wrap-up</li>
+        <li>iOS Widgets — Now Playing, Zone selector, Quick play favorites</li>
+        <li>CarPlay — playback control while driving</li>
+      </ul>
+    </div>
+
+    <h3>Deriva — AI Discovery</h3>
+    <div class="feature-group">
+      <ul class="feature-list">
+        <li>AI playlists — mood/context-based from full music graph ("Sunday Morning Coffee", "Late Night Drive")</li>
+        <li>Listening pattern awareness and skip pattern learning across all sources</li>
+        <li>Library rediscovery — surfaces forgotten/unplayed albums</li>
+        <li>Playlist reasoning — explains the thread connecting choices</li>
+        <li>Time-of-day, seasonal, and weather API as soft signals</li>
+        <li>"Music just like this" from any artist or track — instant similarity list</li>
+        <li>Gateway albums — "if you love X, here's Y you haven't explored"</li>
+        <li>Vinyl recommendation — "based on your digital listening, here are records you should own"</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- PHASES -->
+  <section class="section" id="phases">
+    <div class="section-header">
+      <span class="section-icon">🗺</span>
+      <h2>Development Phases</h2>
+    </div>
+
+    <div class="phases">
+      <div class="phase">
+        <div class="phase-dot"></div>
+        <div class="phase-num">Phase 1</div>
+        <div class="phase-title">Foundation</div>
+        <div class="phase-desc">Xcode project, Expo Bare setup, App Store Connect, cloud backend skeleton, user accounts, library scanner (SMB + local + external drive), basic playback.</div>
+        <div class="phase-why">Nothing else works without this.</div>
+      </div>
+      <div class="phase">
+        <div class="phase-dot"></div>
+        <div class="phase-num">Phase 2</div>
+        <div class="phase-title">Music Graph</div>
+        <div class="phase-desc">MusicBrainz MBID matching, source de-duplication, unified track model, metadata pipeline (art, bio, reviews, credits).</div>
+        <div class="phase-why">Everything else depends on the graph.</div>
+      </div>
+      <div class="phase">
+        <div class="phase-dot"></div>
+        <div class="phase-num">Phase 3</div>
+        <div class="phase-title">Streaming Sources</div>
+        <div class="phase-desc">Spotify Connect, MusicKit (Apple Music), Qobuz Connect, context-aware source resolution.</div>
+        <div class="phase-why">Core value proposition.</div>
+      </div>
+      <div class="phase">
+        <div class="phase-dot"></div>
+        <div class="phase-num">Phase 4</div>
+        <div class="phase-title">Zones &amp; AirPlay 2</div>
+        <div class="phase-desc">AirPlay 2 multi-room, unified device discovery, saved groups, EQService abstraction, Sonos/BluOS control layer.</div>
+        <div class="phase-why">Multi-room is core value.</div>
+      </div>
+      <div class="phase">
+        <div class="phase-dot"></div>
+        <div class="phase-num">Phase 5</div>
+        <div class="phase-title">UI — iPhone &amp; iPad</div>
+        <div class="phase-desc">Library, Now Playing, Artist, Album, Zones, Queue, Settings screens.</div>
+        <div class="phase-why">Proven UI before TV.</div>
+      </div>
+      <div class="phase">
+        <div class="phase-dot"></div>
+        <div class="phase-num">Phase 6</div>
+        <div class="phase-title">Apple TV</div>
+        <div class="phase-desc">Lean-back browse, Deriva prompt, zone control, cinematic now playing.</div>
+        <div class="phase-why">Primary living room client.</div>
+      </div>
+      <div class="phase">
+        <div class="phase-dot"></div>
+        <div class="phase-num">Phase 7</div>
+        <div class="phase-title">Deriva AI</div>
+        <div class="phase-desc">AI playlists, discovery, skip learning, library rediscovery, playlist reasoning.</div>
+        <div class="phase-why">Needs library + history data to be useful.</div>
+      </div>
+      <div class="phase">
+        <div class="phase-dot"></div>
+        <div class="phase-num">Phase 8</div>
+        <div class="phase-title">Extended</div>
+        <div class="phase-desc">Offline downloads, vinyl library, Billboard archive, Shazam, stats, CarPlay, Mac bridge, watchOS.</div>
+        <div class="phase-why">Polish and differentiation.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MARKETING -->
+  <section class="section" id="marketing">
+    <div class="section-header">
+      <span class="section-icon">📣</span>
+      <h2>Marketing Positioning</h2>
+    </div>
+
+    <div class="card-brass">
+      <h3 style="margin-top:0; margin-bottom: 6px;">The Core Message</h3>
+      <p style="margin:0; font-size: 15px; font-weight: 500;">Sorriva is the music app for people who care about their system — but are tired of being locked into one ecosystem's idea of how it should work.</p>
+    </div>
+
+    <h3>Hardware Freedom — Key Differentiator</h3>
+    <p>The two dominant players both use hardware lock-in as a business model. Sonos requires Sonos hardware. Roon requires Roon Ready endpoints. Sorriva's answer is the opposite:</p>
+
+    <div class="card-slate">
+      <p style="margin:0; font-size: 15px;"><strong>If it speaks AirPlay 2, it works.</strong> A $79 WiiM Mini, a $1,000 Marantz M1, a $3,500 Naim Mu-so, a Bluesound Node into a NAD preamp — user's choice, user's budget, user's taste. No Sorriva hardware to buy. No ecosystem to join.</p>
+    </div>
+
+    <h3>Candidate Taglines</h3>
+    <h4>Primary (locked)</h4>
+    <div class="tagline-grid">
+      <span class="tagline-pill primary">Your Music. Your Way.</span>
+    </div>
+    <h4>Hardware Freedom</h4>
+    <div class="tagline-grid">
+      <span class="tagline-pill">Your system. Your services. Your music.</span>
+      <span class="tagline-pill">Any speaker. Any service. One app.</span>
+      <span class="tagline-pill">Great gear deserves a great app.</span>
+      <span class="tagline-pill">Finally, an app that works with your system — not the other way around.</span>
+    </div>
+    <h4>Streaming Unification</h4>
+    <div class="tagline-grid">
+      <span class="tagline-pill">All your music. One place. Finally.</span>
+      <span class="tagline-pill">Stop switching apps. Start listening.</span>
+    </div>
+
+    <h3>Target User</h3>
+    <div class="card">
+      <p style="margin-bottom: 8px; font-size: 14px;">Someone who has:</p>
+      <ul class="feature-list">
+        <li>An Apple household — iPhone, iPad, Apple TV</li>
+        <li>Serious audio gear — Sonos, Bluesound, Marantz, Naim, KEF, B&amp;W, or similar</li>
+        <li>One or more streaming subscriptions (Spotify, Apple Music, Qobuz)</li>
+        <li>A local music library they care about — FLAC rips, vinyl transfers, owned music</li>
+        <li>Frustration that nothing ties it all together elegantly</li>
+      </ul>
+      <p style="margin-top: 12px; margin-bottom: 0; font-size: 13px; color: var(--muted);">They are not looking for another streaming service. They already have those. They want the intelligent layer above all of it.</p>
+    </div>
+
+    <h3>Competitive Framing</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>Sorriva</th><th>Spotify</th><th>Sonos</th><th>Roon</th></tr></thead>
+        <tbody>
+          <tr><td>Local library</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td><span class="partial">Limited</span></td><td><span class="check">✓</span></td></tr>
+          <tr><td>Multi-room</td><td><span class="check">✓ AirPlay 2</span></td><td><span class="cross">✗</span></td><td><span class="check">✓ native</span></td><td><span class="check">✓ RAAT</span></td></tr>
+          <tr><td>AI discovery</td><td><span class="check">✓ Deriva</span></td><td><span class="partial">Limited</span></td><td><span class="cross">✗</span></td><td><span class="partial">Limited</span></td></tr>
+          <tr><td>Hardware freedom</td><td><span class="check">✓ any AirPlay 2</span></td><td><span class="cross">✗</span></td><td><span class="cross">✗ Sonos only</span></td><td><span class="cross">✗ Roon Ready only</span></td></tr>
+          <tr><td>Cross-service unification</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td><span class="cross">✗</span></td><td><span class="cross">✗</span></td></tr>
+          <tr><td>Setup complexity</td><td>Simple</td><td>Simple</td><td>Moderate</td><td>Complex</td></tr>
+          <tr><td>Price</td><td>~$5–8/mo</td><td>$11/mo</td><td>$0 (hardware)</td><td>$130/yr</td></tr>
+          <tr><td>Apple TV UI</td><td><span class="check">✓</span></td><td><span class="partial">Limited</span></td><td><span class="cross">✗</span></td><td><span class="cross">✗</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- BRAND -->
+  <section class="section" id="brand">
+    <div class="section-header">
+      <span class="section-icon">✦</span>
+      <h2>Brand Identity</h2>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 28px;">
+      <div style="font-family: 'Inter', sans-serif; font-weight: 800; font-size: 48px; letter-spacing: -0.05em; color: #1A1714; display: flex; align-items: flex-start; gap: 5px; line-height: 1;">
+        sorriva<span style="width:10px; height:10px; background:#3D5A99; border-radius:50%; margin-top: 8px; display: inline-block;"></span>
+      </div>
+    </div>
+
+    <div class="palette">
+      <div class="swatch">
+        <div class="swatch-color" style="background: #F5F2EE;"></div>
+        <div class="swatch-name">Parchment</div>
+        <div class="swatch-hex">#F5F2EE</div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background: #1A1714;"></div>
+        <div class="swatch-name">Near-black</div>
+        <div class="swatch-hex">#1A1714</div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background: #3D5A99;"></div>
+        <div class="swatch-name">Slate Blue</div>
+        <div class="swatch-hex">#3D5A99</div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background: #B07D4F;"></div>
+        <div class="swatch-name">Brass</div>
+        <div class="swatch-hex">#B07D4F</div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="no-stack">
+        <tbody>
+          <tr><td>Name</td><td>Sorriva</td></tr>
+          <tr><td>Domain</td><td>sorriva.app ✓ registered</td></tr>
+          <tr><td>Umbrella</td><td>Passione (passione.app)</td></tr>
+          <tr><td>AI Engine</td><td>Deriva — "the sound that drifts"</td></tr>
+          <tr><td>Typeface</td><td>Inter 800 · −0.05em tracking</td></tr>
+          <tr><td>Signature</td><td>9px slate blue dot, top-right of wordmark</td></tr>
+          <tr><td>Primary tagline</td><td>Your Music. Your Way.</td></tr>
+          <tr><td>Secondary tagline</td><td>Bring the vinyl experience to your digital collection.</td></tr>
+          <tr><td>Deriva tagline</td><td>Let Deriva find the rest.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="text-muted" style="margin-top: 12px;">Etymology: Sonic + Deriva (Italian/Portuguese/Spanish — "to drift, wander freely"). Sorriva = final spelling (double-r, domain-available variant).</p>
+  </section>
+
+  <!-- COMMERCIAL -->
+  <section class="section" id="commercial">
+    <div class="section-header">
+      <span class="section-icon">💰</span>
+      <h2>Commercial Path</h2>
+    </div>
+
+    <p>Pure App Store subscription model. No self-hosting complexity to explain in onboarding. Download, connect library, connect services, play music.</p>
+
+    <div class="card-brass">
+      <p style="margin:0; font-size: 14px;"><strong>Pricing story:</strong> $5–8/month. The user already pays for Spotify ($11), Apple Music ($11), and probably Qobuz ($13). Sorriva makes all of those better. Easy upsell math.</p>
+    </div>
+
+    <div class="table-wrap" style="margin-top: 20px;">
+      <table class="no-stack">
+        <thead><tr><th>What</th><th>Estimated Effort</th></tr></thead>
+        <tbody>
+          <tr><td>User auth (Clerk or Auth0)</td><td>~1 week</td></tr>
+          <tr><td>App Store submission — all platforms</td><td>~1 week</td></tr>
+          <tr><td>RevenueCat subscription billing</td><td>~1 week</td></tr>
+          <tr><td>Support tooling</td><td>~1 week</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- CHECKLIST -->
+  <section class="section" id="checklist">
+    <div class="section-header">
+      <span class="section-icon">✓</span>
+      <h2>Pre-Build Checklist</h2>
+    </div>
+    <ul class="checklist">
+      <li><span class="checkbox"></span>GitHub repo created (github.com/tomfo/sorriva)</li>
+      <li><span class="checkbox"></span>Xcode project initialized with Expo Bare</li>
+      <li><span class="checkbox"></span>App Store Connect app record created (iOS, iPadOS, tvOS, macOS)</li>
+      <li><span class="checkbox"></span>Cloud backend hosting chosen and provisioned</li>
+      <li><span class="checkbox"></span>Spotify developer account + Connect API access confirmed</li>
+      <li><span class="checkbox"></span>Apple MusicKit developer entitlement confirmed</li>
+      <li><span class="checkbox"></span>Qobuz developer API access confirmed</li>
+      <li><span class="checkbox"></span>MusicBrainz API access confirmed</li>
+      <li><span class="checkbox"></span>Anthropic API key allocated for Deriva</li>
+      <li><span class="checkbox"></span>sessions.json initialized</li>
+      <li><span class="checkbox"></span>roadmap-data.json populated and phased</li>
+    </ul>
+  </section>
+
+  <!-- CONVENTIONS -->
+  <section class="section" id="conventions">
+    <div class="section-header">
+      <span class="section-icon">📐</span>
+      <h2>Session Conventions</h2>
+    </div>
+    <ul class="feature-list">
+      <li><strong>Feature IDs</strong> — <code>fCamelCase</code> (e.g. <code>fLibraryScanner</code>, <code>fAirPlayZones</code>, <code>fMusicGraph</code>)</li>
+      <li><strong>duration_hrs</strong> — equivalent traditional dev hours (XS=3h, S=8h, M=20h, L=40h, XL=80h). Not wall-clock time.</li>
+      <li><strong>owner_hrs</strong> — Tom's actual hours. Never estimated. Always ask at session close.</li>
+      <li><strong>Show-first / build-second</strong> — mockup before any UI code</li>
+      <li><strong>CSS variables only</strong> — never hardcode hex values</li>
+      <li><strong>user_id on every DB record</strong> — commercial-ready from day one</li>
+      <li><strong>Priority reassessment</strong> — mandatory every session</li>
+    </ul>
+  </section>
+
+  <!-- OPEN QUESTIONS -->
+  <section class="section" id="open-questions">
+    <div class="section-header">
+      <span class="section-icon">❓</span>
+      <h2>Open Questions</h2>
+    </div>
+    <ul class="questions">
+      <li>Cloud backend hosting choice — Railway, Fly.io, Render, or AWS. Lean toward simplest viable option.</li>
+      <li>SiriusXM legal posture for personal use — deferred</li>
+      <li>Pitchfork / AllMusic scraping legal posture — deferred</li>
+      <li>iHeartRadio integration depth — deferred</li>
+      <li>watchOS scope — future phase, not yet scoped</li>
+      <li>Track matching confidence threshold — what % match is acceptable before flagging for manual review?</li>
+      <li>MusicBrainz MBID matching for local files without embedded IDs — acoustic fingerprinting via AcoustID?</li>
+    </ul>
+  </section>
+
+  <!-- DECISIONS -->
+  <section class="section" id="decisions">
+    <div class="section-header">
+      <span class="section-icon">📋</span>
+      <h2>Decision Log</h2>
+    </div>
+
+    <div class="decision-session">
+      <h3>2026-06-24-1 — Product Definition</h3>
+      <p class="text-muted" style="margin-bottom: 10px;">Original architecture: self-hosted Flask/Python server on Mac Mini, Roon replacement positioning. Full feature registry defined. Stack, brand, and 8-phase plan locked. See sessions.json for full notes.</p>
+    </div>
+
+    <div class="decision-session">
+      <h3>2026-07-03 — Architecture Pivot</h3>
+      <ul class="decision-list">
+        <li>Self-hosted server eliminated — pure App Store product</li>
+        <li>AirPlay 2 as multi-room backbone — full hardware stack confirmed compatible</li>
+        <li>AirPlay 2 ecosystem confirmed audiophile-grade (B&amp;O, Devialet, Naim, KEF, Marantz, etc.)</li>
+        <li>Unified music graph concept locked — one track identity, source resolved at playback time</li>
+        <li>Spotify Connect + MusicKit confirmed as in-app playback path — no app switching</li>
+        <li>Source badge always shown — honest attribution, reinforces value proposition</li>
+        <li>Android excluded — Apple-first is a deliberate product decision</li>
+        <li>Mac app as optional library bridge — not required for core use case</li>
+        <li>External USB-C drive support for iPad — full portable library (iPadOS 13+)</li>
+        <li>Offline owned music = full Sorriva download; streaming offline = accepted limitation</li>
+        <li>EQService abstraction — one UI, per-device API translation behind the scenes</li>
+        <li>Hardware freedom as key marketing differentiator — any AirPlay 2 device works</li>
+        <li>Commercial story sharpened — $5–8/month, pure App Store, no onboarding friction</li>
+      </ul>
+    </div>
+  </section>
+
+</main>
+
+<script>
+  // Highlight active nav link on scroll
+  const sections = document.querySelectorAll('.section');
+  const navLinks = document.querySelectorAll('.nav-link');
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        navLinks.forEach(l => l.classList.remove('active'));
+        const active = document.querySelector(`.nav-link[href="#${entry.target.id}"]`);
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { threshold: 0.3, rootMargin: '-10% 0px -60% 0px' });
+
+  sections.forEach(s => observer.observe(s));
+</script>
+
+</body>
+</html>
+EOF
