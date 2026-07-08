@@ -6,8 +6,27 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		80325AB62FFEE5DC00308486 /* DiscoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AB02FFEE5DC00308486 /* DiscoverView.swift */; };
+		80325AB72FFEE5DC00308486 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AB12FFEE5DC00308486 /* LibraryView.swift */; };
+		80325AB82FFEE5DC00308486 /* MiniPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AB22FFEE5DC00308486 /* MiniPlayerView.swift */; };
+		80325AB92FFEE5DC00308486 /* Color+Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AAE2FFEE5DC00308486 /* Color+Theme.swift */; };
+		80325ABA2FFEE5DC00308486 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AB32FFEE5DC00308486 /* SettingsView.swift */; };
+		80325ABB2FFEE5DC00308486 /* SorrivaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AB42FFEE5DC00308486 /* SorrivaApp.swift */; };
+		80325ABC2FFEE5DC00308486 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AAF2FFEE5DC00308486 /* ContentView.swift */; };
+		80325ABD2FFEE5DC00308486 /* ZonesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AB52FFEE5DC00308486 /* ZonesView.swift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		80325AA02FFED8DE00308486 /* Sorriva.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Sorriva.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		80325AAE2FFEE5DC00308486 /* Color+Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Color+Theme.swift"; sourceTree = "<group>"; };
+		80325AAF2FFEE5DC00308486 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		80325AB02FFEE5DC00308486 /* DiscoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverView.swift; sourceTree = "<group>"; };
+		80325AB12FFEE5DC00308486 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
+		80325AB22FFEE5DC00308486 /* MiniPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniPlayerView.swift; sourceTree = "<group>"; };
+		80325AB32FFEE5DC00308486 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		80325AB42FFEE5DC00308486 /* SorrivaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SorrivaApp.swift; sourceTree = "<group>"; };
+		80325AB52FFEE5DC00308486 /* ZonesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZonesView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -32,6 +51,14 @@
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
+				80325AAE2FFEE5DC00308486 /* Color+Theme.swift */,
+				80325AAF2FFEE5DC00308486 /* ContentView.swift */,
+				80325AB02FFEE5DC00308486 /* DiscoverView.swift */,
+				80325AB12FFEE5DC00308486 /* LibraryView.swift */,
+				80325AB22FFEE5DC00308486 /* MiniPlayerView.swift */,
+				80325AB32FFEE5DC00308486 /* SettingsView.swift */,
+				80325AB42FFEE5DC00308486 /* SorrivaApp.swift */,
+				80325AB52FFEE5DC00308486 /* ZonesView.swift */,
 				80325AA22FFED8DE00308486 /* Sorriva */,
 				80325AA12FFED8DE00308486 /* Products */,
 			);
@@ -119,6 +146,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				80325AB62FFEE5DC00308486 /* DiscoverView.swift in Sources */,
+				80325AB72FFEE5DC00308486 /* LibraryView.swift in Sources */,
+				80325AB82FFEE5DC00308486 /* MiniPlayerView.swift in Sources */,
+				80325AB92FFEE5DC00308486 /* Color+Theme.swift in Sources */,
+				80325ABA2FFEE5DC00308486 /* SettingsView.swift in Sources */,
+				80325ABB2FFEE5DC00308486 /* SorrivaApp.swift in Sources */,
+				80325ABC2FFEE5DC00308486 /* ContentView.swift in Sources */,
+				80325ABD2FFEE5DC00308486 /* ZonesView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -266,7 +301,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.sorriva.Sorriva;
+				PRODUCT_BUNDLE_IDENTIFIER = app.sorriva.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -298,7 +333,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.sorriva.Sorriva;
+				PRODUCT_BUNDLE_IDENTIFIER = app.sorriva.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
