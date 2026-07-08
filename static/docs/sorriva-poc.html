@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sorriva — POC Handoff</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --parchment:    #F5F2EE;
+    --parchment-dk: #EDE9E3;
+    --near-black:   #1A1714;
+    --slate:        #3D5A99;
+    --slate-lt:     #5570AA;
+    --slate-dim:    rgba(61,90,153,0.12);
+    --slate-dim2:   rgba(61,90,153,0.22);
+    --brass:        #B07D4F;
+    --brass-lt:     rgba(176,125,79,0.15);
+    --muted:        #7A7470;
+    --border:       rgba(26,23,20,0.10);
+    --border-str:   rgba(26,23,20,0.18);
+    --green:        #2E7D52;
+    --green-lt:     rgba(46,125,82,0.10);
+    --red:          #9B3333;
+    --red-lt:       rgba(155,51,51,0.09);
+    --amber:        #C47B1A;
+    --amber-lt:     rgba(196,123,26,0.10);
+    --code-bg:      #EDE8E1;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--parchment);
+    color: var(--near-black);
+    font-size: 15px;
+    line-height: 1.7;
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* SIDEBAR */
+  .sidebar {
+    width: 240px;
+    min-width: 240px;
+    background: var(--near-black);
+    color: var(--parchment);
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 32px 0 40px;
+    display: flex;
+    flex-direction: column;
+    scrollbar-width: thin;
+    scrollbar-color: #3a3330 transparent;
+  }
+
+  .sidebar-wordmark {
+    padding: 0 24px 28px;
+    border-bottom: 1px solid rgba(245,242,238,0.08);
+    margin-bottom: 16px;
+  }
+
+  .wordmark {
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: -0.05em;
+    color: var(--parchment);
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 3px;
+    line-height: 1;
+  }
+
+  .wordmark-dot {
+    width: 7px; height: 7px;
+    background: var(--slate);
+    border-radius: 50%;
+    margin-top: 3px;
+    flex-shrink: 0;
+  }
+
+  .sidebar-meta {
+    font-size: 11px;
+    color: rgba(245,242,238,0.30);
+    margin-top: 6px;
+    letter-spacing: 0.02em;
+  }
+
+  .nav-label {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(245,242,238,0.28);
+    padding: 10px 12px 4px;
+  }
+
+  .nav-group { padding: 0 12px; margin-bottom: 4px; }
+
+  .nav-link {
+    display: block;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: rgba(245,242,238,0.60);
+    text-decoration: none;
+    padding: 5px 12px;
+    border-radius: 5px;
+    transition: background 0.15s, color 0.15s;
+    line-height: 1.4;
+  }
+
+  .nav-link:hover { background: rgba(245,242,238,0.07); color: var(--parchment); }
+  .nav-link.active { background: var(--slate-dim); color: var(--parchment); }
+
+  /* MAIN */
+  .main {
+    flex: 1;
+    max-width: 860px;
+    padding: 56px 56px 100px;
+    overflow-x: hidden;
+  }
+
+  /* DOC HEADER */
+  .doc-header {
+    margin-bottom: 56px;
+    padding-bottom: 40px;
+    border-bottom: 2px solid var(--near-black);
+  }
+
+  .doc-eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--slate);
+    margin-bottom: 14px;
+  }
+
+  .doc-title {
+    font-weight: 800;
+    font-size: 42px;
+    letter-spacing: -0.04em;
+    line-height: 1.05;
+    color: var(--near-black);
+    margin-bottom: 16px;
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 5px;
+  }
+
+  .doc-title-dot {
+    width: 10px; height: 10px;
+    background: var(--slate);
+    border-radius: 50%;
+    margin-top: 8px;
+    flex-shrink: 0;
+  }
+
+  .doc-subtitle {
+    font-size: 17px;
+    color: var(--muted);
+    max-width: 580px;
+    line-height: 1.6;
+    margin-bottom: 20px;
+  }
+
+  .doc-meta {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .meta-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    background: var(--parchment-dk);
+    border: 1px solid var(--border);
+    padding: 4px 12px;
+    border-radius: 20px;
+  }
+
+  .meta-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--slate); }
+  .meta-pill .dot.green { background: var(--green); }
+  .meta-pill .dot.amber { background: var(--amber); }
+  .meta-pill .dot.red   { background: var(--red); }
+
+  /* SECTIONS */
+  .section { margin-bottom: 56px; scroll-margin-top: 32px; }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-icon { font-size: 18px; line-height: 1; }
+  h2 { font-weight: 800; font-size: 22px; letter-spacing: -0.03em; color: var(--near-black); }
+  h3 { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; color: var(--near-black); margin-bottom: 10px; margin-top: 24px; }
+  h3:first-child { margin-top: 0; }
+
+  p { margin-bottom: 14px; color: var(--near-black); }
+  p:last-child { margin-bottom: 0; }
+
+  /* CHECKLIST */
+  .checklist { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+  .checklist li {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--parchment-dk);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+  }
+  .checkbox {
+    width: 18px; height: 18px;
+    border: 2px solid var(--border-str);
+    border-radius: 4px;
+    flex-shrink: 0;
+    margin-top: 1px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px;
+    color: var(--green);
+  }
+  .checkbox.done { background: var(--green-lt); border-color: var(--green); }
+  .checkbox.blocker { border-color: var(--red); background: var(--red-lt); color: var(--red); }
+  .checklist li strong { color: var(--near-black); }
+  .checklist li span { color: var(--muted); font-size: 13px; display: block; margin-top: 2px; }
+
+  /* TIMELINE */
+  .timeline { display: flex; flex-direction: column; gap: 0; position: relative; margin-top: 8px; }
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 19px; top: 20px; bottom: 20px;
+    width: 2px;
+    background: var(--border-str);
+    z-index: 0;
+  }
+  .tl-item {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    padding: 4px 0 20px;
+    position: relative;
+    z-index: 1;
+  }
+  .tl-item:last-child { padding-bottom: 0; }
+  .tl-dot {
+    width: 40px; height: 40px;
+    min-width: 40px;
+    border-radius: 50%;
+    background: var(--parchment);
+    border: 2px solid var(--border-str);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--muted);
+  }
+  .tl-dot.active {
+    background: var(--slate);
+    border-color: var(--slate);
+    color: #fff;
+  }
+  .tl-body { flex: 1; padding-top: 8px; }
+  .tl-time {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--slate);
+    margin-bottom: 4px;
+  }
+  .tl-title { font-weight: 700; font-size: 15px; color: var(--near-black); margin-bottom: 6px; }
+  .tl-desc { font-size: 13.5px; color: var(--muted); line-height: 1.6; }
+
+  /* ROUTES TABLE */
+  .routes { width: 100%; border-collapse: collapse; font-size: 13.5px; margin-top: 8px; }
+  .routes th {
+    text-align: left;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 8px 12px;
+    border-bottom: 2px solid var(--border-str);
+  }
+  .routes td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    line-height: 1.5;
+  }
+  .routes tr:last-child td { border-bottom: none; }
+  .routes tr:hover td { background: var(--parchment-dk); }
+  code {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    background: var(--code-bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: var(--slate);
+  }
+  .method {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    padding: 2px 7px;
+    border-radius: 4px;
+    display: inline-block;
+    margin-right: 6px;
+  }
+  .get  { background: var(--green-lt);  color: var(--green); }
+  .post { background: var(--slate-dim); color: var(--slate); }
+  .del  { background: var(--red-lt);    color: var(--red);   }
+
+  /* SCREENS */
+  .screens { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-top: 8px; }
+  .screen-card {
+    background: var(--parchment-dk);
+    border: 1px solid var(--border-str);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .screen-card-header {
+    background: var(--near-black);
+    color: var(--parchment);
+    padding: 10px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .screen-card-body { padding: 12px 14px; }
+  .screen-item {
+    font-size: 13px;
+    color: var(--near-black);
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border);
+    line-height: 1.4;
+  }
+  .screen-item:last-child { border-bottom: none; padding-bottom: 0; }
+  .screen-item::before { content: '· '; color: var(--slate); font-weight: 700; }
+
+  /* CALLOUT */
+  .callout {
+    padding: 16px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 1.6;
+    margin-bottom: 20px;
+    border-left: 3px solid;
+  }
+  .callout.warn  { background: var(--amber-lt); border-color: var(--amber); }
+  .callout.info  { background: var(--slate-dim); border-color: var(--slate); }
+  .callout.good  { background: var(--green-lt);  border-color: var(--green); }
+  .callout.warn strong  { color: var(--amber); }
+  .callout.info strong  { color: var(--slate); }
+  .callout.good strong  { color: var(--green); }
+
+  /* OUT OF SCOPE */
+  .oos {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .oos-pill {
+    font-size: 12px;
+    color: var(--muted);
+    background: var(--parchment-dk);
+    border: 1px solid var(--border);
+    padding: 3px 12px;
+    border-radius: 20px;
+    text-decoration: line-through;
+    text-decoration-color: var(--border-str);
+  }
+
+  /* DB SCHEMA */
+  .schema {
+    background: var(--code-bg);
+    border: 1px solid var(--border-str);
+    border-radius: 8px;
+    padding: 20px 24px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 13px;
+    line-height: 1.8;
+    color: var(--near-black);
+    margin-top: 8px;
+    overflow-x: auto;
+  }
+  .schema .kw  { color: var(--slate); font-weight: 600; }
+  .schema .cm  { color: var(--muted); }
+  .schema .typ { color: var(--green); }
+
+  .footer {
+    margin-top: 80px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+
+<nav class="sidebar">
+  <div class="sidebar-wordmark">
+    <div class="wordmark">sorriva<span class="wordmark-dot"></span></div>
+    <div class="sidebar-meta">POC Handoff · 2026-07-05</div>
+  </div>
+
+  <div class="nav-label">Overview</div>
+  <div class="nav-group">
+    <a href="#checklist" class="nav-link">Pre-session checklist</a>
+    <a href="#goal" class="nav-link">POC goal</a>
+    <a href="#schedule" class="nav-link">Session schedule</a>
+  </div>
+
+  <div class="nav-label">Build</div>
+  <div class="nav-group">
+    <a href="#backend" class="nav-link">Flask backend</a>
+    <a href="#database" class="nav-link">Database schema</a>
+    <a href="#screens" class="nav-link">SwiftUI screens</a>
+  </div>
+
+  <div class="nav-label">Reference</div>
+  <div class="nav-group">
+    <a href="#iheart" class="nav-link">iHeart API notes</a>
+    <a href="#sonos" class="nav-link">Sonos local API notes</a>
+    <a href="#oos" class="nav-link">Out of scope</a>
+  </div>
+</nav>
+
+<main class="main">
+
+  <div class="doc-header">
+    <div class="doc-eyebrow">Sorriva · Proof of Concept</div>
+    <div class="doc-title">POC Handoff<span class="doc-title-dot"></span></div>
+    <div class="doc-subtitle">Sonos zone picker, grouping, iHeart search and browse, favorites, stream playback. One session. Something you'd actually use daily.</div>
+    <div class="doc-meta">
+      <span class="meta-pill"><span class="dot amber"></span>Pre-session checklist required</span>
+      <span class="meta-pill"><span class="dot"></span>~4 hours</span>
+      <span class="meta-pill"><span class="dot"></span>Port TBD · sorriva_db</span>
+      <span class="meta-pill"><span class="dot green"></span>No novel infrastructure</span>
+    </div>
+  </div>
+
+  <!-- PRE-SESSION CHECKLIST -->
+  <section class="section" id="checklist">
+    <div class="section-header">
+      <span class="section-icon">✓</span>
+      <h2>Pre-session checklist</h2>
+    </div>
+    <p>These must be done <strong>before</strong> the session starts. None take more than a few minutes, but any one of them blocked mid-session costs an hour.</p>
+    <ul class="checklist">
+      <li>
+        <span class="checkbox blocker">!</span>
+        <div>
+          <strong>Enable Sonos Local API</strong>
+          <span>S2 app → Settings → System → Advanced → Local API. Toggle it on. Without this, zone discovery returns nothing and the entire session is blocked.</span>
+        </div>
+      </li>
+      <li>
+        <span class="checkbox"></span>
+        <div>
+          <strong>Provision Sorriva backend in Hub</strong>
+          <span>Run <code>create-app.sh</code>, port TBD, <code>sorriva_db</code>, LaunchDaemon. Follow standard Passione provisioning pattern. Logs under Hub sessions.</span>
+        </div>
+      </li>
+      <li>
+        <span class="checkbox"></span>
+        <div>
+          <strong>Create Xcode project</strong>
+          <span>SwiftUI, iOS target, Passione brand applied. Even an empty project started before session avoids first-boot Xcode delays.</span>
+        </div>
+      </li>
+      <li>
+        <span class="checkbox"></span>
+        <div>
+          <strong>Confirm MusicKit entitlement</strong>
+          <span>Not needed for this POC (iHeart only), but verify the Apple Developer account has the entitlement available for Phase 3. No action needed now if confirmed.</span>
+        </div>
+      </li>
+      <li>
+        <span class="checkbox"></span>
+        <div>
+          <strong>Know your iHeart station IDs</strong>
+          <span>Pick 5–6 stations you actually listen to. Browse iheart.com — the station ID is in the URL (<code>iheart.com/live/2241/</code>). Note them down. Used as fallback if search is slow to build.</span>
+        </div>
+      </li>
+    </ul>
+  </section>
+
+  <!-- GOAL -->
+  <section class="section" id="goal">
+    <div class="section-header">
+      <span class="section-icon">◎</span>
+      <h2>POC goal</h2>
+    </div>
+    <p>Ship a SwiftUI app you'd open every day at home. Pick a Sonos zone (or group several), search or browse iHeart stations, star your favorites, tap to play. Volume and transport from the Now Playing strip. Favorites persist in Postgres — they follow you across reinstalls and future devices.</p>
+    <div class="callout good">
+      <strong>Why this scope is right.</strong> iHeart station names and logos are fully available from the unofficial v2 API — no partnership needed. The Flask backend resolves stream URLs server-side and hands them to Sonos via <code>loadStreamUrl</code>. There is no novel architecture here. Every pattern is already proven in the Passione portfolio.
+    </div>
+    <div class="callout info">
+      <strong>Sonos Radio is out of scope.</strong> Sonos Radio is a Sonos cloud service not exposed through the local API. iHeart streams are just HLS/MP3 URLs — the integration is clean and local-first. Spotify Connect comes in Phase 2 once the zone infrastructure exists.
+    </div>
+  </section>
+
+  <!-- SCHEDULE -->
+  <section class="section" id="schedule">
+    <div class="section-header">
+      <span class="section-icon">⏱</span>
+      <h2>Session schedule</h2>
+    </div>
+    <div class="timeline">
+      <div class="tl-item">
+        <div class="tl-dot active">1</div>
+        <div class="tl-body">
+          <div class="tl-time">~45 min</div>
+          <div class="tl-title">Backend provisioning</div>
+          <div class="tl-desc">Postgres DB, Flask skeleton, LaunchDaemon, Cloudflare tunnel. Same <code>create-app.sh</code> pattern as every other product. Read passione-session-protocol.html first.</div>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot active">2</div>
+        <div class="tl-body">
+          <div class="tl-time">~60 min</div>
+          <div class="tl-title">Sonos zone picker + grouping UI</div>
+          <div class="tl-desc">SwiftUI zone list, multi-select, group/ungroup commands via Flask. Zone discovery from Sonos local API. Group badge on grouped speakers. Set active zone for playback.</div>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot active">3</div>
+        <div class="tl-body">
+          <div class="tl-time">~90 min</div>
+          <div class="tl-title">iHeart search, browse, and playback</div>
+          <div class="tl-desc">Search field proxied through Flask to iHeart v2 API. Station cards with name + logo. Tap to resolve stream URL and send to active Sonos zone. Now Playing strip with play/pause/stop/volume.</div>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot active">4</div>
+        <div class="tl-body">
+          <div class="tl-time">~30 min</div>
+          <div class="tl-title">Favorites — star, persist, render</div>
+          <div class="tl-desc">Star button on station card writes to <code>favorites</code> table via <code>POST /api/favorites</code>. Favorites tab renders starred stations. Tap to play directly. Unstar removes the row.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BACKEND -->
+  <section class="section" id="backend">
+    <div class="section-header">
+      <span class="section-icon">⚙</span>
+      <h2>Flask backend routes</h2>
+    </div>
+    <table class="routes">
+      <thead>
+        <tr>
+          <th>Route</th>
+          <th>Purpose</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="method get">GET</span><code>/api/zones</code></td>
+          <td>Polls Sonos local API. Returns zone list with name, ID, group state, current transport state.</td>
+        </tr>
+        <tr>
+          <td><span class="method post">POST</span><code>/api/zones/group</code></td>
+          <td>Joins a list of speaker IDs into a group. Body: <code>{"coordinator": id, "members": [id, ...]}</code></td>
+        </tr>
+        <tr>
+          <td><span class="method post">POST</span><code>/api/zones/ungroup</code></td>
+          <td>Removes a speaker from its current group. Body: <code>{"zone_id": id}</code></td>
+        </tr>
+        <tr>
+          <td><span class="method get">GET</span><code>/api/iheart/search</code></td>
+          <td>Proxies to iHeart v2 search. Query param <code>q=</code>. Returns array of <code>{id, name, logo_url, description}</code>.</td>
+        </tr>
+        <tr>
+          <td><span class="method get">GET</span><code>/api/iheart/station/{id}</code></td>
+          <td>Resolves HLS stream URL for a given station ID. Returns <code>{stream_url, name, logo_url}</code>.</td>
+        </tr>
+        <tr>
+          <td><span class="method post">POST</span><code>/api/zones/{id}/play</code></td>
+          <td>Sends stream URL to Sonos zone via <code>loadStreamUrl</code>. Body: <code>{"stream_url": "..."}</code></td>
+        </tr>
+        <tr>
+          <td><span class="method post">POST</span><code>/api/zones/{id}/pause</code></td>
+          <td>Pauses playback on the zone.</td>
+        </tr>
+        <tr>
+          <td><span class="method post">POST</span><code>/api/zones/{id}/stop</code></td>
+          <td>Stops playback on the zone.</td>
+        </tr>
+        <tr>
+          <td><span class="method post">POST</span><code>/api/zones/{id}/volume</code></td>
+          <td>Sets volume. Body: <code>{"level": 0–100}</code></td>
+        </tr>
+        <tr>
+          <td><span class="method get">GET</span><code>/api/favorites</code></td>
+          <td>Returns user's starred stations ordered by <code>created_at DESC</code>.</td>
+        </tr>
+        <tr>
+          <td><span class="method post">POST</span><code>/api/favorites</code></td>
+          <td>Stars a station. Body: <code>{"station_id", "station_name", "logo_url"}</code>. Upserts on conflict.</td>
+        </tr>
+        <tr>
+          <td><span class="method del">DEL</span><code>/api/favorites/{station_id}</code></td>
+          <td>Removes station from favorites.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- DATABASE -->
+  <section class="section" id="database">
+    <div class="section-header">
+      <span class="section-icon">◫</span>
+      <h2>Database schema</h2>
+    </div>
+    <p>Minimal. One table for this POC. Follow the Tack pattern for psycopg2 connection, migration via <code>admin_db_migrate()</code>, and <code>user_id</code> scoping on all queries.</p>
+    <div class="schema">
+<span class="kw">CREATE TABLE</span> favorites (
+  id          <span class="typ">SERIAL PRIMARY KEY</span>,
+  user_id     <span class="typ">INTEGER NOT NULL DEFAULT 1</span>,  <span class="cm">-- auth stub, Phase 3</span>
+  station_id  <span class="typ">TEXT NOT NULL</span>,
+  station_name <span class="typ">TEXT NOT NULL</span>,
+  logo_url    <span class="typ">TEXT</span>,
+  created_at  <span class="typ">TIMESTAMPTZ DEFAULT NOW()</span>,
+  <span class="kw">UNIQUE</span>(user_id, station_id)
+);
+    </div>
+  </section>
+
+  <!-- SCREENS -->
+  <section class="section" id="screens">
+    <div class="section-header">
+      <span class="section-icon">⊡</span>
+      <h2>SwiftUI screens</h2>
+    </div>
+    <p>Four surfaces. Zone picker and station browser are the primary flows. Favorites tab and Now Playing strip are persistent across the session.</p>
+    <div class="screens">
+      <div class="screen-card">
+        <div class="screen-card-header">Zone picker</div>
+        <div class="screen-card-body">
+          <div class="screen-item">List of Sonos speakers</div>
+          <div class="screen-item">Multi-select to group</div>
+          <div class="screen-item">Group badge on grouped zones</div>
+          <div class="screen-item">Tap to set active zone</div>
+          <div class="screen-item">Ungroup control</div>
+        </div>
+      </div>
+      <div class="screen-card">
+        <div class="screen-card-header">Station browser</div>
+        <div class="screen-card-body">
+          <div class="screen-item">Search field → iHeart results</div>
+          <div class="screen-item">Station name + logo</div>
+          <div class="screen-item">Tap to play in active zone</div>
+          <div class="screen-item">Star to add to favorites</div>
+        </div>
+      </div>
+      <div class="screen-card">
+        <div class="screen-card-header">Favorites tab</div>
+        <div class="screen-card-body">
+          <div class="screen-item">Starred stations list</div>
+          <div class="screen-item">Tap to play immediately</div>
+          <div class="screen-item">Unstar to remove</div>
+          <div class="screen-item">Persists across reinstalls</div>
+        </div>
+      </div>
+      <div class="screen-card">
+        <div class="screen-card-header">Now playing strip</div>
+        <div class="screen-card-body">
+          <div class="screen-item">Station name + logo</div>
+          <div class="screen-item">Active zone name</div>
+          <div class="screen-item">Play / pause / stop</div>
+          <div class="screen-item">Volume slider</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- IHEART API NOTES -->
+  <section class="section" id="iheart">
+    <div class="section-header">
+      <span class="section-icon">📡</span>
+      <h2>iHeart API notes</h2>
+    </div>
+    <div class="callout warn">
+      <strong>Unofficial API.</strong> iHeartRadio's official developer program is defunct. The v2 API is the internal API used by iHeart's own web and mobile apps. It has been stable for years and is used by home automation platforms, Logitech Media Server plugins, and others. Risk: it could break without warning. For a personal home tool this is acceptable — if it changes, update the endpoint.
+    </div>
+    <h3>Key endpoints</h3>
+    <table class="routes">
+      <thead><tr><th>Endpoint</th><th>Returns</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>us.api.iheart.com/api/v2/content/liveStations/{id}</code></td>
+          <td>Full station object: <code>name</code>, <code>logo</code>, <code>streams.hls_stream</code>, <code>streams.shoutcast_stream</code>, description, call letters.</td>
+        </tr>
+        <tr>
+          <td><code>us.api.iheart.com/api/v2/content/liveStations?keywords={q}</code></td>
+          <td>Search results array. Same station object shape. Use <code>hits</code> array from response.</td>
+        </tr>
+      </tbody>
+    </table>
+    <h3>Stream URL strategy</h3>
+    <p>Prefer <code>streams.secure_hls_stream</code> if present, fall back to <code>streams.hls_stream</code>, then <code>streams.shoutcast_stream</code>. Sonos handles all three via <code>loadStreamUrl</code>. Resolution happens server-side in Flask — the iOS app never calls iHeart directly.</p>
+    <h3>Logo URLs</h3>
+    <p>Logo URLs from the API are hosted at <code>i.iheart.com/v3/re/new_assets/...</code>. They load reliably. Cache them in the favorites table so the UI works if iHeart is unreachable.</p>
+  </section>
+
+  <!-- SONOS NOTES -->
+  <section class="section" id="sonos">
+    <div class="section-header">
+      <span class="section-icon">◎</span>
+      <h2>Sonos local API notes</h2>
+    </div>
+    <div class="callout warn">
+      <strong>Local API must be enabled.</strong> S2 app → Settings → System → Advanced → Local API. This is the single most important pre-session step. Without it the API returns nothing.
+    </div>
+    <p>The Sonos local API runs on port <code>1400</code> on each speaker. Discovery is via UPnP/SSDP — the Flask backend scans the local network, finds all Sonos devices, and builds the zone topology from the coordinator relationships.</p>
+    <h3>Recommended library</h3>
+    <p>Use <code>soco</code> (SoCo) — the canonical Python Sonos library. Well maintained, handles zone topology, grouping, and <code>loadStreamUrl</code> cleanly. Install in the shared venv: <code>pip install soco --break-system-packages</code>.</p>
+    <h3>Grouping model</h3>
+    <p>Every Sonos group has one coordinator and zero or more members. To play to a group, send commands to the coordinator. To group speakers, call <code>zone.join(coordinator)</code>. To ungroup, call <code>zone.unjoin()</code>.</p>
+  </section>
+
+  <!-- OUT OF SCOPE -->
+  <section class="section" id="oos">
+    <div class="section-header">
+      <span class="section-icon">✕</span>
+      <h2>Out of scope — this POC</h2>
+    </div>
+    <p>These are real Sorriva features. They are not blocked or cancelled — they have a home in the roadmap. They are excluded from this POC so the session ships something real instead of stalling on complexity.</p>
+    <div class="oos">
+      <span class="oos-pill">Spotify Connect</span>
+      <span class="oos-pill">MusicKit / Apple Music</span>
+      <span class="oos-pill">Local library scanner</span>
+      <span class="oos-pill">MusicBrainz graph</span>
+      <span class="oos-pill">Sonos Radio</span>
+      <span class="oos-pill">Queue management</span>
+      <span class="oos-pill">Multi-account / auth</span>
+      <span class="oos-pill">Deriva AI playlists</span>
+      <span class="oos-pill">Apple TV client</span>
+      <span class="oos-pill">Qobuz / Tidal</span>
+      <span class="oos-pill">Search history</span>
+      <span class="oos-pill">Lumvara integration</span>
+    </div>
+  </section>
+
+  <div class="footer">Sorriva POC Handoff · 2026-07-05 · Update each session</div>
+
+</main>
+
+<script>
+  const sections = document.querySelectorAll('.section');
+  const navLinks = document.querySelectorAll('.nav-link');
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        navLinks.forEach(l => l.classList.remove('active'));
+        const active = document.querySelector(`.nav-link[href="#${entry.target.id}"]`);
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { threshold: 0.25, rootMargin: '-10% 0px -60% 0px' });
+  sections.forEach(s => observer.observe(s));
+</script>
+
+</body>
+</html>

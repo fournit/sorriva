@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Passione — Deploy & Schema Reference</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #F5F2EE; --bg2: #EDE9E3; --bg-card: #fff;
+  --ink: #1A1714; --ink2: rgba(26,23,20,0.72); --ink3: rgba(26,23,20,0.50);
+  --brass: #96622F; --brass-dim: rgba(150,98,47,0.10); --brass-border: rgba(150,98,47,0.22);
+  --warn-dim: rgba(232,137,62,0.10); --warn-border: rgba(232,137,62,0.25);
+  --success-dim: rgba(76,175,80,0.10); --success-border: rgba(76,175,80,0.22);
+  --danger-dim: rgba(192,74,42,0.08); --danger-border: rgba(192,74,42,0.20);
+  --border: rgba(26,23,20,0.09); --border2: rgba(26,23,20,0.14);
+  --radius: 10px;
+}
+body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased; line-height: 1.6; }
+.page { max-width: 900px; margin: 0 auto; padding: 0 32px 80px; }
+.doc-header { padding: 48px 0 40px; border-bottom: 1px solid var(--border2); margin-bottom: 48px; }
+.wordmark { font-weight: 800; font-size: 18px; letter-spacing: -0.05em; color: var(--ink); display:inline-flex; align-items:flex-start; line-height:1; }
+.wordmark-dot { width:3px; height:3px; border-radius:50%; background:#9B2335; margin-left:1px; margin-top:1px; flex-shrink:0; display:inline-block; }
+.doc-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.pill { font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 20px; background: #fff; border: 1px solid var(--border2); color: var(--ink3); }
+.pill.brass { background: var(--brass-dim); border-color: var(--brass-border); color: var(--brass); }
+.doc-title { font-size: 30px; font-weight: 800; letter-spacing: -0.03em; margin: 16px 0 8px; }
+.doc-sub { font-size: 14px; color: var(--ink2); max-width: 620px; line-height: 1.65; }
+
+.alert { border-radius: 8px; padding: 13px 16px; font-size: 13px; line-height: 1.6; margin-bottom: 16px; }
+.alert strong { color: var(--ink); }
+.alert.brass { background: var(--brass-dim); border: 1px solid var(--brass-border); color: var(--ink2); }
+.alert.warn { background: var(--warn-dim); border: 1px solid var(--warn-border); color: var(--ink2); }
+.alert.success { background: var(--success-dim); border: 1px solid var(--success-border); color: var(--ink2); }
+.alert.danger { background: var(--danger-dim); border: 1px solid var(--danger-border); color: var(--ink2); }
+
+.toc { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 22px; margin-bottom: 48px; }
+.toc-label { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink3); margin-bottom: 10px; }
+.toc-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 32px; }
+.toc-cols a { font-size: 13px; color: var(--ink2); text-decoration: none; display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.toc-cols a::before { content: ''; display: block; width: 12px; height: 1px; background: var(--border2); flex-shrink: 0; }
+.toc-cols a:hover { color: var(--brass); }
+
+.section { margin-bottom: 56px; }
+.eyebrow { font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--brass); margin-bottom: 6px; }
+.section-title { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 16px; }
+hr.div { border: none; border-top: 1px solid var(--border2); margin-bottom: 56px; }
+
+.sub { margin-bottom: 28px; }
+.sub-title { font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 10px; padding-bottom: 7px; border-bottom: 1px solid var(--border); }
+
+/* Tables */
+.t { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 14px; background: #fff; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+.t th { text-align: left; font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--ink3); padding: 7px 12px; background: var(--bg2); border-bottom: 1px solid var(--border2); }
+.t td { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--ink2); vertical-align: top; line-height: 1.55; }
+.t td:first-child { font-family: monospace; font-size: 11.5px; color: var(--ink); white-space: nowrap; }
+.t tr:last-child td { border-bottom: none; }
+.t td.req { color: var(--brass); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.t td.opt { color: var(--ink3); font-size: 11px; white-space: nowrap; }
+.t td.plain { font-family: inherit; font-size: 12.5px; }
+
+/* Code blocks */
+.code { background: #1A1714; border-radius: 8px; padding: 14px 16px; font-family: monospace; font-size: 12px; color: #D6C9B8; line-height: 1.75; margin-bottom: 14px; overflow-x: auto; white-space: pre; }
+.code .c { color: #6A5C4E; }
+.code .k { color: #D4A96A; }
+.code .s { color: #98C89A; }
+.code .req { color: #E8894A; }
+.code .opt { color: #8ABCD4; }
+
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 14px; }
+
+.badge { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .04em; padding: 1px 7px; border-radius: 4px; margin-right: 4px; }
+.badge-req { background: var(--brass-dim); color: var(--brass); border: 1px solid var(--brass-border); }
+.badge-opt { background: var(--bg2); color: var(--ink3); border: 1px solid var(--border2); }
+
+.footer { font-size: 11px; color: var(--ink3); text-align: center; padding-top: 32px; border-top: 1px solid var(--border); margin-top: 64px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<div class="doc-header">
+  <div class="wordmark">Passione<span class="wordmark-dot"></span></div>
+  <div class="doc-meta">
+    <span class="pill brass">Deploy &amp; Schema Reference</span>
+    <span class="pill">July 5, 2026</span>
+    <span class="pill">All products</span>
+  </div>
+  <div class="doc-title">Deploy &amp; Schema Reference</div>
+  <div class="doc-sub">Canonical schemas and path reference for roadmap-data.json, docs-manifest.json, web-assets.json, deploy-manifest.json, and deploy zip construction. Use this at the start of any session that touches these files.</div>
+</div>
+
+<div class="alert brass"><strong>This doc is the schema source of truth.</strong> The session protocol covers workflow and process. This doc covers exact field names, types, required/optional status, file locations, and zip paths. When in doubt about a field, check here first.</div>
+
+<div class="toc">
+  <div class="toc-label">Contents</div>
+  <div class="toc-cols">
+    <a href="#file-map">System file map</a>
+    <a href="#deploy-zip">Deploy zip structure</a>
+    <a href="#roadmap">roadmap-data.json schema</a>
+    <a href="#deploy-manifest">deploy-manifest.json schema</a>
+    <a href="#docs-manifest">docs-manifest.json schema</a>
+    <a href="#web-assets">web-assets.json schema</a>
+    <a href="#zip-matrix">Zip contents matrix</a>
+    <a href="#product-keys">Product keys</a>
+  </div>
+</div>
+
+<!-- ─── SYSTEM FILE MAP ─────────────────────────────────── -->
+<div class="section" id="file-map">
+  <div class="eyebrow">Section 1</div>
+  <div class="section-title">System file map</div>
+
+  <div class="alert warn"><strong>Manifests are complete lists, never additive.</strong> docs-manifest.json and web-assets.json define exactly what the Hub renders — an entry missing from the manifest means it doesn't appear in the panel, even if the file is on disk. Always read the current manifest from the repo package before modifying it.</div>
+
+  <table class="t">
+    <tr>
+      <th>File</th>
+      <th>On-disk path</th>
+      <th>Deploy zip path</th>
+      <th>In repo package</th>
+    </tr>
+    <tr>
+      <td>app.py</td>
+      <td class="plain">{APP_PATH}/app.py</td>
+      <td class="plain">root/app.py</td>
+      <td class="plain">Yes</td>
+    </tr>
+    <tr>
+      <td>sessions.json</td>
+      <td class="plain">{APP_PATH}/sessions.json</td>
+      <td class="plain">root/sessions.json</td>
+      <td class="plain">Yes</td>
+    </tr>
+    <tr>
+      <td>version.json</td>
+      <td class="plain">{APP_PATH}/version.json</td>
+      <td class="plain">root/version.json</td>
+      <td class="plain">Yes</td>
+    </tr>
+    <tr>
+      <td>deploy-manifest.json</td>
+      <td class="plain">{APP_PATH}/deploy-manifest.json</td>
+      <td class="plain">root/deploy-manifest.json</td>
+      <td class="plain">No (.repoignore)</td>
+    </tr>
+    <tr>
+      <td>{product}.html</td>
+      <td class="plain">{APP_PATH}/static/{product}.html</td>
+      <td class="plain">static/{product}.html — <strong>exception: Passione Hub uses static/hub.html</strong></td>
+      <td class="plain">Yes</td>
+    </tr>
+    <tr>
+      <td>roadmap-data.json</td>
+      <td class="plain">{APP_PATH}/static/docs/roadmap-data.json</td>
+      <td class="plain">static/docs/roadmap-data.json</td>
+      <td class="plain">Yes</td>
+    </tr>
+    <tr>
+      <td>docs-manifest.json</td>
+      <td class="plain">{APP_PATH}/static/docs/docs-manifest.json</td>
+      <td class="plain">static/docs/docs-manifest.json</td>
+      <td class="plain">Yes</td>
+    </tr>
+    <tr>
+      <td>web-assets.json</td>
+      <td class="plain">{APP_PATH}/static/docs/web-assets.json</td>
+      <td class="plain">static/docs/web-assets.json</td>
+      <td class="plain">Yes</td>
+    </tr>
+    <tr>
+      <td>{product}-handoff.html</td>
+      <td class="plain">{APP_PATH}/static/docs/{product}-handoff.html</td>
+      <td class="plain">static/docs/{product}-handoff.html</td>
+      <td class="plain">Yes</td>
+    </tr>
+    <tr>
+      <td>Web asset files</td>
+      <td class="plain">{APP_PATH}/static/web/{filename}</td>
+      <td class="plain">static/web/{filename}</td>
+      <td class="plain">No (binary/large)</td>
+    </tr>
+  </table>
+
+  <div class="alert brass"><strong>System JSON files are invisible in the Hub UI.</strong> docs-manifest.json, web-assets.json, roadmap-data.json, and deploy-manifest.json do not appear in the Docs or Web Assets panels. They can only be inspected via terminal (cat) or by downloading the repo package. Always pull a fresh repo package at session start when working on any of these files.</div>
+</div>
+
+<hr class="div">
+
+<!-- ─── DEPLOY ZIP STRUCTURE ───────────────────────────── -->
+<div class="section" id="deploy-zip">
+  <div class="eyebrow">Section 2</div>
+  <div class="section-title">Deploy zip structure</div>
+
+  <div class="sub">
+    <div class="sub-title">Folder layout</div>
+    <div class="code"><span class="c"># Deploy zip internal structure</span>
+root/                        <span class="c">→ {APP_PATH}/</span>
+  app.py                     <span class="c">triggers server restart + page reload if included</span>
+  sessions.json
+  version.json
+  deploy-manifest.json       <span class="c">required in session-close zips</span>
+
+static/                      <span class="c">→ {APP_PATH}/static/</span>
+  {product}.html             <span class="c">main frontend SPA — exception: Passione Hub uses hub.html not passione.html</span>
+
+static/docs/                 <span class="c">→ {APP_PATH}/static/docs/</span>
+  roadmap-data.json
+  docs-manifest.json
+  web-assets.json
+  {product}-handoff.html
+  passione-deploy-reference.html
+  <span class="c">(other doc files…)</span>
+
+static/web/                  <span class="c">→ {APP_PATH}/static/web/</span>
+  <span class="c">(web asset files — HTML mockups, etc.)</span></div>
+  </div>
+
+  <div class="sub">
+    <div class="sub-title">Pre-packaging verification — mandatory before every zip</div>
+    <div class="alert warn"><strong>Before running the zip command, verify every filename against the file map in Section 1.</strong> The most common error is prefixing system files with the product name. Use this checklist:</div>
+    <table class="t">
+      <tr><th>File</th><th>Correct zip path</th><th>Common mistake</th></tr>
+      <tr><td>roadmap-data.json</td><td class="plain">static/docs/roadmap-data.json</td><td class="plain">❌ static/docs/{product}-roadmap-data.json</td></tr>
+      <tr><td>docs-manifest.json</td><td class="plain">static/docs/docs-manifest.json</td><td class="plain">❌ static/docs/{product}-docs-manifest.json</td></tr>
+      <tr><td>web-assets.json</td><td class="plain">static/docs/web-assets.json</td><td class="plain">❌ static/docs/{product}-web-assets.json</td></tr>
+      <tr><td>deploy-manifest.json</td><td class="plain">root/deploy-manifest.json</td><td class="plain">❌ root/{product}-deploy-manifest.json</td></tr>
+      <tr><td>sessions.json</td><td class="plain">root/sessions.json</td><td class="plain">❌ root/{product}-sessions.json</td></tr>
+      <tr><td>version.json</td><td class="plain">root/version.json</td><td class="plain">❌ root/{product}-version.json</td></tr>
+      <tr><td>{product}-handoff.html</td><td class="plain">static/docs/{product}-handoff.html</td><td class="plain">✓ This one DOES get the product prefix</td></tr>
+      <tr><td>passione-deploy-reference.html</td><td class="plain">static/docs/passione-deploy-reference.html</td><td class="plain">✓ Always passione- prefix regardless of product</td></tr>
+    </table>
+    <div class="alert brass"><strong>Rule:</strong> System JSON files never get a product prefix. Only handoff docs and product-specific HTML files use the product prefix. When in doubt, check the file map table in Section 1.</div>
+  </div>
+
+  <div class="sub">
+    <div class="sub-title">Zip naming</div>
+    <div class="code"><span class="c"># Format — run timestamp command immediately before packaging</span>
+{product-key}-deploy-YYYY-MM-DD-HHMMSS.zip
+
+TZ='America/Chicago' date '+%Y-%m-%d-%H%M%S'</div>
+    <table class="t">
+      <tr><th>Product</th><th>Key</th><th>Example zip</th></tr>
+      <tr><td>Passione Hub</td><td class="plain">passione</td><td class="plain">passione-deploy-2026-07-05-143000.zip</td></tr>
+      <tr><td>Tack</td><td class="plain">tack</td><td class="plain">tack-deploy-2026-07-05-143000.zip</td></tr>
+      <tr><td>TobacTrak</td><td class="plain">tobactrak</td><td class="plain">tobactrak-deploy-2026-07-05-143000.zip</td></tr>
+      <tr><td>Sorriva</td><td class="plain">sorriva</td><td class="plain">sorriva-deploy-2026-07-05-143000.zip</td></tr>
+    </table>
+  </div>
+
+  <div class="sub">
+    <div class="sub-title">Allowed extensions</div>
+    <div class="code">.py  .json  .html  .htm  .css  .js  .sh  .txt  .md  .plist  .png  .jpg  .jpeg  .gif  .svg  .webp</div>
+  </div>
+
+  <div class="alert warn"><strong>node --check before packaging.</strong> Extract the JS block from any modified .html file and run node --check. Do not package if errors are found. Silent JS SyntaxErrors — especially from nested template literals with SVG or HTML content — will break the entire frontend.</div>
+</div>
+
+<hr class="div">
+
+<!-- ─── ROADMAP SCHEMA ─────────────────────────────────── -->
+<div class="section" id="roadmap">
+  <div class="eyebrow">Section 3</div>
+  <div class="section-title">roadmap-data.json schema</div>
+
+  <div class="sub">
+    <div class="sub-title">Top-level structure</div>
+    <div class="code">{
+  <span class="k">"phases"</span>: [
+    {
+      <span class="req">"phase"</span>:    1,                   <span class="c">integer — phase number</span>
+      <span class="req">"name"</span>:     <span class="s">"Foundation"</span>,       <span class="c">display name for this phase</span>
+      <span class="opt">"desc"</span>:     <span class="s">"Optional subtitle"</span>, <span class="c">shown in Timeline view</span>
+      <span class="req">"features"</span>: [ <span class="c">…feature objects…</span> ]
+    }
+  ]
+}</div>
+    <div class="alert brass"><strong>phases format is canonical.</strong> The Hub also supports a legacy flat array format (features with a "phase" string field) but all new roadmaps must use the phases structure above. Never write a flat array for a new product.</div>
+  </div>
+
+  <div class="sub">
+    <div class="sub-title">Feature object — full schema</div>
+    <div class="code">{
+  <span class="req">"id"</span>:            <span class="s">"fCamelCase"</span>,      <span class="c">fCamelCase — unique across all phases</span>
+  <span class="req">"name"</span>:          <span class="s">"Human name"</span>,      <span class="c">display name shown in all roadmap views</span>
+  <span class="opt">"desc"</span>:          <span class="s">"Description"</span>,    <span class="c">optional — shown in feature detail modal</span>
+  <span class="req">"priority"</span>:      <span class="s">"Normal"</span>,          <span class="c">High | Normal | Low</span>
+  <span class="req">"complexity"</span>:    <span class="s">"M"</span>,               <span class="c">XS | S | M | L | XL</span>
+  <span class="req">"tag"</span>:           <span class="s">"feature"</span>,         <span class="c">feature | bug | enhancement | debt</span>
+  <span class="req">"done"</span>:          false,             <span class="c">boolean — true when complete</span>
+  <span class="opt">"priority_rank"</span>: 1,               <span class="c">integer 1–N, null if not ranked or done</span>
+  <span class="req">"createdAt"</span>:     <span class="s">"YYYY-MM-DD"</span>,      <span class="c">date added — drives the New filter in List view</span>
+  <span class="opt">"completedAt"</span>:   <span class="s">"YYYY-MM-DD"</span>,      <span class="c">set when done:true — null or omit when pending</span>
+  <span class="opt">"requires"</span>:      [<span class="s">"fOtherId"</span>]       <span class="c">array of blocking feature IDs — hard deps only</span>
+}</div>
+
+    <table class="t">
+      <tr><th>Field</th><th></th><th>Notes</th></tr>
+      <tr><td>id</td><td class="req">Required</td><td class="plain">fCamelCase format. Auto-generated by Hub modal. Must be unique across all phases in the file.</td></tr>
+      <tr><td>name</td><td class="req">Required</td><td class="plain">Display name. Used in all views and in sessions.json features_shipped array.</td></tr>
+      <tr><td>desc</td><td class="opt">Optional</td><td class="plain">Shown in feature detail modal only. Keep to 1–2 sentences.</td></tr>
+      <tr><td>priority</td><td class="req">Required</td><td class="plain">High · Normal · Low. Drives priority filter in List view.</td></tr>
+      <tr><td>complexity</td><td class="req">Required</td><td class="plain">XS=3h · S=8h · M=20h · L=40h · XL=80h equivalent dev hours.</td></tr>
+      <tr><td>tag</td><td class="req">Required</td><td class="plain">feature · bug · enhancement · debt. Bugs are excluded from roadmap progress % calculation.</td></tr>
+      <tr><td>done</td><td class="req">Required</td><td class="plain">false when pending, true when complete. Set completedAt and null priority_rank at the same time.</td></tr>
+      <tr><td>priority_rank</td><td class="opt">Optional</td><td class="plain">Integer 1–N. 1 = highest priority. null for unranked features and all done features. Set by Claude at session close per priority rules.</td></tr>
+      <tr><td>createdAt</td><td class="req">Required</td><td class="plain">YYYY-MM-DD. Set to today when adding a feature. Drives the New filter — features without this field never appear under New.</td></tr>
+      <tr><td>completedAt</td><td class="opt">Optional</td><td class="plain">YYYY-MM-DD. Set when marking done:true. Shown as a badge in List view Done tab.</td></tr>
+      <tr><td>requires</td><td class="opt">Optional</td><td class="plain">Array of feature IDs this feature is blocked by. Hard blockers only — not soft dependencies. Hub renders a blocked indicator and dependency chain in detail modal.</td></tr>
+    </table>
+  </div>
+
+  <div class="sub">
+    <div class="sub-title">New filter — how createdAt is used</div>
+    <p style="font-size:13px;color:var(--ink2);margin-bottom:10px">The List view New filter shows features whose <code style="font-size:11px;background:var(--bg2);padding:1px 4px;border-radius:3px">createdAt</code> (or legacy <code style="font-size:11px;background:var(--bg2);padding:1px 4px;border-radius:3px">added</code> field) falls within the selected lookback window. The filter uses a day-offset from midnight, not a 24-hour rolling window.</p>
+    <table class="t">
+      <tr><th>Lookback option</th><th>Cutoff logic</th><th>Shows</th></tr>
+      <tr><td>Today</td><td class="plain">cutoff = today at 00:00:00</td><td class="plain">Features added today only</td></tr>
+      <tr><td>Last 2 days (default)</td><td class="plain">cutoff = 2 days ago at 00:00:00</td><td class="plain">Today + yesterday + day before</td></tr>
+      <tr><td>Last 7 days</td><td class="plain">cutoff = 7 days ago at 00:00:00</td><td class="plain">Features added in the past week</td></tr>
+      <tr><td>Last 30 days</td><td class="plain">cutoff = 30 days ago at 00:00:00</td><td class="plain">Features added in the past month</td></tr>
+    </table>
+    <div class="alert warn"><strong>Always set createdAt when adding features manually to roadmap-data.json.</strong> Features without createdAt are invisible to the New filter regardless of when they were added.</div>
+  </div>
+
+  <div class="sub">
+    <div class="sub-title">Session close rules for roadmap</div>
+    <p style="font-size:13px;color:var(--ink2);margin-bottom:8px">At session close, Claude must:</p>
+    <div class="code"><span class="c"># For completed features:</span>
+"done": true
+"completedAt": "YYYY-MM-DD"    <span class="c">today's date</span>
+"priority_rank": null           <span class="c">always null done features</span>
+
+<span class="c"># For newly added features:</span>
+"createdAt": "YYYY-MM-DD"      <span class="c">today's date — never omit</span>
+
+<span class="c"># priority_rank reassignment rules (in order):</span>
+<span class="c"># 1. Blocking other features → highest rank</span>
+<span class="c"># 2. XS/S quick win closing a gap → high</span>
+<span class="c"># 3. Current active phase → normal minimum</span>
+<span class="c"># 4. Future phase, no current deps → low / null</span></div>
+  </div>
+</div>
+
+<hr class="div">
+
+<!-- ─── DEPLOY MANIFEST ────────────────────────────────── -->
+<div class="section" id="deploy-manifest">
+  <div class="eyebrow">Section 4</div>
+  <div class="section-title">deploy-manifest.json schema</div>
+
+  <p style="font-size:13px;color:var(--ink2);margin-bottom:14px">Lives at <code style="font-size:11px;background:var(--bg2);padding:1px 4px;border-radius:3px">root/</code> inside the deploy zip → extracts to <code style="font-size:11px;background:var(--bg2);padding:1px 4px;border-radius:3px">{APP_PATH}/deploy-manifest.json</code>. Hub reads it on extraction to pre-fill the git commit message field. Required in session-close zips. Optional in iteration zips.</p>
+
+  <div class="code">{
+  <span class="req">"message"</span>:    <span class="s">"v0.6.1 — Plain English summary of what this deploy contains"</span>,
+  <span class="req">"version"</span>:    <span class="s">"0.6.1"</span>,
+  <span class="req">"db_migrate"</span>: false
+}</div>
+
+  <table class="t">
+    <tr><th>Field</th><th></th><th>Notes</th></tr>
+    <tr><td>message</td><td class="req">Required</td><td class="plain">Git commit message. Format: "v{version} — {plain English summary}". Written by Claude at session close. Hub pre-fills this into the commit message field — omitting it means Tom has to type it manually. Survives page reloads via sessionStorage.</td></tr>
+    <tr><td>version</td><td class="req">Required</td><td class="plain">Version string matching version.json exactly.</td></tr>
+    <tr><td>db_migrate</td><td class="req">Required</td><td class="plain">true if this deploy requires a DB schema migration. Hub shows a warning and migrate button in post-deploy actions. false otherwise.</td></tr>
+  </table>
+</div>
+
+<hr class="div">
+
+<!-- ─── DOCS MANIFEST ─────────────────────────────────── -->
+<div class="section" id="docs-manifest">
+  <div class="eyebrow">Section 5</div>
+  <div class="section-title">docs-manifest.json schema</div>
+
+  <p style="font-size:13px;color:var(--ink2);margin-bottom:14px">Lives at <code style="font-size:11px;background:var(--bg2);padding:1px 4px;border-radius:3px">{APP_PATH}/static/docs/docs-manifest.json</code>. Deploy zip path: <code style="font-size:11px;background:var(--bg2);padding:1px 4px;border-radius:3px">static/docs/docs-manifest.json</code>. The Docs panel renders exactly what this file contains — nothing more, nothing less.</p>
+
+  <div class="code">{
+  <span class="req">"product"</span>: <span class="s">"tack"</span>,
+  <span class="req">"docs"</span>: [
+    {
+      <span class="req">"file"</span>:         <span class="s">"tack-handoff.html"</span>,
+      <span class="req">"display_name"</span>: <span class="s">"Handoff"</span>,
+      <span class="opt">"description"</span>:  <span class="s">"Current state and session continuity context."</span>,
+      <span class="req">"category"</span>:     <span class="s">"handoff"</span>
+    }
+  ]
+}</div>
+
+  <table class="t">
+    <tr><th>Field</th><th></th><th>Notes</th></tr>
+    <tr><td>product</td><td class="req">Required</td><td class="plain">Product key string. Matches the product key used in zip naming.</td></tr>
+    <tr><td>file</td><td class="req">Required</td><td class="plain">Filename only — no path prefix. File must exist in static/docs/ on disk. Any file type supported (.html, .json, .pdf, .md).</td></tr>
+    <tr><td>display_name</td><td class="req">Required</td><td class="plain">Human-readable name shown in the Docs panel.</td></tr>
+    <tr><td>description</td><td class="opt">Optional</td><td class="plain">Short description shown below display_name in the panel.</td></tr>
+    <tr><td>category</td><td class="req">Required</td><td class="plain">Controls panel grouping. See categories below.</td></tr>
+  </table>
+
+  <div class="sub">
+    <div class="sub-title">Valid categories</div>
+    <table class="t">
+      <tr><th>Value</th><th>Use for</th></tr>
+      <tr><td>handoff</td><td class="plain">Product handoff docs, session continuity context</td></tr>
+      <tr><td>arch</td><td class="plain">Architecture, infrastructure, session protocol, deploy guides</td></tr>
+      <tr><td>design</td><td class="plain">Design systems, UI specs, brand guidelines</td></tr>
+      <tr><td>marketing</td><td class="plain">Positioning, messaging, ICP, competitive docs</td></tr>
+      <tr><td>testing</td><td class="plain">Test plans, smoke tests, QA checklists</td></tr>
+      <tr><td>api</td><td class="plain">API references, OpenAPI specs, integration docs</td></tr>
+      <tr><td>other</td><td class="plain">Anything that doesn't fit above</td></tr>
+    </table>
+  </div>
+
+  <div class="alert brass"><strong>Always deploy doc files and docs-manifest.json together in the same zip.</strong> A file on disk without a manifest entry is invisible in the Docs panel. A manifest entry pointing to a missing file shows a broken entry. The Hub Docs panel has an Audit button that flags both conditions.</div>
+
+  <div class="alert warn"><strong>System files are excluded from audit.</strong> docs-manifest.json, web-assets.json, roadmap-data.json, deploy-manifest.json, and *.meta.json sidecars are never flagged as orphans by the audit tool.</div>
+</div>
+
+<hr class="div">
+
+<!-- ─── WEB ASSETS ─────────────────────────────────────── -->
+<div class="section" id="web-assets">
+  <div class="eyebrow">Section 6</div>
+  <div class="section-title">web-assets.json schema</div>
+
+  <p style="font-size:13px;color:var(--ink2);margin-bottom:14px">Lives at <code style="font-size:11px;background:var(--bg2);padding:1px 4px;border-radius:3px">{APP_PATH}/static/docs/web-assets.json</code>. Deploy zip path: <code style="font-size:11px;background:var(--bg2);padding:1px 4px;border-radius:3px">static/docs/web-assets.json</code>. Supports two entry types: file assets and URL links. Both coexist in the same assets array.</p>
+
+  <div class="two-col">
+    <div>
+      <div class="sub-title" style="margin-bottom:10px">File asset entry</div>
+      <div class="code">{
+  <span class="req">"file"</span>:        <span class="s">"mockup-v2.html"</span>,
+  <span class="req">"label"</span>:       <span class="s">"Feature Mockup"</span>,
+  <span class="opt">"description"</span>: <span class="s">"Optional"</span>,
+  <span class="req">"type"</span>:        <span class="s">"mockup"</span>,
+  <span class="req">"added"</span>:       <span class="s">"YYYY-MM-DD"</span>
+}</div>
+    </div>
+    <div>
+      <div class="sub-title" style="margin-bottom:10px">URL link entry</div>
+      <div class="code">{
+  <span class="req">"url"</span>:         <span class="s">"https://..."</span>,
+  <span class="req">"label"</span>:       <span class="s">"External Resource"</span>,
+  <span class="opt">"description"</span>: <span class="s">"Optional"</span>,
+  <span class="req">"type"</span>:        <span class="s">"reference"</span>,
+  <span class="req">"added"</span>:       <span class="s">"YYYY-MM-DD"</span>
+}</div>
+    </div>
+  </div>
+
+  <table class="t">
+    <tr><th>Field</th><th></th><th>Applies to</th><th>Notes</th></tr>
+    <tr><td>file</td><td class="req">Required*</td><td class="plain">File entries</td><td class="plain">Filename only — no path. File must exist in static/web/ on disk. *Required for file entries, omit for URL entries.</td></tr>
+    <tr><td>url</td><td class="req">Required*</td><td class="plain">URL entries</td><td class="plain">Full URL including https://. *Required for URL entries, omit for file entries.</td></tr>
+    <tr><td>label</td><td class="req">Required</td><td class="plain">Both</td><td class="plain">Display name shown in the Web Assets panel.</td></tr>
+    <tr><td>description</td><td class="opt">Optional</td><td class="plain">Both</td><td class="plain">Short description. Shown in the panel below the label.</td></tr>
+    <tr><td>type</td><td class="req">Required</td><td class="plain">Both</td><td class="plain">mockup · prototype · marketing · reference. Controls filter bar and color coding.</td></tr>
+    <tr><td>added</td><td class="req">Required</td><td class="plain">Both</td><td class="plain">YYYY-MM-DD. Date the asset was added. Set to today when adding manually.</td></tr>
+  </table>
+
+  <div class="alert brass"><strong>Always deploy asset files and web-assets.json together in the same zip.</strong> File entries without the actual file on disk will 404 on preview. Deploying the manifest without the file produces broken entries in the panel.</div>
+
+  <div class="alert warn"><strong>file is a filename, not a path.</strong> Do not include subdirectory segments — web/my-file.html is wrong, my-file.html is correct. The Hub always serves files from static/web/ regardless of what is written in the file field.</div>
+</div>
+
+<hr class="div">
+
+<!-- ─── ZIP CONTENTS MATRIX ───────────────────────────── -->
+<div class="section" id="zip-matrix">
+  <div class="eyebrow">Section 7</div>
+  <div class="section-title">Zip contents matrix</div>
+
+  <table class="t">
+    <tr><th>File</th><th>Iteration zip</th><th>Session-close zip</th></tr>
+    <tr><td>app.py</td><td class="plain">Only if backend changed</td><td class="plain">Only if backend changed</td></tr>
+    <tr><td>{product}.html</td><td class="plain">Only if frontend changed</td><td class="plain">Only if frontend changed</td></tr>
+    <tr><td>sessions.json</td><td class="plain">No</td><td class="plain">Yes — always</td></tr>
+    <tr><td>version.json</td><td class="plain">No</td><td class="plain">Yes — always</td></tr>
+    <tr><td>deploy-manifest.json</td><td class="plain">Optional</td><td class="plain">Yes — always (required)</td></tr>
+    <tr><td>roadmap-data.json</td><td class="plain">No</td><td class="plain">Yes — always</td></tr>
+    <tr><td>docs-manifest.json</td><td class="plain">Only if docs changed</td><td class="plain">Only if docs changed</td></tr>
+    <tr><td>web-assets.json</td><td class="plain">Only if web assets changed</td><td class="plain">Only if web assets changed</td></tr>
+    <tr><td>{product}-handoff.html</td><td class="plain">No</td><td class="plain">Yes — always</td></tr>
+    <tr><td>Doc files (.html etc.)</td><td class="plain">Only if doc changed</td><td class="plain">Only if doc changed</td></tr>
+    <tr><td>Web asset files</td><td class="plain">Only if asset changed</td><td class="plain">Only if asset changed</td></tr>
+  </table>
+
+  <div class="alert warn"><strong>When deploying docs-manifest.json or web-assets.json, always include all associated files in the same zip.</strong> Never deploy a manifest update without the files it references, and never deploy new files without updating the manifest.</div>
+</div>
+
+<hr class="div">
+
+<!-- ─── PRODUCT KEYS ──────────────────────────────────── -->
+<div class="section" id="product-keys">
+  <div class="eyebrow">Section 8</div>
+  <div class="section-title">Product keys &amp; paths</div>
+
+  <table class="t">
+    <tr><th>Product</th><th>Key</th><th>APP_PATH</th><th>Port</th></tr>
+    <tr><td>Passione Hub</td><td class="plain">passione</td><td class="plain">/var/app/passione-hub/</td><td class="plain">5200</td></tr>
+    <tr><td>Tack</td><td class="plain">tack</td><td class="plain">/var/app/tack/</td><td class="plain">8080</td></tr>
+    <tr><td>TobacTrak</td><td class="plain">tobactrak</td><td class="plain">/var/app/tobactrak/</td><td class="plain">8081</td></tr>
+    <tr><td>Sorriva</td><td class="plain">sorriva</td><td class="plain">/var/app/sorriva/</td><td class="plain">artifact-only</td></tr>
+  </table>
+
+  <div class="alert brass"><strong>Sorriva is artifact-only.</strong> No Flask backend, no launchctl daemon, no server restart. Deploy zips never contain app.py for Sorriva. Roadmap, docs, and web assets deploy exactly as for any other product.</div>
+  <div class="alert warn"><strong>Passione Hub frontend file is hub.html, not passione.html.</strong> Every other product follows the <code>{product-key}.html</code> convention (tack.html, sorriva.html, etc.). Hub is the exception — <code>app.py</code> hardcodes <code>send_from_directory("static", "hub.html")</code>. Deploy zips for Passione Hub must use <code>static/hub.html</code> as the zip path, not <code>static/passione.html</code>. A zip containing <code>static/passione.html</code> will extract successfully but the file will never be served.</div>
+</div>
+
+<div class="footer">Passione Deploy &amp; Schema Reference · July 5, 2026 · Update when schemas or paths change</div>
+
+</div>
+</body>
+</html>

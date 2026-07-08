@@ -1,0 +1,1718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sorriva — Product Spec</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --parchment:    #F5F2EE;
+    --parchment-dk: #EDE9E3;
+    --near-black:   #1A1714;
+    --slate:        #3D5A99;
+    --slate-lt:     #5570AA;
+    --slate-dim:    rgba(61,90,153,0.12);
+    --slate-dim2:   rgba(61,90,153,0.06);
+    --brass:        #B07D4F;
+    --brass-lt:     rgba(176,125,79,0.13);
+    --muted:        #7A7470;
+    --border:       rgba(26,23,20,0.10);
+    --green:        #2E7D52;
+    --green-lt:     rgba(46,125,82,0.10);
+    --amber:        #8A6A1A;
+    --amber-lt:     rgba(138,106,26,0.10);
+    --red:          #9B3333;
+    --red-lt:       rgba(155,51,51,0.09);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--parchment);
+    color: var(--near-black);
+    font-size: 15px;
+    line-height: 1.7;
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* ── SIDEBAR ──────────────────────────────────────── */
+  .sidebar {
+    width: 240px;
+    min-width: 240px;
+    background: var(--near-black);
+    color: var(--parchment);
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 32px 0 40px;
+    display: flex;
+    flex-direction: column;
+    scrollbar-width: thin;
+    scrollbar-color: #3a3330 transparent;
+  }
+
+  .sidebar-wordmark {
+    padding: 0 24px 28px;
+    border-bottom: 1px solid rgba(245,242,238,0.08);
+    margin-bottom: 16px;
+  }
+
+  .wordmark {
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: -0.05em;
+    color: var(--parchment);
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 3px;
+    line-height: 1;
+  }
+
+  .wordmark-dot {
+    width: 7px; height: 7px;
+    background: var(--slate);
+    border-radius: 50%;
+    margin-top: 3px;
+  }
+
+  .sidebar-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: rgba(245,242,238,0.30);
+    padding: 0 24px;
+    margin-bottom: 4px;
+    margin-top: 18px;
+  }
+
+  .sidebar nav a {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 24px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: rgba(245,242,238,0.55);
+    text-decoration: none;
+    transition: color 0.15s, background 0.15s;
+    border-left: 2px solid transparent;
+    gap: 8px;
+  }
+
+  .sidebar nav a:hover,
+  .sidebar nav a.active {
+    color: var(--parchment);
+    background: rgba(245,242,238,0.06);
+    border-left-color: var(--slate);
+  }
+
+  .sidebar nav a .nav-count {
+    font-size: 10px;
+    font-weight: 600;
+    color: rgba(245,242,238,0.25);
+    background: rgba(245,242,238,0.07);
+    padding: 1px 6px;
+    border-radius: 10px;
+    flex-shrink: 0;
+  }
+
+  .sidebar-footer {
+    margin-top: auto;
+    padding: 20px 24px 0;
+    border-top: 1px solid rgba(245,242,238,0.08);
+    font-size: 11px;
+    color: rgba(245,242,238,0.22);
+    line-height: 1.6;
+  }
+
+  /* ── MAIN ─────────────────────────────────────────── */
+  .main {
+    flex: 1;
+    padding: 52px 60px 100px;
+    max-width: 1000px;
+    min-width: 0;
+  }
+
+  /* ── PAGE HEADER ──────────────────────────────────── */
+  .page-header {
+    margin-bottom: 48px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .page-eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: var(--brass);
+    margin-bottom: 10px;
+  }
+
+  .page-title {
+    font-size: 34px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1.1;
+    margin-bottom: 14px;
+  }
+
+  .page-subtitle {
+    font-size: 15px;
+    color: var(--muted);
+    max-width: 580px;
+    line-height: 1.65;
+  }
+
+  .page-meta {
+    display: flex;
+    gap: 12px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+  }
+
+  .meta-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    background: var(--parchment-dk);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 4px 12px;
+  }
+
+  .meta-pill .dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--brass);
+  }
+
+  /* ── SUMMARY STATS ────────────────────────────────── */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 48px;
+  }
+
+  .stat-card {
+    background: var(--parchment-dk);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+
+  .stat-number {
+    font-size: 30px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+
+  .stat-label {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .stat-card.live   .stat-number { color: var(--green); }
+  .stat-card.planned .stat-number { color: var(--slate); }
+  .stat-card.areas  .stat-number { color: var(--brass); }
+  .stat-card.total  .stat-number { color: var(--near-black); }
+
+  /* ── AREA SECTION ─────────────────────────────────── */
+  .area-section {
+    margin-bottom: 52px;
+    scroll-margin-top: 24px;
+  }
+
+  .area-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 6px;
+  }
+
+  .area-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 9px;
+    background: var(--near-black);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .area-icon svg { display: block; }
+
+  .area-title-group { flex: 1; min-width: 0; }
+
+  .area-title {
+    font-size: 21px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.2;
+  }
+
+  .area-tagline {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  .area-divider {
+    height: 1px;
+    background: var(--border);
+    margin-bottom: 20px;
+    margin-top: 14px;
+  }
+
+  /* ── FEATURE CARD ─────────────────────────────────── */
+  .feature-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .feature-card {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    padding: 14px 16px;
+    transition: background 0.12s, border-color 0.12s;
+    cursor: default;
+  }
+
+  .feature-card:hover {
+    background: var(--parchment-dk);
+    border-color: var(--border);
+  }
+
+  .feature-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 5px;
+  }
+
+  .feature-name {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+  }
+
+  .feature-badges {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    padding-top: 1px;
+  }
+
+  .feature-desc {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.6;
+    max-width: 700px;
+  }
+
+  .feature-config {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+
+  .feature-config-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--brass);
+    margin-bottom: 5px;
+  }
+
+  .config-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .config-item {
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--near-black);
+    background: var(--parchment-dk);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 2px 8px;
+  }
+
+  /* ── CHIPS & BADGES ───────────────────────────────── */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 5px;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+
+  .badge-live    { background: var(--green-lt);   color: var(--green); }
+  .badge-planned { background: var(--slate-dim);  color: var(--slate); }
+  .badge-deferred{ background: var(--amber-lt);   color: var(--amber); }
+
+  .priority-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .p-critical { background: var(--red);   }
+  .p-high     { background: var(--brass); }
+  .p-normal   { background: var(--muted); }
+  .p-low      { background: rgba(26,23,20,0.20); }
+
+  .complexity-badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(26,23,20,0.06);
+    color: var(--muted);
+    letter-spacing: 0.04em;
+  }
+
+  /* ── LEGEND ───────────────────────────────────────── */
+  .legend-bar {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 36px;
+    padding: 14px 18px;
+    background: var(--parchment-dk);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  .legend-sep {
+    width: 1px;
+    height: 14px;
+    background: var(--border);
+  }
+
+  .legend-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+    margin-right: 4px;
+  }
+
+  /* ── PHASE LABEL ──────────────────────────────────── */
+  .phase-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: rgba(245,242,238,0.50);
+    background: var(--near-black);
+    border-radius: 4px;
+    padding: 2px 8px;
+  }
+
+  /* ── RESPONSIVE ───────────────────────────────────── */
+  @media (max-width: 900px) {
+    .sidebar { display: none; }
+    .main { padding: 28px 20px 60px; }
+    .summary-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── SIDEBAR ─────────────────────────────────────── -->
+<aside class="sidebar">
+  <div class="sidebar-wordmark">
+    <div class="wordmark">sorriva<span class="wordmark-dot"></span></div>
+  </div>
+
+  <div class="sidebar-label">Product Areas</div>
+  <nav>
+    <a href="#library">Library <span class="nav-count">4</span></a>
+    <a href="#music-graph">Music Graph <span class="nav-count">8</span></a>
+    <a href="#streaming">Streaming Sources <span class="nav-count">5</span></a>
+    <a href="#zones">Zones &amp; Audio <span class="nav-count">9</span></a>
+    <a href="#playback">Playback &amp; Queue <span class="nav-count">5</span></a>
+    <a href="#browse">Browse &amp; Search <span class="nav-count">5</span></a>
+    <a href="#deriva">Deriva AI <span class="nav-count">6</span></a>
+    <a href="#accounts">Accounts &amp; Household <span class="nav-count">3</span></a>
+    <a href="#platforms">Platforms <span class="nav-count">8</span></a>
+    <a href="#audio-positioning">Audio Quality <span class="nav-count">4</span></a>
+    <a href="#extended">Extended Features <span class="nav-count">8</span></a>
+  </nav>
+
+  <div class="sidebar-label">Reference</div>
+  <nav>
+    <a href="#overview">Summary stats</a>
+  </nav>
+
+  <div class="sidebar-footer">
+    Sorriva — Passione<br>
+    v0.0.1 · Updated 2026-07-04<br>
+    66 features · 8 phases
+  </div>
+</aside>
+
+<!-- ── MAIN ─────────────────────────────────────────── -->
+<main class="main">
+
+  <!-- PAGE HEADER -->
+  <div class="page-header" id="overview">
+    <div class="page-eyebrow">Passione · Sorriva</div>
+    <h1 class="page-title">Product Spec</h1>
+    <p class="page-subtitle">Everything Sorriva does — organized by what it is and how users interact with it. Internal reference and source of truth for marketing copy and the competitive matrix.</p>
+    <div class="page-meta">
+      <span class="meta-pill"><span class="dot"></span> 66 features</span>
+      <span class="meta-pill"><span class="dot"></span> 10 product areas</span>
+      <span class="meta-pill"><span class="dot"></span> v0.0.1 pre-build</span>
+      <span class="meta-pill"><span class="dot"></span> App Store · iOS · iPadOS · tvOS · macOS</span>
+    </div>
+  </div>
+
+  <!-- SUMMARY STATS -->
+  <div class="summary-grid">
+    <div class="stat-card live">
+      <div class="stat-number">3</div>
+      <div class="stat-label">Live features</div>
+    </div>
+    <div class="stat-card planned">
+      <div class="stat-number">63</div>
+      <div class="stat-label">Planned features</div>
+    </div>
+    <div class="stat-card areas">
+      <div class="stat-number">10</div>
+      <div class="stat-label">Product areas</div>
+    </div>
+    <div class="stat-card total">
+      <div class="stat-number">66</div>
+      <div class="stat-label">Total features</div>
+    </div>
+  </div>
+
+  <!-- LEGEND -->
+  <div class="legend-bar">
+    <span class="legend-title">Status</span>
+    <div class="legend-item"><span class="badge badge-live">● Live</span> Shipped</div>
+    <div class="legend-item"><span class="badge badge-planned">◎ Planned</span> On roadmap</div>
+    <div class="legend-item"><span class="badge badge-deferred">⊘ Deferred</span> Pending decision</div>
+    <div class="legend-sep"></div>
+    <span class="legend-title">Priority</span>
+    <div class="legend-item"><span class="priority-dot p-critical"></span> Critical</div>
+    <div class="legend-item"><span class="priority-dot p-high"></span> High</div>
+    <div class="legend-item"><span class="priority-dot p-normal"></span> Normal</div>
+    <div class="legend-item"><span class="priority-dot p-low"></span> Low</div>
+  </div>
+
+  <!-- ── 1. LIBRARY ───────────────────────────────────── -->
+  <div class="area-section" id="library">
+    <div class="area-header">
+      <div class="area-icon">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <rect x="2" y="2" width="5" height="14" rx="1.5" fill="rgba(245,242,238,0.7)"/>
+          <rect x="9" y="2" width="5" height="14" rx="1.5" fill="rgba(245,242,238,0.4)"/>
+          <rect x="13" y="5" width="3" height="9" rx="1" fill="rgba(61,90,153,0.8)"/>
+        </svg>
+      </div>
+      <div class="area-title-group">
+        <div class="area-title">Library</div>
+        <div class="area-tagline">Your owned music — local files, NAS, and external drives</div>
+      </div>
+    </div>
+    <div class="area-divider"></div>
+    <div class="feature-list">
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Scan your local music library</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical" title="Critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Index your music collection from a NAS (via SMB share), local device storage, or an external USB-C drive connected to iPad. Sorriva reads your files once and keeps the index current.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Configurable</div>
+          <div class="config-items">
+            <span class="config-item">SMB network path</span>
+            <span class="config-item">Local storage folder</span>
+            <span class="config-item">USB-C external drive</span>
+            <span class="config-item">Rescan on demand</span>
+            <span class="config-item">Auto-scan on launch</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Play local files — FLAC, ALAC, MP3, and more</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical" title="Critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Full-fidelity playback of local audio files including hi-res FLAC and ALAC. Supports FLAC, ALAC, MP3, AAC, WAV, and AIFF.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Supported formats</div>
+          <div class="config-items">
+            <span class="config-item">FLAC</span>
+            <span class="config-item">ALAC</span>
+            <span class="config-item">MP3</span>
+            <span class="config-item">AAC</span>
+            <span class="config-item">WAV</span>
+            <span class="config-item">AIFF</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Download owned music for offline listening</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high" title="High"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Mark albums, playlists, or individual tracks from your local library as available offline. Sorriva downloads them to device storage so they're always accessible — even with no network.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Configurable</div>
+          <div class="config-items">
+            <span class="config-item">Download by album</span>
+            <span class="config-item">Download by playlist</span>
+            <span class="config-item">Download by track</span>
+            <span class="config-item">Storage usage view</span>
+            <span class="config-item">Remove downloads</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Mac library bridge — remote access anywhere</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high" title="High"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Optional menu bar agent for Mac. Scans attached drives and NAS, exposes your local library remotely via cloud relay. Access your full FLAC collection from anywhere without VPN — no server setup required.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Notes</div>
+          <div class="config-items">
+            <span class="config-item">Optional — not required for core use</span>
+            <span class="config-item">No server to manage</span>
+            <span class="config-item">Falls back to streaming when unavailable</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── 2. MUSIC GRAPH ───────────────────────────────── -->
+  <div class="area-section" id="music-graph">
+    <div class="area-header">
+      <div class="area-icon">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <circle cx="9" cy="9" r="3" fill="rgba(61,90,153,0.9)"/>
+          <circle cx="3" cy="5" r="2" fill="rgba(245,242,238,0.5)"/>
+          <circle cx="15" cy="5" r="2" fill="rgba(245,242,238,0.5)"/>
+          <circle cx="3" cy="13" r="2" fill="rgba(245,242,238,0.5)"/>
+          <circle cx="15" cy="13" r="2" fill="rgba(245,242,238,0.5)"/>
+          <line x1="6" y1="7.5" x2="4.5" y2="6" stroke="rgba(245,242,238,0.3)" stroke-width="1"/>
+          <line x1="12" y1="7.5" x2="13.5" y2="6" stroke="rgba(245,242,238,0.3)" stroke-width="1"/>
+          <line x1="6" y1="10.5" x2="4.5" y2="12" stroke="rgba(245,242,238,0.3)" stroke-width="1"/>
+          <line x1="12" y1="10.5" x2="13.5" y2="12" stroke="rgba(245,242,238,0.3)" stroke-width="1"/>
+        </svg>
+      </div>
+      <div class="area-title-group">
+        <div class="area-title">Music Graph</div>
+        <div class="area-tagline">One track identity across every source you own and stream</div>
+      </div>
+    </div>
+    <div class="area-divider"></div>
+    <div class="feature-list">
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">See every source for a track in one place</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Sorriva recognizes the same song whether it's in your local library, on Spotify, or in Apple Music — and presents it as a single entry. Source is just how it gets delivered, not a separate record.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Sources unified</div>
+          <div class="config-items">
+            <span class="config-item">Local FLAC/ALAC</span>
+            <span class="config-item">Spotify</span>
+            <span class="config-item">Apple Music</span>
+            <span class="config-item">Qobuz</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Automatic source resolution — best quality, right context</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Press play. Sorriva figures out the rest. At home on your Wi-Fi, it plays your local FLAC file. Traveling, it automatically switches to Apple Music or Spotify. No settings to change. It just works.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Configurable</div>
+          <div class="config-items">
+            <span class="config-item">Home network detection (IP range)</span>
+            <span class="config-item">Preferred source order</span>
+            <span class="config-item">Away fallback priority</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Album version grouping</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Own the original and the remaster? Have the deluxe edition on Apple Music and the hi-res on Qobuz? Sorriva groups them under one album card — no duplicates. A versions panel lets you pick which one plays.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Rich album art — hi-res, cached</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Hi-res album artwork for every item in your library, fetched and cached locally. Multiple sizes for grid thumbnails, full-screen, and Apple TV backdrop use.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Sources (in order)</div>
+          <div class="config-items">
+            <span class="config-item">Embedded file tags</span>
+            <span class="config-item">MusicBrainz Cover Art Archive</span>
+            <span class="config-item">iTunes Search API</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Artist bios, album reviews, and full credits</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Every artist has a biography. Every album has a review. Every track has its producer, engineer, and session musicians listed. The liner note experience — in the app.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Data sources</div>
+          <div class="config-items">
+            <span class="config-item">Artist bio: Last.fm</span>
+            <span class="config-item">Reviews: Pitchfork / AllMusic</span>
+            <span class="config-item">Credits: MusicBrainz</span>
+            <span class="config-item">Related artists: Last.fm</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Source badge — always visible, always honest</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Every track and now playing screen shows exactly where the audio is coming from. Spotify's green icon, Apple Music's gradient, Qobuz's blue, or a local library icon. Never hidden.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Play history — every listen, across every source</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Sorriva remembers every track you've played, from the first day. Across local files, Spotify, Apple Music, and Qobuz. Per-profile. This data is what makes Deriva genuinely useful over time.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Track matching via MusicBrainz IDs</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Sorriva uses MusicBrainz IDs — the open, canonical identifier for music — to match your local files to their streaming equivalents. Acoustic fingerprinting via AcoustID for files without embedded tags. 90%+ match rate target.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Notes</div>
+          <div class="config-items">
+            <span class="config-item">Low-confidence matches flagged for review</span>
+            <span class="config-item">Live/remaster variants handled gracefully</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── 3. STREAMING ─────────────────────────────────── -->
+  <div class="area-section" id="streaming">
+    <div class="area-header">
+      <div class="area-icon">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <path d="M3 9 C3 5.7 5.7 3 9 3 C12.3 3 15 5.7 15 9" stroke="rgba(245,242,238,0.7)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+          <path d="M5.5 9 C5.5 7.1 7.1 5.5 9 5.5 C10.9 5.5 12.5 7.1 12.5 9" stroke="rgba(61,90,153,0.9)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+          <path d="M8 9 C8 8.45 8.45 8 9 8 C9.55 8 10 8.45 10 9" stroke="rgba(245,242,238,0.5)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+          <circle cx="9" cy="12" r="1.5" fill="rgba(61,90,153,0.9)"/>
+        </svg>
+      </div>
+      <div class="area-title-group">
+        <div class="area-title">Streaming Sources</div>
+        <div class="area-tagline">Spotify, Apple Music, and Qobuz — inside Sorriva, not alongside it</div>
+      </div>
+    </div>
+    <div class="area-divider"></div>
+    <div class="feature-list">
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Spotify — full catalog, in-app playback</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Connect your Spotify Premium account and browse your entire library and Spotify's catalog without ever leaving Sorriva. Powered by Spotify Connect — Spotify streams directly to your device while Sorriva stays in control of the UI. Honest note: Spotify is not lossless (AAC up to 320kbps). The Signal Path indicator will show this clearly. Spotify HiFi (lossless tier) has been announced repeatedly — if and when it ships, Sorriva will surface the quality upgrade automatically.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Includes</div>
+          <div class="config-items">
+            <span class="config-item">Library browse</span>
+            <span class="config-item">Catalog search</span>
+            <span class="config-item">Playlist import</span>
+            <span class="config-item">Requires Spotify Premium</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Apple Music — full catalog, in-app playback</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Connect your Apple Music subscription and access the full catalog and your Apple Music library from within Sorriva. Powered by Apple's MusicKit framework — no switching apps, no leaving Sorriva.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Includes</div>
+          <div class="config-items">
+            <span class="config-item">Catalog search</span>
+            <span class="config-item">Library sync</span>
+            <span class="config-item">Requires Apple Music subscription</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Qobuz — hi-res streaming, in-app playback</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Stream hi-res Qobuz audio inside Sorriva. Browse the Qobuz catalog and keep it all in one interface. Sorriva uses Qobuz Connect for delivery to hardware zones — the device pulls directly from Qobuz's servers at full resolution. Phone is controller only, never in the audio path.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Quality by endpoint</div>
+          <div class="config-items">
+            <span class="config-item">Bluesound Node → up to 24-bit/192kHz lossless</span>
+            <span class="config-item">Sonos → up to 24-bit/48kHz lossless</span>
+            <span class="config-item">AirPlay 2 only devices → 16-bit/44.1kHz lossless CD</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">iHeartRadio — live radio</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-normal"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Live radio station search and playback. Browse by genre or location. Keeps live radio in the Sorriva experience rather than requiring a separate app.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Connect and manage all streaming services</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">A single settings screen to connect, disconnect, and configure every streaming service. Shows connection status, account info, and subscription tier per service.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Configurable</div>
+          <div class="config-items">
+            <span class="config-item">Connect / disconnect per service</span>
+            <span class="config-item">Preferred source order for auto-resolution</span>
+            <span class="config-item">Per-household-member streaming credentials</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── 4. ZONES & AUDIO ──────────────────────────────── -->
+  <div class="area-section" id="zones">
+    <div class="area-header">
+      <div class="area-icon">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <rect x="2" y="10" width="4" height="6" rx="1" fill="rgba(245,242,238,0.6)"/>
+          <rect x="7" y="7" width="4" height="9" rx="1" fill="rgba(61,90,153,0.9)"/>
+          <rect x="12" y="4" width="4" height="12" rx="1" fill="rgba(245,242,238,0.4)"/>
+        </svg>
+      </div>
+      <div class="area-title-group">
+        <div class="area-title">Zones &amp; Audio</div>
+        <div class="area-tagline">Multi-room playback via native Sonos and Bluesound APIs — with honest audio quality on every path</div>
+      </div>
+    </div>
+    <div class="area-divider"></div>
+    <div class="feature-list">
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">All your speakers in one list</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Sorriva discovers every audio device on your network — Sonos, Bluesound, HomePod, and any AirPlay 2-compatible hardware — and presents them as a single unified zone list. No protocol awareness needed.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Discovered via</div>
+          <div class="config-items">
+            <span class="config-item">AirPlay 2 (mDNS/Bonjour)</span>
+            <span class="config-item">Sonos local API</span>
+            <span class="config-item">Bluesound BluOS</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Play to multiple rooms simultaneously</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Group any combination of Sonos zones via the Sonos API, or any combination of Bluesound zones via the BluOS API. Sorriva creates and recalls these groups — the hardware handles sync natively at firmware level, the same way Roon does it. Cross-ecosystem groups (Sonos + Bluesound together) use AirPlay 2 for sync.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Delivery by group type</div>
+          <div class="config-items">
+            <span class="config-item">Sonos-only group → Sonos API → 24-bit/48kHz lossless</span>
+            <span class="config-item">Bluesound-only group → BluOS API → 24-bit/192kHz lossless</span>
+            <span class="config-item">Mixed hardware group → AirPlay 2 → 16-bit/44.1kHz lossless CD</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Save named zone groups — best quality or everywhere</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Create and save named zone groups — "Downstairs", "Office", "Party Mode", "Whole House". Sorriva automatically uses the best delivery path for the group's hardware mix. Same-ecosystem groups get native API quality. Mixed groups get AirPlay 2 with an honest quality label. One tap to recall. No protocol knowledge required.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Group modes</div>
+          <div class="config-items">
+            <span class="config-item">Sonos-only → native Sonos API → 24-bit/48kHz lossless</span>
+            <span class="config-item">Bluesound-only → BluOS API → 24-bit/192kHz lossless</span>
+            <span class="config-item">Mixed / whole house → AirPlay 2 → 16-bit/44.1kHz lossless CD</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Ad-hoc zone groups for the session</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Quickly group zones for the current listening session without naming or saving them. Dissolves when the session ends.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Independent volume per zone</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Control the volume of each room independently while playing to multiple zones. Turn down the bedroom without touching the kitchen.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">EQ and tone control — one UI, every device</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">One consistent EQ panel in Sorriva — bass, mid, treble, loudness toggle — that works across Sonos and Bluesound hardware. The app translates to each device's native API behind the scenes.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Per-device capability</div>
+          <div class="config-items">
+            <span class="config-item">Sonos: bass, treble, loudness, balance, Trueplay</span>
+            <span class="config-item">Bluesound: EQ, tone, balance</span>
+            <span class="config-item">Plain AirPlay 2: volume only</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Sonos native groups and stereo pairs — preserved</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Sonos hardware groups and stereo pairs you've already set up in the Sonos app appear in Sorriva exactly as configured — as single zones. Sorriva never regroups or breaks them.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Signal Path indicator — what's actually reaching your ears</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Every now playing screen shows the full signal path: source format, delivery protocol, and what quality actually reaches the endpoint. No hiding, no marketing language. If AirPlay 2 is downsampling your FLAC to 16/44.1, you'll see it. If Qobuz Connect is delivering 24/192 to your Bluesound Node, you'll see that too. Transparency is a feature.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Shown per zone</div>
+          <div class="config-items">
+            <span class="config-item">Source format (e.g. FLAC 24/96)</span>
+            <span class="config-item">Delivery protocol (e.g. Qobuz Connect)</span>
+            <span class="config-item">Endpoint quality (e.g. 24-bit/96kHz)</span>
+            <span class="config-item">Any quality ceiling and reason</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Works with any AirPlay 2 hardware</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">If it supports AirPlay 2, it works with Sorriva. Sonos, Bluesound, B&amp;O, Devialet, Naim, KEF, Marantz, Yamaha, NAD, WiiM, HomePod — hundreds of devices across every price point. No Sorriva hardware to buy.</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── 5. PLAYBACK & QUEUE ────────────────────────────── -->
+  <div class="area-section" id="playback">
+    <div class="area-header">
+      <div class="area-icon">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <circle cx="9" cy="9" r="7" stroke="rgba(245,242,238,0.4)" stroke-width="1.5"/>
+          <polygon points="7.5,6 13,9 7.5,12" fill="rgba(61,90,153,0.9)"/>
+        </svg>
+      </div>
+      <div class="area-title-group">
+        <div class="area-title">Playback &amp; Queue</div>
+        <div class="area-tagline">Full control over what's playing now and what comes next</div>
+      </div>
+    </div>
+    <div class="area-divider"></div>
+    <div class="feature-list">
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Now Playing — full controls and context</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Full album art, scrub bar, volume, zone indicator, and source badge. Swipe between context tabs for track info, album review, credits, and lyrics without leaving the now playing screen.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Content tabs</div>
+          <div class="config-items">
+            <span class="config-item">Info</span>
+            <span class="config-item">Review</span>
+            <span class="config-item">Credits</span>
+            <span class="config-item">Lyrics</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Play queue — manage what's coming next</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">See and edit everything in your queue. Drag to reorder. Add tracks to play next or to the end. Save the current queue as a playlist. View past session history.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Actions</div>
+          <div class="config-items">
+            <span class="config-item">Drag to reorder</span>
+            <span class="config-item">Play next / add to end</span>
+            <span class="config-item">Save as playlist</span>
+            <span class="config-item">Clear queue</span>
+            <span class="config-item">Session history</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Auto Play — continuous listening</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">When your queue ends, Sorriva keeps going. A tightness dial controls how adventurous: strict stays in the same genre and era; open follows wherever the music goes. Powered by Last.fm similarity data and Deriva's pattern learning.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Configurable</div>
+          <div class="config-items">
+            <span class="config-item">Tightness dial (strict → open)</span>
+            <span class="config-item">Source preference (local first / streaming)</span>
+            <span class="config-item">On / off toggle</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Favorites and playlists</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Favorite tracks, albums, and artists — per profile. Create playlists that mix tracks from your local library, Spotify, Apple Music, and Qobuz. Every track in a playlist shows its source badge.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Smart playlists — rules-based, always current</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-normal"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Create playlists that build themselves from rules — genre, decade, play count, source, unplayed status. They update automatically as your library grows. Like iTunes Smart Playlists, but across every source.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Rule criteria</div>
+          <div class="config-items">
+            <span class="config-item">Genre</span>
+            <span class="config-item">Decade / year range</span>
+            <span class="config-item">Source</span>
+            <span class="config-item">Play count</span>
+            <span class="config-item">Unplayed</span>
+            <span class="config-item">Favorited</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── 6. BROWSE & SEARCH ─────────────────────────────── -->
+  <div class="area-section" id="browse">
+    <div class="area-header">
+      <div class="area-icon">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <circle cx="8" cy="8" r="5" stroke="rgba(245,242,238,0.65)" stroke-width="1.5"/>
+          <line x1="12" y1="12" x2="16" y2="16" stroke="rgba(61,90,153,0.9)" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="area-title-group">
+        <div class="area-title">Browse &amp; Search</div>
+        <div class="area-tagline">Find anything across your whole music world in one place</div>
+      </div>
+    </div>
+    <div class="area-divider"></div>
+    <div class="feature-list">
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Universal search — one query, every source</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Type once and search your local library, Spotify, Apple Music, and Qobuz simultaneously. Local results appear instantly. Streaming results load progressively. Results are grouped by source with clear attribution.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Library — browse albums and tracks</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Your entire library in a grid or list — local files and streaming libraries merged into one view. Source badges on every entry. Filter and sort to find exactly what you're in the mood for.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Filter / sort</div>
+          <div class="config-items">
+            <span class="config-item">Genre</span>
+            <span class="config-item">Decade</span>
+            <span class="config-item">Source</span>
+            <span class="config-item">Unplayed</span>
+            <span class="config-item">Sort by title / year / added / play count</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Artist pages — full discography, everywhere</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Every artist has a page with their bio, listening stats, and their complete discography across all connected sources — not just what you own. Tap any album to go deep. Related artists bring you somewhere new.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Album pages — art, tracklist, credits, review</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Full album art, track list with play counts, album review, and a credits panel. Every track shows which sources it's available on. The album page is where the liner note experience lives.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Billboard archive — history of recorded music</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-normal"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Browse the Billboard Annual Top 100 for every year from 1955 to the present. Each entry resolves to the best available source in your library or subscriptions. See how many tracks from any given year you already own.</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── 7. DERIVA AI ──────────────────────────────────── -->
+  <div class="area-section" id="deriva">
+    <div class="area-header">
+      <div class="area-icon">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <path d="M4 14 Q6 8 9 9 Q12 10 14 4" stroke="rgba(61,90,153,0.9)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+          <circle cx="9" cy="9" r="1.5" fill="rgba(176,125,79,0.9)"/>
+          <circle cx="4" cy="14" r="1" fill="rgba(245,242,238,0.4)"/>
+          <circle cx="14" cy="4" r="1" fill="rgba(245,242,238,0.4)"/>
+        </svg>
+      </div>
+      <div class="area-title-group">
+        <div class="area-title">Deriva</div>
+        <div class="area-tagline">The AI discovery engine inside Sorriva — let Deriva find the rest</div>
+      </div>
+    </div>
+    <div class="area-divider"></div>
+    <div class="feature-list">
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Ask for a playlist in plain language</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Tell Deriva what you want and it builds the playlist. "Sunday morning coffee." "Late night drive." "Something like Coltrane but I haven't heard it yet." Draws from your local library and every connected streaming service. Shows its reasoning so you understand the thread.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Inputs accepted</div>
+          <div class="config-items">
+            <span class="config-item">Mood / context description</span>
+            <span class="config-item">Artist or album as seed</span>
+            <span class="config-item">Era or genre constraint</span>
+            <span class="config-item">Time of day / seasonal signals (optional)</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Discovery — music you don't know yet</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Deriva analyzes what you listen to most and finds the gaps — artists adjacent to your taste you haven't explored, gateway albums into genres you've been circling, deep cuts from artists you already love.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Discovery modes</div>
+          <div class="config-items">
+            <span class="config-item">More like this (from any track or artist)</span>
+            <span class="config-item">Gateway albums</span>
+            <span class="config-item">Deep cuts per artist</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Skip learning — gets better the more you use it</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Every time you skip a track, Deriva takes note. Over time it learns what you consistently skip — genres, eras, styles, artists — and stops including them in future playlists and auto-play. Per-profile learning.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Library rediscovery — what you forgot you had</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">"You added this album three years ago and never played it." Deriva surfaces unplayed and forgotten items from your library that match your current listening patterns. Scheduled rediscovery prompts keep the library alive.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Vinyl recommendations from your digital taste</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-normal"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">If you track a vinyl collection in Sorriva, Deriva cross-references your digital listening patterns to suggest records worth owning — and surfaces gaps between what you stream and what you have on wax.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Contextual signals — time, season, weather</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-normal"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Derive uses time of day and season as soft signals when generating playlists — a Sunday afternoon feels different than a Friday night. Optional weather integration. These inform but don't override your request.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Configurable</div>
+          <div class="config-items">
+            <span class="config-item">Enable / disable contextual signals</span>
+            <span class="config-item">Weather integration on / off</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── 8. ACCOUNTS & HOUSEHOLD ───────────────────────── -->
+  <div class="area-section" id="accounts">
+    <div class="area-header">
+      <div class="area-icon">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <circle cx="7" cy="7" r="3" fill="rgba(245,242,238,0.7)"/>
+          <circle cx="13" cy="6" r="2" fill="rgba(61,90,153,0.7)"/>
+          <path d="M2 15 C2 12 4.5 10 7 10 C9.5 10 12 12 12 15" stroke="rgba(245,242,238,0.5)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+          <path d="M13 10 C14.2 10 16 11.2 16 13" stroke="rgba(61,90,153,0.5)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="area-title-group">
+        <div class="area-title">Accounts &amp; Household</div>
+        <div class="area-tagline">One subscription, individual profiles — the whole household covered</div>
+      </div>
+    </div>
+    <div class="area-divider"></div>
+    <div class="feature-list">
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Household subscription — one plan, whole family</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Sorriva is priced per household, not per person. One subscription covers everyone at home. The commercial model follows Roon's household approach — a single shared library with individual member profiles.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Pricing</div>
+          <div class="config-items">
+            <span class="config-item">~$5–8/month household</span>
+            <span class="config-item">Apple Sign-In</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Individual profiles — separate taste, shared library</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Each household member has their own profile with independent play history, favorites, Deriva learning, and streaming service credentials. The shared library belongs to the household; everything else is personal.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Per-profile</div>
+          <div class="config-items">
+            <span class="config-item">Play history</span>
+            <span class="config-item">Favorites</span>
+            <span class="config-item">Deriva skip learning</span>
+            <span class="config-item">Streaming service credentials</span>
+            <span class="config-item">Playback stats</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Playback statistics — your year in music</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Most played albums, artists, genres, and decades. Total hours listened. Session history. Annual wrap-up showing your full year in music. Per-profile, with household aggregate view.</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── 9. PLATFORMS ──────────────────────────────────── -->
+  <div class="area-section" id="platforms">
+    <div class="area-header">
+      <div class="area-icon">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <rect x="2" y="3" width="9" height="7" rx="1.5" fill="rgba(245,242,238,0.65)"/>
+          <rect x="13" y="3" width="3" height="5" rx="1" fill="rgba(61,90,153,0.8)"/>
+          <rect x="5" y="12" width="5" height="4" rx="1" fill="rgba(245,242,238,0.4)"/>
+        </svg>
+      </div>
+      <div class="area-title-group">
+        <div class="area-title">Platforms</div>
+        <div class="area-tagline">iPhone, iPad, Apple TV, and Mac — a first-class experience on every Apple screen</div>
+      </div>
+    </div>
+    <div class="area-divider"></div>
+    <div class="feature-list">
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">iPhone — full Sorriva experience in your pocket</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">iPhone is the primary Sorriva client — not a remote. Every feature: library, search, Deriva, zones, queue, settings. Full listening experience at home and away.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">iPad — expanded layout, external drive support</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">iPad takes full advantage of the larger screen with an expanded library layout. USB-C external drive support means your entire FLAC collection travels with you — no network required.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Apple TV — cinematic now playing</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Full-bleed album art backdrop, track info overlay, source badge, and zone status. Six content tabs: Playing, Art, Info, Credits, Review, Artist — all navigable with the Siri Remote.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Apple TV — lean-back library browse</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-critical"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Poster grid with focus-ring navigation designed for the 10-foot experience. Recently Added and Continue Listening rails. Deriva suggestion strip on the home screen.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">iPhone as Apple TV remote</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Control Apple TV Sorriva from your iPhone or iPad — play, pause, skip, volume, zone switching, and queue — while the TV displays the now playing screen.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Apple CarPlay</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-normal"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Play/pause/skip/volume from your car's display. Browse recently played, favorites, and Deriva playlists — all optimized for driving and safe one-handed use.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">iOS home screen widgets</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-normal"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Now Playing widget with art and track controls. Zone selector widget. Quick play favorites widget. Available in multiple sizes for your home and lock screen.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Apple Watch</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-low"></span>
+            <span class="badge badge-deferred">⊘ Deferred</span>
+          </div>
+        </div>
+        <div class="feature-desc">Playback controls and Now Playing display on Apple Watch. Play/pause/skip/volume. Complications for current track. Scoped after iPhone UI is proven.</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── AUDIO QUALITY POSITIONING ───────────────────── -->
+  <div class="area-section" id="audio-positioning">
+    <div class="area-header">
+      <div class="area-icon">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <path d="M4 9 L7 6 L11 12 L14 8" stroke="rgba(61,90,153,0.9)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="4" cy="9" r="1.5" fill="rgba(176,125,79,0.9)"/>
+          <circle cx="14" cy="8" r="1.5" fill="rgba(245,242,238,0.5)"/>
+        </svg>
+      </div>
+      <div class="area-title-group">
+        <div class="area-title">Audio Quality Positioning</div>
+        <div class="area-tagline">Honest, clear, cuts through the marketing noise — a Sorriva differentiator</div>
+      </div>
+    </div>
+    <div class="area-divider"></div>
+    <div class="feature-list">
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">The honest position — what Sorriva delivers</div>
+          <div class="feature-badges">
+            <span class="badge" style="background:var(--brass-lt);color:var(--brass);">Positioning</span>
+          </div>
+        </div>
+        <div class="feature-desc">Sorriva delivers lossless audio on every path. The only exceptions are Spotify (not lossless at the source — a Spotify limitation, not Sorriva's) and mixed-hardware AirPlay 2 groups (still lossless CD quality, not lossy). No user ever gets lossy audio from Sorriva unless their streaming service is Spotify.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">By endpoint</div>
+          <div class="config-items">
+            <span class="config-item">Bluesound → 24-bit/192kHz lossless hi-res</span>
+            <span class="config-item">Sonos → 24-bit/48kHz lossless</span>
+            <span class="config-item">AirPlay 2 only → 16-bit/44.1kHz lossless CD</span>
+            <span class="config-item">iPhone/iPad direct → full native resolution</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Consumer education — lossless vs hi-res</div>
+          <div class="feature-badges">
+            <span class="badge" style="background:var(--brass-lt);color:var(--brass);">Positioning</span>
+          </div>
+        </div>
+        <div class="feature-desc">The market conflates lossless and hi-res constantly. Sorriva's in-app education cuts through this: lossless means nothing is thrown away (FLAC, ALAC — bit-perfect to the master). Hi-res means above CD resolution (24-bit, 96kHz+). You can have lossless at CD quality — which is excellent — or lossless hi-res. Spotify gives you neither. Apple Music and Qobuz give you lossless. Qobuz on Bluesound gives you lossless hi-res. The Signal Path indicator makes the distinction visible at all times.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">MQA — not building</div>
+          <div class="feature-badges">
+            <span class="badge" style="background:var(--red-lt);color:var(--red);">Not Building</span>
+          </div>
+        </div>
+        <div class="feature-desc">MQA Ltd went into administration in 2023. Tidal — the only major service that pushed it — has been walking it back in favor of standard FLAC. Qobuz never supported it. Building MQA decoding in 2026 would add complexity for a format the industry has abandoned. Sorriva supports FLAC natively — the standard the industry is converging on.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Per-device audio configuration — not necessary</div>
+          <div class="feature-badges">
+            <span class="badge" style="background:var(--green-lt);color:var(--green);">Handled automatically</span>
+          </div>
+        </div>
+        <div class="feature-desc">Roon requires per-device setup for MQA capabilities, max PCM bit depth, and multichannel downmix behavior — because RAAT pushes audio from a server and needs to know each device's ceiling before sending. Sorriva's architecture makes this screen unnecessary. The delivery protocol and the device negotiate quality directly: Qobuz Connect tells the Bluesound Node what's available, the Node pulls at its native ceiling. Sonos caps itself at 24/48 regardless. AirPlay 2 caps at 16/44.1 regardless. No user configuration, no device setup screens, no ceiling mismatches. The device knows what it can handle. Sorriva gets out of the way.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Roon settings Sorriva doesn't need</div>
+          <div class="config-items">
+            <span class="config-item">MQA capabilities — not building (MQA is dead)</span>
+            <span class="config-item">Max bits per sample (PCM) — device and protocol handle automatically</span>
+            <span class="config-item">Multichannel mixing / downmix — out of scope, source material is stereo</span>
+            <span class="config-item">Volume control mode — device native volume always used</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── 10. EXTENDED ──────────────────────────────────── -->
+  <div class="area-section" id="extended">
+    <div class="area-header">
+      <div class="area-icon">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <circle cx="9" cy="9" r="7" stroke="rgba(245,242,238,0.3)" stroke-width="1" stroke-dasharray="2 2"/>
+          <circle cx="9" cy="9" r="3" fill="rgba(176,125,79,0.8)"/>
+          <line x1="9" y1="2" x2="9" y2="4" stroke="rgba(245,242,238,0.4)" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="9" y1="14" x2="9" y2="16" stroke="rgba(245,242,238,0.4)" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="2" y1="9" x2="4" y2="9" stroke="rgba(245,242,238,0.4)" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="14" y1="9" x2="16" y2="9" stroke="rgba(245,242,238,0.4)" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="area-title-group">
+        <div class="area-title">Extended Features</div>
+        <div class="area-tagline">Vinyl, Shazam, stats, and more — the details that make Sorriva yours</div>
+      </div>
+    </div>
+    <div class="area-divider"></div>
+    <div class="feature-list">
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Vinyl collection — track every record you own</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-high"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">A dedicated vinyl collection module. Manual entry or barcode scan. Discogs metadata for pressing info, label variants, and matrix numbers. Collection browser, value estimator, wantlist, duplicate detection, and CSV/PDF export for insurance.</div>
+        <div class="feature-config">
+          <div class="feature-config-label">Fields tracked</div>
+          <div class="config-items">
+            <span class="config-item">Title / artist / label</span>
+            <span class="config-item">Pressing / year / format (LP/Single/EP/78)</span>
+            <span class="config-item">Condition (Goldmine scale)</span>
+            <span class="config-item">Purchase price / date</span>
+            <span class="config-item">Catalog number / matrix</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">Shazam library import</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-normal"></span>
+            <span class="badge badge-planned">◎ Planned</span>
+          </div>
+        </div>
+        <div class="feature-desc">Import your Shazam history and turn it into a playlist. Each tag resolves to the best available source — local library, Apple Music, or Spotify. Everything you Shazamed, finally in one place.</div>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-top">
+          <div class="feature-name">SiriusXM — satellite radio</div>
+          <div class="feature-badges">
+            <span class="priority-dot p-low"></span>
+            <span class="badge badge-deferred">⊘ Deferred</span>
+          </div>
+        </div>
+        <div class="feature-desc">Satellite radio integration via SiriusXM subscription. Legal posture for personal use pending decision.</div>
+      </div>
+
+    </div>
+  </div>
+
+</main>
+</body>
+</html>

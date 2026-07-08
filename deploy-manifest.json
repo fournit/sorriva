@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.1 — GitHub repo live, Expo Bare initialized (iOS/iPadOS, app.sorriva.ios), roadmap rebuilt in correct hub schema (66 features, 8 phases), household subscription model locked",
+  "message": "v0.0.1 — Doc corrections: stack updated to Swift/SwiftUI, Flask backend on Mac Mini confirmed, fNavShell and fFlaskBackend added to roadmap, Expo references removed, Swift/Xcode session protocol section added",
   "version": "0.0.1",
   "db_migrate": false
 }

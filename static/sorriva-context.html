@@ -1059,12 +1059,12 @@ Mixed group (e.g. "Whole House" — Sonos + Bluesound)
       <table class="no-stack">
         <thead><tr><th>Layer</th><th>Choice</th></tr></thead>
         <tbody>
-          <tr><td>iOS / iPadOS</td><td>Swift / SwiftUI</td></tr>
-          <tr><td>tvOS (Apple TV)</td><td>Swift / SwiftUI (Phase 6)</td></tr>
-          <tr><td>macOS</td><td>Swift / SwiftUI (optional library bridge — Phase 8)</td></tr>
+          <tr><td>iOS / iPadOS</td><td>React Native (Expo Bare)</td></tr>
+          <tr><td>tvOS (Apple TV)</td><td>React Native tvOS</td></tr>
+          <tr><td>macOS</td><td>React Native macOS (optional library bridge)</td></tr>
           <tr><td>watchOS</td><td>Future — deferred</td></tr>
-          <tr><td>Backend (current)</td><td>Flask / Python on Mac Mini — port 8084, Cloudflare Tunnel, standard Passione provisioning. Migrates to cloud hosting at commercial scale (TBD).</td></tr>
-          <tr><td>Database</td><td>PostgreSQL — shared Passione cluster on Mac Mini. sorriva DB, sorriva_app role.</td></tr>
+          <tr><td>Backend (cloud)</td><td>Lightweight hosted service — metadata, AI, accounts, sync</td></tr>
+          <tr><td>Database (cloud)</td><td>PostgreSQL — multi-user from day one</td></tr>
           <tr><td>Database (local)</td><td>SQLite per device for offline cache</td></tr>
           <tr><td>Metadata</td><td>MusicBrainz (MBID, credits), Discogs (vinyl), Last.fm (bio, similar)</td></tr>
           <tr><td>Streaming</td><td>Spotify Connect API, MusicKit, Qobuz Connect</td></tr>
@@ -1075,7 +1075,7 @@ Mixed group (e.g. "Whole House" — Sonos + Bluesound)
         </tbody>
       </table>
     </div>
-    <p class="text-muted">Flask backend on Mac Mini (port 8084) via Cloudflare Tunnel — standard Passione provisioning pattern. Migrates to cloud hosting when user base reaches commercial scale threshold (TBD).</p>
+    <p class="text-muted">No Flask. No Mac Mini server. No Cloudflare Tunnel. No launchctl. No deployment pipeline.</p>
   </section>
 
   <!-- PLATFORMS -->

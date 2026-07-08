@@ -1,0 +1,47 @@
+{
+  "product": "sorriva",
+  "docs": [
+    {
+      "file": "sorriva-poc.html",
+      "display_name": "POC Handoff",
+      "description": "Proof of concept session guide — Sonos zone picker, iHeart search/browse/playback, favorites. Pre-session checklist, Flask routes, SwiftUI screens, iHeart and Sonos API notes.",
+      "category": "handoff"
+    },
+    {
+      "file": "sorriva-context.html",
+      "display_name": "Product Context",
+      "description": "Full product context — architecture, stack, features, brand, design principles, marketing positioning, and decision log. Source of truth for all sessions.",
+      "category": "arch"
+    },
+    {
+      "file": "sorriva-product-spec.html",
+      "display_name": "Product Spec",
+      "description": "Complete feature reference across 10 product areas. Every feature in user-action language with configurable items, status, priority, and audio quality context.",
+      "category": "arch"
+    },
+    {
+      "file": "sorriva-competitive.html",
+      "display_name": "Competitive Matrix",
+      "description": "Feature-by-feature comparison vs Roon with Sorriva positioning response. 11 Sorriva advantages, 2 honest gaps, 7 parity features.",
+      "category": "marketing"
+    },
+    {
+      "file": "sorriva-audio-quality.html",
+      "display_name": "Audio Quality Reference",
+      "description": "Lossless vs hi-res explained. Streaming service quality table. Sorriva delivery path matrix by protocol and hardware.",
+      "category": "marketing"
+    },
+    {
+      "file": "passione-session-protocol.html",
+      "display_name": "Session Protocol",
+      "description": "Cross-product session conventions — start checklist, iteration workflow, session close, zip spec, manifest schemas, rollback, Hub workflow.",
+      "category": "arch"
+    },
+    {
+      "file": "passione-deploy-reference.html",
+      "display_name": "Deploy & Schema Reference",
+      "description": "Canonical schemas and path reference for roadmap-data.json, docs-manifest.json, web-assets.json, deploy-manifest.json, and deploy zip construction.",
+      "category": "arch"
+    }
+  ]
+}

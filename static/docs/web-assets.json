@@ -1,12 +1,18 @@
 {
   "assets": [
     {
+      "url": "https://sorriva.app",
       "label": "Sorriva Marketing Site",
-      "file": "sorriva-index.html",
+      "description": "Live marketing splash — sorriva.app via Cloudflare Pages.",
       "type": "marketing",
-      "version": 1,
-      "latest": true,
-      "live_url": "https://sorriva.app"
+      "added": "2026-07-04"
+    },
+    {
+      "file": "sorriva-index.html",
+      "label": "Marketing Splash Page — Source",
+      "description": "Editable source for sorriva.app. Letter-by-letter wordmark reveal, ambient ring expansion, scroll-triggered pillar reveals, email capture CTA.",
+      "type": "marketing",
+      "added": "2026-07-03"
     }
   ]
 }

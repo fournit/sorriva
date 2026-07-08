@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sorriva — Audio Quality Reference</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --parchment:    #F5F2EE;
+    --parchment-dk: #EDE9E3;
+    --near-black:   #1A1714;
+    --slate:        #3D5A99;
+    --slate-lt:     #5570AA;
+    --slate-dim:    rgba(61,90,153,0.12);
+    --slate-dim2:   rgba(61,90,153,0.06);
+    --brass:        #B07D4F;
+    --brass-lt:     rgba(176,125,79,0.13);
+    --muted:        #7A7470;
+    --border:       rgba(26,23,20,0.10);
+    --green:        #2E7D52;
+    --green-lt:     rgba(46,125,82,0.10);
+    --green-mid:    rgba(46,125,82,0.20);
+    --amber:        #8A6A1A;
+    --amber-lt:     rgba(138,106,26,0.10);
+    --red:          #9B3333;
+    --red-lt:       rgba(155,51,51,0.08);
+    --purple:       #6B46A0;
+    --purple-lt:    rgba(107,70,160,0.10);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--parchment);
+    color: var(--near-black);
+    font-size: 15px;
+    line-height: 1.7;
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* ── SIDEBAR ──────────────────────────────────────── */
+  .sidebar {
+    width: 240px;
+    min-width: 240px;
+    background: var(--near-black);
+    color: var(--parchment);
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 32px 0 40px;
+    display: flex;
+    flex-direction: column;
+    scrollbar-width: thin;
+    scrollbar-color: #3a3330 transparent;
+  }
+
+  .sidebar-wordmark {
+    padding: 0 24px 28px;
+    border-bottom: 1px solid rgba(245,242,238,0.08);
+    margin-bottom: 16px;
+  }
+
+  .wordmark {
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: -0.05em;
+    color: var(--parchment);
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 3px;
+    line-height: 1;
+  }
+
+  .wordmark-dot {
+    width: 7px; height: 7px;
+    background: var(--slate);
+    border-radius: 50%;
+    margin-top: 3px;
+  }
+
+  .sidebar-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: rgba(245,242,238,0.30);
+    padding: 0 24px;
+    margin-bottom: 4px;
+    margin-top: 18px;
+  }
+
+  .sidebar nav a {
+    display: flex;
+    align-items: center;
+    padding: 6px 24px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: rgba(245,242,238,0.55);
+    text-decoration: none;
+    transition: color 0.15s, background 0.15s;
+    border-left: 2px solid transparent;
+  }
+
+  .sidebar nav a:hover,
+  .sidebar nav a.active {
+    color: var(--parchment);
+    background: rgba(245,242,238,0.06);
+    border-left-color: var(--slate);
+  }
+
+  .sidebar-footer {
+    margin-top: auto;
+    padding: 20px 24px 0;
+    border-top: 1px solid rgba(245,242,238,0.08);
+    font-size: 11px;
+    color: rgba(245,242,238,0.22);
+    line-height: 1.6;
+  }
+
+  /* ── MAIN ─────────────────────────────────────────── */
+  .main {
+    flex: 1;
+    padding: 52px 60px 100px;
+    max-width: 1060px;
+    min-width: 0;
+    overflow-x: auto;
+  }
+
+  /* ── PAGE HEADER ──────────────────────────────────── */
+  .page-header {
+    margin-bottom: 48px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .page-eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: var(--brass);
+    margin-bottom: 10px;
+  }
+
+  .page-title {
+    font-size: 34px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1.1;
+    margin-bottom: 14px;
+  }
+
+  .page-subtitle {
+    font-size: 15px;
+    color: var(--muted);
+    max-width: 580px;
+    line-height: 1.65;
+  }
+
+  /* ── SECTION ──────────────────────────────────────── */
+  .section {
+    margin-bottom: 56px;
+    scroll-margin-top: 24px;
+  }
+
+  .section-title {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    margin-bottom: 4px;
+  }
+
+  .section-desc {
+    font-size: 13.5px;
+    color: var(--muted);
+    margin-bottom: 20px;
+    max-width: 640px;
+  }
+
+  .section-divider {
+    height: 1px;
+    background: var(--border);
+    margin-bottom: 20px;
+    margin-top: 12px;
+  }
+
+  /* ── CONCEPT CARDS ────────────────────────────────── */
+  .concept-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+    margin-bottom: 40px;
+  }
+
+  .concept-card {
+    background: var(--parchment-dk);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 22px 24px;
+  }
+
+  .concept-card.highlight {
+    background: var(--near-black);
+    border-color: transparent;
+  }
+
+  .concept-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--brass);
+    margin-bottom: 8px;
+  }
+
+  .concept-card.highlight .concept-label {
+    color: rgba(176,125,79,0.8);
+  }
+
+  .concept-title {
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin-bottom: 8px;
+  }
+
+  .concept-card.highlight .concept-title {
+    color: var(--parchment);
+  }
+
+  .concept-body {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  .concept-card.highlight .concept-body {
+    color: rgba(245,242,238,0.60);
+  }
+
+  .concept-body strong {
+    color: var(--near-black);
+    font-weight: 600;
+  }
+
+  .concept-card.highlight .concept-body strong {
+    color: var(--parchment);
+  }
+
+  /* ── MATRIX TABLE ─────────────────────────────────── */
+  .matrix-wrap {
+    overflow-x: auto;
+    margin-bottom: 8px;
+  }
+
+  .matrix-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    min-width: 640px;
+  }
+
+  .matrix-table thead th {
+    padding: 10px 14px;
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: var(--parchment-dk);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  .matrix-table thead th.sorriva-col {
+    background: var(--slate-dim2);
+    color: var(--slate);
+    border-bottom-color: var(--slate);
+  }
+
+  .matrix-table tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.10s;
+  }
+
+  .matrix-table tbody tr:hover {
+    background: rgba(26,23,20,0.025);
+  }
+
+  .matrix-table tbody tr.section-row td {
+    background: var(--near-black);
+    color: rgba(245,242,238,0.5);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    padding: 6px 14px;
+  }
+
+  .matrix-table tbody td {
+    padding: 11px 14px;
+    vertical-align: middle;
+    line-height: 1.4;
+  }
+
+  .row-label {
+    font-weight: 600;
+    font-size: 13px;
+  }
+
+  .row-sublabel {
+    font-size: 11.5px;
+    color: var(--muted);
+    font-weight: 400;
+    margin-top: 1px;
+  }
+
+  /* Quality chips */
+  .q {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 5px;
+    white-space: nowrap;
+    letter-spacing: 0.01em;
+  }
+
+  .q-hires    { background: var(--green-mid);   color: var(--green);  }
+  .q-lossless { background: var(--slate-dim);   color: var(--slate);  }
+  .q-cd       { background: var(--slate-dim);   color: var(--slate);  }
+  .q-lossy    { background: var(--red-lt);      color: var(--red);    }
+  .q-na       { background: rgba(26,23,20,0.05); color: var(--muted); }
+  .q-pending  { background: var(--brass-lt);    color: var(--brass);  }
+
+  /* Lossless badge */
+  .lossless-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  .lb-yes  { background: var(--green-lt);   color: var(--green); }
+  .lb-no   { background: var(--red-lt);     color: var(--red);   }
+  .lb-cond { background: var(--amber-lt);   color: var(--amber); }
+
+  /* Note text */
+  .note {
+    font-size: 11.5px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .note strong { color: var(--near-black); font-weight: 600; }
+
+  /* ── EXPLAINER CALLOUT ────────────────────────────── */
+  .explainer {
+    background: var(--near-black);
+    border-radius: 12px;
+    padding: 28px 32px;
+    margin-bottom: 40px;
+  }
+
+  .explainer h3 {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--brass);
+    margin-bottom: 16px;
+  }
+
+  .explainer-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+
+  .explainer-item {}
+
+  .explainer-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--parchment);
+    margin-bottom: 5px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .explainer-body {
+    font-size: 12px;
+    color: rgba(245,242,238,0.55);
+    line-height: 1.6;
+  }
+
+  /* ── SORRIVA DELIVERY TABLE ───────────────────────── */
+  .delivery-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .delivery-table thead th {
+    padding: 10px 14px;
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: var(--parchment-dk);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  .delivery-table thead th.h-sorriva {
+    background: var(--slate-dim2);
+    color: var(--slate);
+    border-bottom-color: var(--slate);
+  }
+
+  .delivery-table tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.10s;
+  }
+
+  .delivery-table tbody tr:hover { background: rgba(26,23,20,0.025); }
+
+  .delivery-table tbody td {
+    padding: 12px 14px;
+    vertical-align: top;
+    line-height: 1.4;
+  }
+
+  .path-name {
+    font-weight: 700;
+    font-size: 13px;
+  }
+
+  .path-desc {
+    font-size: 11.5px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  .path-note {
+    font-size: 11.5px;
+    color: var(--muted);
+    font-style: italic;
+    margin-top: 3px;
+  }
+
+  /* ── HONEST NOTE ──────────────────────────────────── */
+  .honest-note {
+    border-left: 3px solid var(--brass);
+    padding: 16px 20px;
+    background: var(--brass-lt);
+    border-radius: 0 8px 8px 0;
+    margin-top: 24px;
+  }
+
+  .honest-note-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--brass);
+    margin-bottom: 6px;
+  }
+
+  .honest-note p {
+    font-size: 13px;
+    color: var(--near-black);
+    line-height: 1.65;
+  }
+
+  /* ── RESPONSIVE ───────────────────────────────────── */
+  @media (max-width: 900px) {
+    .sidebar { display: none; }
+    .main { padding: 28px 20px 60px; }
+    .concept-grid { grid-template-columns: 1fr; }
+    .explainer-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── SIDEBAR ─────────────────────────────────────── -->
+<aside class="sidebar">
+  <div class="sidebar-wordmark">
+    <div class="wordmark">sorriva<span class="wordmark-dot"></span></div>
+  </div>
+
+  <div class="sidebar-label">Sections</div>
+  <nav>
+    <a href="#concepts">The concepts explained</a>
+    <a href="#services">Streaming services</a>
+    <a href="#delivery">Sorriva delivery paths</a>
+    <a href="#hardware">By hardware</a>
+  </nav>
+
+  <div class="sidebar-footer">
+    Sorriva — Passione<br>
+    Audio Quality Reference<br>
+    Updated 2026-07-04
+  </div>
+</aside>
+
+<!-- ── MAIN ─────────────────────────────────────────── -->
+<main class="main">
+
+  <!-- PAGE HEADER -->
+  <div class="page-header">
+    <div class="page-eyebrow">Passione · Sorriva</div>
+    <h1 class="page-title">Audio Quality Reference</h1>
+    <p class="page-subtitle">What lossless means, what hi-res means, what each streaming service actually delivers, and what Sorriva delivers on each hardware path. Internal reference — feeds product spec and competitive matrix.</p>
+  </div>
+
+  <!-- ── CONCEPTS ──────────────────────────────────── -->
+  <div class="section" id="concepts">
+    <h2 class="section-title">The concepts explained</h2>
+    <p class="section-desc">Lossless and hi-res are two independent properties that get conflated constantly — even by the services themselves.</p>
+    <div class="section-divider"></div>
+
+    <div class="concept-grid">
+
+      <div class="concept-card highlight">
+        <div class="concept-label">The important one</div>
+        <div class="concept-title">Lossless</div>
+        <div class="concept-body">Audio data is <strong>mathematically identical</strong> to the original recording. Nothing is thrown away during compression. FLAC and ALAC are lossless codecs. The difference between lossy (Spotify AAC) and lossless (Apple Music FLAC) is real, measurable, and audible on decent hardware. <strong>This is the line that matters most.</strong></div>
+      </div>
+
+      <div class="concept-card">
+        <div class="concept-label">The debated one</div>
+        <div class="concept-title">Hi-Res Audio</div>
+        <div class="concept-body">Audio captured or stored at <strong>higher resolution than CD</strong> — 24-bit depth and/or sample rates above 44.1kHz (96kHz, 192kHz). Can also be lossless. Whether humans can reliably distinguish hi-res from lossless CD quality in blind tests is genuinely contested. Sorriva supports it where the architecture allows — but doesn't oversell it.</div>
+      </div>
+
+      <div class="concept-card">
+        <div class="concept-label">The baseline</div>
+        <div class="concept-title">CD Quality — 16-bit / 44.1kHz</div>
+        <div class="concept-body">The Red Book standard. Captures frequencies up to 22kHz (above human hearing). Dynamic range of 96dB. When encoded losslessly in FLAC or ALAC, this is bit-perfect to the CD master. <strong>Lossless CD quality is excellent audio</strong> — it already exceeds human perceptual limits in both dimensions. Not a compromise.</div>
+      </div>
+
+      <div class="concept-card">
+        <div class="concept-label">The nuance</div>
+        <div class="concept-title">Lossless ≠ Hi-Res</div>
+        <div class="concept-body">These are independent axes. A FLAC file at 16/44.1 is <strong>lossless but not hi-res</strong>. A 24/96 FLAC is both lossless and hi-res. Spotify at 320kbps AAC is neither — it's lossy. Apple Music FLAC at 16/44.1 is lossless but not hi-res. Qobuz at 24/192 is lossless and hi-res. The marketing conflates them constantly.</div>
+      </div>
+
+    </div>
+
+    <!-- Explainer -->
+    <div class="explainer">
+      <h3>Quick reference — what the numbers mean</h3>
+      <div class="explainer-grid">
+        <div class="explainer-item">
+          <div class="explainer-title">
+            <span style="color:var(--brass)">◈</span> Bit depth
+          </div>
+          <div class="explainer-body">Controls dynamic range — the difference between the quietest and loudest sound. 16-bit = 96dB range. 24-bit = 144dB range. Human hearing tops out at ~120dB. Both exceed real-world listening needs.</div>
+        </div>
+        <div class="explainer-item">
+          <div class="explainer-title">
+            <span style="color:var(--slate)">◈</span> Sample rate (kHz)
+          </div>
+          <div class="explainer-body">Controls frequency ceiling — the highest pitch captured. 44.1kHz captures up to 22kHz. Human hearing tops out at ~20kHz. Higher sample rates (96, 192kHz) capture frequencies above human hearing — theoretically irrelevant, debated in practice.</div>
+        </div>
+        <div class="explainer-item">
+          <div class="explainer-title">
+            <span style="color:var(--green)">◈</span> The practical takeaway
+          </div>
+          <div class="explainer-body">Lossy → lossless is a meaningful, audible upgrade on good hardware. Lossless CD → lossless hi-res is subtle at best, inaudible to most. Sorriva's architecture delivers lossless everywhere and hi-res where the delivery path supports it.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── STREAMING SERVICES ─────────────────────────── -->
+  <div class="section" id="services">
+    <h2 class="section-title">Streaming services — what they actually offer</h2>
+    <p class="section-desc">Maximum quality the service can deliver, whether it's lossless, and whether Sorriva supports it.</p>
+    <div class="section-divider"></div>
+
+    <div class="matrix-wrap">
+      <table class="matrix-table">
+        <thead>
+          <tr>
+            <th style="width:16%">Service</th>
+            <th style="width:18%">Max quality</th>
+            <th style="width:10%">Lossless?</th>
+            <th style="width:12%">Codec</th>
+            <th style="width:14%" class="sorriva-col">Sorriva support</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+
+          <tr>
+            <td><div class="row-label">Spotify</div></div></td>
+            <td><span class="q q-lossy">320 kbps</span></td>
+            <td><span class="lossless-badge lb-no">✗ Lossy</span></td>
+            <td class="note">AAC / OGG</td>
+            <td><span class="q q-pending">◎ Planned</span></td>
+            <td class="note">The world's largest streaming service — but not lossless. Spotify HiFi (lossless tier) has been announced and delayed repeatedly. <strong>Sorriva integrates via Spotify Connect.</strong> Quality ceiling set by Spotify, not Sorriva.</td>
+          </tr>
+
+          <tr>
+            <td><div class="row-label">Apple Music</div></td>
+            <td><span class="q q-lossless">24-bit / 48kHz</span></td>
+            <td><span class="lossless-badge lb-yes">✓ Lossless</span></td>
+            <td class="note">ALAC / AAC</td>
+            <td><span class="q q-pending">◎ Planned</span></td>
+            <td class="note">Lossless ALAC library. 24/48 is the practical ceiling on most hardware. <strong>Sorriva integrates via MusicKit.</strong> AirPlay 2 path downgrades to 16/44.1 AAC — Sorriva uses MusicKit in-app playback to avoid this on device.</td>
+          </tr>
+
+          <tr>
+            <td><div class="row-label">Qobuz</div></td>
+            <td><span class="q q-hires">24-bit / 192kHz</span></td>
+            <td><span class="lossless-badge lb-yes">✓ Lossless</span></td>
+            <td class="note">FLAC</td>
+            <td><span class="q q-pending">◎ Planned</span></td>
+            <td class="note">The hi-res standard. ~50% of library available at 24/48+. Tracks above 24/48 fall back to 16/44.1 on Sonos hardware. <strong>Sorriva uses Qobuz Connect for direct device streaming — full 24/192 on Bluesound.</strong></td>
+          </tr>
+
+          <tr>
+            <td><div class="row-label">Tidal</div></td>
+            <td><span class="q q-hires">24-bit / 192kHz</span></td>
+            <td><span class="lossless-badge lb-yes">✓ Lossless</span></td>
+            <td class="note">FLAC / MQA</td>
+            <td><span class="q q-pending">◎ Planned</span></td>
+            <td class="note">Lossless FLAC library post-MQA pivot. Tidal Connect delivers up to 24/192 direct to compatible hardware. Not supported natively by Sonos (falls back to 16/44.1 on Sonos). <strong>Strong fit for Bluesound hardware via Tidal Connect.</strong></td>
+          </tr>
+
+          <tr>
+            <td><div class="row-label">Amazon Music</div></td>
+            <td><span class="q q-lossless">24-bit / 48kHz</span></td>
+            <td><span class="lossless-badge lb-yes">✓ Lossless</span></td>
+            <td class="note">FLAC</td>
+            <td><span class="q q-na">Not planned</span></td>
+            <td class="note">HD and Ultra HD tiers. Supported natively by Sonos at 24/48. Not in Sorriva's initial streaming lineup — no Connect API equivalent available to third-party developers.</td>
+          </tr>
+
+          <tr>
+            <td><div class="row-label">iHeartRadio</div></td>
+            <td><span class="q q-lossy">~128 kbps</span></td>
+            <td><span class="lossless-badge lb-no">✗ Lossy</span></td>
+            <td class="note">AAC / MP3</td>
+            <td><span class="q q-pending">◎ Planned</span></td>
+            <td class="note">Live radio — quality is not the point. Convenience and breadth of stations is. Sorriva integrates for live radio use case only.</td>
+          </tr>
+
+          <tr>
+            <td><div class="row-label">Local FLAC / ALAC</div></td>
+            <td><span class="q q-hires">24-bit / 192kHz+</span></td>
+            <td><span class="lossless-badge lb-yes">✓ Lossless</span></td>
+            <td class="note">FLAC / ALAC</td>
+            <td><span class="q q-lossless">Full support</span></td>
+            <td class="note">Full quality on device and via Mac bridge. AirPlay 2 path caps at 16/44.1 — but device-direct playback (iPhone headphones, USB-C DAC) is bit-perfect at full resolution.</td>
+          </tr>
+
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── SORRIVA DELIVERY PATHS ─────────────────────── -->
+  <div class="section" id="delivery">
+    <h2 class="section-title">Sorriva delivery paths — what actually reaches your ears</h2>
+    <p class="section-desc">How Sorriva routes audio to each destination, and what quality survives the journey.</p>
+    <div class="section-divider"></div>
+
+    <div class="matrix-wrap">
+      <table class="delivery-table">
+        <thead>
+          <tr>
+            <th style="width:20%">Delivery path</th>
+            <th style="width:16%">Max quality</th>
+            <th style="width:10%">Lossless?</th>
+            <th style="width:14%">Phone in path?</th>
+            <th>What Sorriva does</th>
+          </tr>
+        </thead>
+        <tbody>
+
+          <tr class="section-row"><td colspan="5">Streaming to hardware zones</td></tr>
+
+          <tr>
+            <td>
+              <div class="path-name">Qobuz Connect → Bluesound</div>
+              <div class="path-desc">Direct cloud-to-device</div>
+            </td>
+            <td><span class="q q-hires">24-bit / 192kHz</span></td>
+            <td><span class="lossless-badge lb-yes">✓ Yes</span></td>
+            <td><span class="lossless-badge lb-yes">✓ No</span></td>
+            <td class="note"><strong>Sorriva tells Qobuz which track to play and which BluOS device to send it to.</strong> Bluesound Node pulls the stream directly from Qobuz servers. Phone is controller only — not in the audio path. Full 24/192 intact.</td>
+          </tr>
+
+          <tr>
+            <td>
+              <div class="path-name">Tidal Connect → Bluesound</div>
+              <div class="path-desc">Direct cloud-to-device</div>
+            </td>
+            <td><span class="q q-hires">24-bit / 192kHz</span></td>
+            <td><span class="lossless-badge lb-yes">✓ Yes</span></td>
+            <td><span class="lossless-badge lb-yes">✓ No</span></td>
+            <td class="note">Same model as Qobuz Connect. <strong>Sorriva instructs, Bluesound pulls.</strong> Full hi-res delivered.</td>
+          </tr>
+
+          <tr>
+            <td>
+              <div class="path-name">Qobuz / Apple Music → Sonos</div>
+              <div class="path-desc">Sonos native API</div>
+            </td>
+            <td><span class="q q-lossless">24-bit / 48kHz</span></td>
+            <td><span class="lossless-badge lb-yes">✓ Yes</span></td>
+            <td><span class="lossless-badge lb-yes">✓ No</span></td>
+            <td class="note"><strong>Sorriva uses the Sonos HTTP API to instruct Sonos to play from a streaming service directly.</strong> Sonos pulls the stream natively. 24/48 is Sonos's hardware ceiling — not a Sorriva limitation. Lossless throughout.</td>
+          </tr>
+
+          <tr>
+            <td>
+              <div class="path-name">Spotify Connect → Any zone</div>
+              <div class="path-desc">Direct cloud-to-device</div>
+            </td>
+            <td><span class="q q-lossy">320 kbps</span></td>
+            <td><span class="lossless-badge lb-no">✗ No</span></td>
+            <td><span class="lossless-badge lb-yes">✓ No</span></td>
+            <td class="note">Sorriva instructs Spotify Connect — device pulls stream directly. Quality ceiling is Spotify's own (not lossless until Spotify HiFi ships). Phone not in path.</td>
+          </tr>
+
+          <tr class="section-row"><td colspan="5">Multi-room (grouped zones)</td></tr>
+
+          <tr>
+            <td>
+              <div class="path-name">Sorriva group → Sonos zones only</div>
+              <div class="path-desc">Sonos native grouping API</div>
+            </td>
+            <td><span class="q q-lossless">24-bit / 48kHz</span></td>
+            <td><span class="lossless-badge lb-yes">✓ Yes</span></td>
+            <td><span class="lossless-badge lb-yes">✓ No</span></td>
+            <td class="note"><strong>Sorriva calls Sonos API to group any combination of Sonos zones.</strong> "Downstairs", "Party Mode" etc. Sonos handles sync natively at firmware level — same quality as single-zone Sonos playback.</td>
+          </tr>
+
+          <tr>
+            <td>
+              <div class="path-name">Sorriva group → Bluesound zones only</div>
+              <div class="path-desc">BluOS native grouping API</div>
+            </td>
+            <td><span class="q q-hires">24-bit / 192kHz</span></td>
+            <td><span class="lossless-badge lb-yes">✓ Yes</span></td>
+            <td><span class="lossless-badge lb-yes">✓ No</span></td>
+            <td class="note"><strong>Sorriva calls BluOS API to group any combination of Bluesound zones.</strong> Full hi-res preserved. BluOS handles sync at firmware level.</td>
+          </tr>
+
+          <tr>
+            <td>
+              <div class="path-name">Sorriva group → Mixed hardware</div>
+              <div class="path-desc">AirPlay 2 (only cross-ecosystem option)</div>
+            </td>
+            <td><span class="q q-cd">16-bit / 44.1kHz</span></td>
+            <td><span class="lossless-badge lb-yes">✓ Lossless CD</span></td>
+            <td><span class="lossless-badge lb-no">In path</span></td>
+            <td class="note">Sonos + Bluesound in the same group requires AirPlay 2 — the only cross-ecosystem sync protocol both support. Quality drops to 16/44.1. <strong>Still lossless CD quality — not lossy.</strong> Sorriva shows an honest quality badge: "CD quality — mixed hardware group."</td>
+          </tr>
+
+          <tr class="section-row"><td colspan="5">On-device playback (local files)</td></tr>
+
+          <tr>
+            <td>
+              <div class="path-name">iPhone / iPad → headphones</div>
+              <div class="path-desc">Device-direct, no wireless</div>
+            </td>
+            <td><span class="q q-hires">24-bit / 192kHz</span></td>
+            <td><span class="lossless-badge lb-yes">✓ Yes</span></td>
+            <td><span class="lossless-badge lb-yes">N/A</span></td>
+            <td class="note">Full resolution. No wireless protocol involved. Local FLAC plays at native resolution via device DAC or USB-C external DAC. Best possible quality path for critical listening.</td>
+          </tr>
+
+          <tr>
+            <td>
+              <div class="path-name">iPhone / iPad → AirPlay 2 zone</div>
+              <div class="path-desc">Wireless push via AirPlay 2</div>
+            </td>
+            <td><span class="q q-cd">16-bit / 44.1kHz</span></td>
+            <td><span class="lossless-badge lb-yes">✓ Lossless CD</span></td>
+            <td><span class="lossless-badge lb-no">In path</span></td>
+            <td class="note">AirPlay 2 downgrades local hi-res files to 16/44.1 in transit. Lossless CD quality — not lossy, not bit-perfect hi-res. Sorriva will surface this in the signal path indicator.</td>
+          </tr>
+
+        </tbody>
+      </table>
+    </div>
+
+    <div class="honest-note">
+      <div class="honest-note-label">Sorriva's honest position</div>
+      <p>Sorriva delivers <strong>lossless audio on every path</strong> — the only exception is Spotify (which isn't lossless at the source) and mixed-hardware AirPlay 2 groups (which are still lossless CD quality, not lossy). Hi-res up to 24/192 is available via Qobuz Connect and Tidal Connect to Bluesound hardware, and via on-device playback of local files. The AirPlay 2 quality ceiling is a real constraint for mixed-hardware groups and local-file wireless delivery — Sorriva surfaces it honestly rather than hiding it.</p>
+    </div>
+  </div>
+
+  <!-- ── BY HARDWARE ────────────────────────────────── -->
+  <div class="section" id="hardware">
+    <h2 class="section-title">By hardware — what your specific gear gets</h2>
+    <p class="section-desc">Maximum quality achievable on each hardware type in a Sorriva setup.</p>
+    <div class="section-divider"></div>
+
+    <div class="matrix-wrap">
+      <table class="matrix-table">
+        <thead>
+          <tr>
+            <th style="width:20%">Hardware</th>
+            <th style="width:16%">Max quality via Sorriva</th>
+            <th style="width:12%">Lossless?</th>
+            <th style="width:14%">Delivery path</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+
+          <tr>
+            <td>
+              <div class="row-label">Bluesound Node</div>
+              <div class="row-sublabel">NAD C 3050, PSB, DALI, Cyrus</div>
+            </td>
+            <td><span class="q q-hires">24-bit / 192kHz</span></td>
+            <td><span class="lossless-badge lb-yes">✓ Yes</span></td>
+            <td class="note">Qobuz Connect / Tidal Connect / BluOS API</td>
+            <td class="note">Best quality path in a Sorriva setup. BluOS natively supports 24/192. Sorriva uses Connect protocols for streaming and BluOS API for grouping and EQ. <strong>Full hi-res delivered.</strong></td>
+          </tr>
+
+          <tr>
+            <td>
+              <div class="row-label">Sonos Era 100 / 300</div>
+              <div class="row-sublabel">Arc, Beam, Roam, Move 2</div>
+            </td>
+            <td><span class="q q-lossless">24-bit / 48kHz</span></td>
+            <td><span class="lossless-badge lb-yes">✓ Yes</span></td>
+            <td class="note">Sonos HTTP API (native)</td>
+            <td class="note">24/48 is Sonos's hardware ceiling — not a Sorriva limitation. Lossless throughout. Sorriva uses the Sonos API directly for zone control and grouping — same quality as using the Sonos app natively.</td>
+          </tr>
+
+          <tr>
+            <td>
+              <div class="row-label">HomePod / HomePod mini</div>
+              <div class="row-sublabel">Any AirPlay 2-only device</div>
+            </td>
+            <td><span class="q q-cd">16-bit / 44.1kHz</span></td>
+            <td><span class="lossless-badge lb-yes">✓ Lossless CD</span></td>
+            <td class="note">AirPlay 2 only</td>
+            <td class="note">No native API available. AirPlay 2 is the only delivery path. Lossless CD quality — not lossy, but not hi-res. Sorriva is honest about this in the zone settings for AirPlay-only devices.</td>
+          </tr>
+
+          <tr>
+            <td>
+              <div class="row-label">iPhone / iPad (headphones)</div>
+              <div class="row-sublabel">USB-C DAC, Lightning DAC</div>
+            </td>
+            <td><span class="q q-hires">24-bit / 192kHz</span></td>
+            <td><span class="lossless-badge lb-yes">✓ Yes</span></td>
+            <td class="note">Device-direct</td>
+            <td class="note">No wireless protocol in path. Full resolution local file playback. Best quality path for personal listening — especially with an external USB-C DAC.</td>
+          </tr>
+
+          <tr>
+            <td>
+              <div class="row-label">WiiM Pro / Pro Plus</div>
+              <div class="row-sublabel">Other AirPlay 2 streamers</div>
+            </td>
+            <td><span class="q q-lossless">24-bit / 48kHz</span></td>
+            <td><span class="lossless-badge lb-yes">✓ Yes</span></td>
+            <td class="note">AirPlay 2 / Connect protocols</td>
+            <td class="note">WiiM supports Qobuz Connect and Spotify Connect natively. Sorriva can instruct via Connect protocols for lossless delivery. AirPlay 2 available as fallback.</td>
+          </tr>
+
+          <tr>
+            <td>
+              <div class="row-label">Marantz / Denon / Yamaha</div>
+              <div class="row-sublabel">HEOS-based AV receivers</div>
+            </td>
+            <td><span class="q q-lossless">24-bit / 48kHz</span></td>
+            <td><span class="lossless-badge lb-yes">✓ Yes</span></td>
+            <td class="note">AirPlay 2 / Connect protocols</td>
+            <td class="note">HEOS platform supports Spotify Connect and Qobuz Connect. AirPlay 2 available. Sorriva can deliver lossless via Connect protocols where supported.</td>
+          </tr>
+
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+</body>
+</html>

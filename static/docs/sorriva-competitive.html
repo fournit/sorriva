@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sorriva — Competitive Matrix</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --parchment:    #F5F2EE;
+    --parchment-dk: #EDE9E3;
+    --near-black:   #1A1714;
+    --slate:        #3D5A99;
+    --slate-lt:     #5570AA;
+    --slate-dim:    rgba(61,90,153,0.12);
+    --slate-dim2:   rgba(61,90,153,0.07);
+    --brass:        #B07D4F;
+    --brass-lt:     rgba(176,125,79,0.15);
+    --muted:        #7A7470;
+    --border:       rgba(26,23,20,0.10);
+    --green:        #2E7D52;
+    --green-lt:     rgba(46,125,82,0.10);
+    --red:          #9B3333;
+    --red-lt:       rgba(155,51,51,0.09);
+    --amber:        #8A6A1A;
+    --amber-lt:     rgba(138,106,26,0.10);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--parchment);
+    color: var(--near-black);
+    font-size: 15px;
+    line-height: 1.7;
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* ── SIDEBAR ─────────────────────────────────────── */
+  .sidebar {
+    width: 240px;
+    min-width: 240px;
+    background: var(--near-black);
+    color: var(--parchment);
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 32px 0 40px;
+    display: flex;
+    flex-direction: column;
+    scrollbar-width: thin;
+    scrollbar-color: #3a3330 transparent;
+  }
+
+  .sidebar-wordmark {
+    padding: 0 24px 28px;
+    border-bottom: 1px solid rgba(245,242,238,0.08);
+    margin-bottom: 16px;
+  }
+
+  .wordmark {
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: -0.05em;
+    color: var(--parchment);
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 3px;
+    line-height: 1;
+  }
+
+  .wordmark-dot {
+    width: 7px;
+    height: 7px;
+    background: var(--slate);
+    border-radius: 50%;
+    margin-top: 3px;
+  }
+
+  .sidebar-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: rgba(245,242,238,0.35);
+    padding: 0 24px;
+    margin-bottom: 6px;
+    margin-top: 20px;
+  }
+
+  .sidebar nav a {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 24px;
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(245,242,238,0.60);
+    text-decoration: none;
+    transition: color 0.15s, background 0.15s;
+    border-left: 2px solid transparent;
+  }
+
+  .sidebar nav a:hover,
+  .sidebar nav a.active {
+    color: var(--parchment);
+    background: rgba(245,242,238,0.06);
+    border-left-color: var(--slate);
+  }
+
+  .sidebar-competitor {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 24px;
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(245,242,238,0.55);
+    text-decoration: none;
+    transition: color 0.15s, background 0.15s;
+    border-left: 2px solid transparent;
+    cursor: pointer;
+  }
+
+  .sidebar-competitor:hover {
+    color: var(--parchment);
+    background: rgba(245,242,238,0.06);
+  }
+
+  .sidebar-competitor .comp-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .sidebar-footer {
+    margin-top: auto;
+    padding: 20px 24px 0;
+    border-top: 1px solid rgba(245,242,238,0.08);
+    font-size: 11px;
+    color: rgba(245,242,238,0.25);
+  }
+
+  /* ── MAIN ─────────────────────────────────────────── */
+  .main {
+    flex: 1;
+    padding: 52px 56px 80px;
+    max-width: 1100px;
+    overflow-x: auto;
+  }
+
+  /* ── PAGE HEADER ──────────────────────────────────── */
+  .page-header {
+    margin-bottom: 48px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .page-eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: var(--brass);
+    margin-bottom: 10px;
+  }
+
+  .page-title {
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1.1;
+    color: var(--near-black);
+    margin-bottom: 14px;
+  }
+
+  .page-subtitle {
+    font-size: 15px;
+    color: var(--muted);
+    max-width: 600px;
+    line-height: 1.6;
+  }
+
+  .page-meta {
+    display: flex;
+    gap: 24px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+  }
+
+  .meta-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    background: var(--parchment-dk);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 4px 12px;
+  }
+
+  .meta-pill .dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--brass);
+  }
+
+  /* ── SECTION ──────────────────────────────────────── */
+  .section {
+    margin-bottom: 56px;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    gap: 16px;
+  }
+
+  .section-title {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+  }
+
+  .section-desc {
+    font-size: 13.5px;
+    color: var(--muted);
+    margin-bottom: 20px;
+    max-width: 680px;
+  }
+
+  .competitor-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 14px;
+    border-radius: 20px;
+    border: 1.5px solid;
+    white-space: nowrap;
+  }
+
+  /* ── LEGEND ───────────────────────────────────────── */
+  .legend {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  /* ── TABLE ────────────────────────────────────────── */
+  .matrix-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+
+  .matrix-table thead th {
+    padding: 10px 14px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: var(--parchment-dk);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  .matrix-table thead th.col-feature { width: 18%; }
+  .matrix-table thead th.col-category { width: 9%; }
+  .matrix-table thead th.col-them { width: 14%; }
+  .matrix-table thead th.col-us { width: 14%; }
+  .matrix-table thead th.col-advantage { width: 12%; }
+  .matrix-table thead th.col-response { width: 33%; }
+
+  .matrix-table thead th.col-us {
+    background: var(--slate-dim2);
+    color: var(--slate);
+    border-bottom-color: var(--slate);
+  }
+
+  .matrix-table tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.10s;
+  }
+
+  .matrix-table tbody tr:hover {
+    background: rgba(26,23,20,0.025);
+  }
+
+  .matrix-table tbody tr.category-header td {
+    background: var(--near-black);
+    color: var(--parchment);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    padding: 8px 14px;
+  }
+
+  .matrix-table tbody td {
+    padding: 11px 14px;
+    vertical-align: top;
+    line-height: 1.5;
+  }
+
+  .feature-name {
+    font-weight: 600;
+    color: var(--near-black);
+    font-size: 13px;
+  }
+
+  .feature-desc {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  /* Status chips */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 5px;
+    white-space: nowrap;
+  }
+
+  .chip-yes       { background: var(--green-lt);  color: var(--green); }
+  .chip-partial   { background: var(--amber-lt);  color: var(--amber); }
+  .chip-no        { background: var(--red-lt);    color: var(--red); }
+  .chip-sorriva   { background: var(--slate-dim); color: var(--slate); }
+  .chip-planned   { background: var(--brass-lt);  color: var(--brass); }
+  .chip-better    { background: var(--green-lt);  color: var(--green); }
+
+  /* Advantage badge */
+  .advantage {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
+  .adv-ours    { background: var(--slate-dim);  color: var(--slate); }
+  .adv-theirs  { background: var(--red-lt);     color: var(--red); }
+  .adv-parity  { background: var(--parchment-dk); color: var(--muted); border: 1px solid var(--border); }
+  .adv-planned { background: var(--brass-lt);   color: var(--brass); }
+
+  /* Response text */
+  .response-text {
+    font-size: 13px;
+    color: var(--near-black);
+    line-height: 1.55;
+  }
+
+  .response-quote {
+    display: block;
+    margin-top: 5px;
+    font-size: 12px;
+    font-style: italic;
+    color: var(--slate-lt);
+    border-left: 2px solid var(--slate);
+    padding-left: 8px;
+  }
+
+  /* ── SUMMARY CALLOUTS ─────────────────────────────── */
+  .callout-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 40px;
+  }
+
+  .callout {
+    background: var(--parchment-dk);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+
+  .callout-number {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+
+  .callout-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+  }
+
+  .callout.wins  .callout-number { color: var(--green); }
+  .callout.gaps  .callout-number { color: var(--brass); }
+  .callout.parity .callout-number { color: var(--slate); }
+
+  /* ── POSITIONING NOTE ─────────────────────────────── */
+  .positioning-block {
+    background: var(--near-black);
+    color: var(--parchment);
+    border-radius: 12px;
+    padding: 28px 32px;
+    margin-top: 40px;
+  }
+
+  .positioning-block h3 {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--brass);
+    margin-bottom: 12px;
+  }
+
+  .positioning-block p {
+    font-size: 14px;
+    color: rgba(245,242,238,0.80);
+    line-height: 1.7;
+    margin-bottom: 10px;
+  }
+
+  .positioning-block p:last-child { margin-bottom: 0; }
+
+  .positioning-block strong {
+    color: var(--parchment);
+    font-weight: 600;
+  }
+
+  /* ── COMPETITOR TOC ───────────────────────────────── */
+  .competitor-toc {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 40px;
+    flex-wrap: wrap;
+  }
+
+  .toc-card {
+    background: var(--parchment-dk);
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 20px;
+    min-width: 160px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+
+  .toc-card:hover { border-color: var(--slate); }
+  .toc-card.active { border-color: var(--slate); background: var(--slate-dim2); }
+
+  .toc-card-name {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 2px;
+  }
+
+  .toc-card-type {
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  .toc-card-status {
+    display: inline-block;
+    margin-top: 8px;
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: var(--green-lt);
+    color: var(--green);
+  }
+
+  .toc-card-status.planned {
+    background: var(--brass-lt);
+    color: var(--brass);
+  }
+
+  /* ── RESPONSIVE ───────────────────────────────────── */
+  @media (max-width: 900px) {
+    .sidebar { display: none; }
+    .main { padding: 32px 20px 60px; }
+    .callout-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── SIDEBAR ─────────────────────────────────────── -->
+<aside class="sidebar">
+  <div class="sidebar-wordmark">
+    <div class="wordmark">sorriva<span class="wordmark-dot"></span></div>
+  </div>
+
+  <div class="sidebar-label">Document</div>
+  <nav>
+    <a href="#overview" class="active">Overview</a>
+    <a href="#roon">Roon Analysis</a>
+  </nav>
+
+  <div class="sidebar-label">Competitors</div>
+  <a class="sidebar-competitor" href="#roon">
+    <span class="comp-dot" style="background:#8B5CF6;"></span> Roon
+  </a>
+  <a class="sidebar-competitor" href="#spotify" style="opacity:0.4;">
+    <span class="comp-dot" style="background:#1DB954;"></span> Spotify <span style="font-size:10px;opacity:0.6;margin-left:4px;">— planned</span>
+  </a>
+  <a class="sidebar-competitor" href="#apple-music" style="opacity:0.4;">
+    <span class="comp-dot" style="background:#FC3C44;"></span> Apple Music <span style="font-size:10px;opacity:0.6;margin-left:4px;">— planned</span>
+  </a>
+  <a class="sidebar-competitor" href="#sonos" style="opacity:0.4;">
+    <span class="comp-dot" style="background:#000;"></span> Sonos <span style="font-size:10px;opacity:0.6;margin-left:4px;">— planned</span>
+  </a>
+  <a class="sidebar-competitor" href="#plex" style="opacity:0.4;">
+    <span class="comp-dot" style="background:#E5A00D;"></span> Plex <span style="font-size:10px;opacity:0.6;margin-left:4px;">— planned</span>
+  </a>
+
+  <div class="sidebar-footer">
+    Sorriva — Passione<br>
+    Updated 2026-07-04
+  </div>
+</aside>
+
+<!-- ── MAIN ─────────────────────────────────────────── -->
+<main class="main">
+
+  <!-- PAGE HEADER -->
+  <div class="page-header" id="overview">
+    <div class="page-eyebrow">Passione · Sorriva</div>
+    <h1 class="page-title">Competitive Matrix</h1>
+    <p class="page-subtitle">Feature-by-feature comparison against products in the same space — with Sorriva's positioning response to each. Used internally and as input to marketing copy.</p>
+    <div class="page-meta">
+      <span class="meta-pill"><span class="dot"></span> 1 competitor analyzed</span>
+      <span class="meta-pill"><span class="dot"></span> Roon — v2.0</span>
+      <span class="meta-pill"><span class="dot"></span> Last updated 2026-07-04</span>
+    </div>
+  </div>
+
+  <!-- COMPETITOR TOC -->
+  <div class="competitor-toc">
+    <div class="toc-card active" onclick="document.getElementById('roon').scrollIntoView({behavior:'smooth'})">
+      <div class="toc-card-name">Roon</div>
+      <div class="toc-card-type">Audiophile music server</div>
+      <span class="toc-card-status">Analyzed</span>
+    </div>
+    <div class="toc-card" title="Planned">
+      <div class="toc-card-name">Spotify</div>
+      <div class="toc-card-type">Streaming service</div>
+      <span class="toc-card-status planned">Planned</span>
+    </div>
+    <div class="toc-card" title="Planned">
+      <div class="toc-card-name">Apple Music</div>
+      <div class="toc-card-type">Streaming + ecosystem</div>
+      <span class="toc-card-status planned">Planned</span>
+    </div>
+    <div class="toc-card" title="Planned">
+      <div class="toc-card-name">Sonos</div>
+      <div class="toc-card-type">Hardware + controller app</div>
+      <span class="toc-card-status planned">Planned</span>
+    </div>
+    <div class="toc-card" title="Planned">
+      <div class="toc-card-name">Plex</div>
+      <div class="toc-card-type">Self-hosted media server</div>
+      <span class="toc-card-status planned">Planned</span>
+    </div>
+  </div>
+
+  <!-- ── ROON SECTION ─────────────────────────────────── -->
+  <div class="section" id="roon">
+
+    <div class="section-header">
+      <h2 class="section-title">Roon</h2>
+      <span class="competitor-badge" style="border-color:#8B5CF6;color:#8B5CF6;">
+        <svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4" fill="#8B5CF6"/></svg>
+        Audiophile Server · $130/yr
+      </span>
+    </div>
+
+    <p class="section-desc">Roon is the gold standard for audiophile library management. It validates the market for what Sorriva is building — but its architecture (server-required, hardware-locked, mobile-as-afterthought) creates the exact openings Sorriva was designed to fill.</p>
+
+    <!-- SUMMARY CALLOUTS -->
+    <div class="callout-grid">
+      <div class="callout wins">
+        <div class="callout-number">11</div>
+        <div class="callout-label">Sorriva advantages</div>
+      </div>
+      <div class="callout gaps">
+        <div class="callout-number">2</div>
+        <div class="callout-label">Honest gaps</div>
+      </div>
+      <div class="callout parity">
+        <div class="callout-number">7</div>
+        <div class="callout-label">Parity features</div>
+      </div>
+    </div>
+
+    <!-- LEGEND -->
+    <div class="legend">
+      <div class="legend-item">
+        <span class="chip chip-yes">✓ Yes</span> Has it fully
+      </div>
+      <div class="legend-item">
+        <span class="chip chip-partial">~ Partial</span> Limited or awkward
+      </div>
+      <div class="legend-item">
+        <span class="chip chip-no">✗ No</span> Doesn't exist
+      </div>
+      <div class="legend-item">
+        <span class="chip chip-planned">◎ Planned</span> Sorriva roadmap
+      </div>
+      <div class="legend-item">
+        <span class="chip chip-better">↑ Better</span> Sorriva approach is superior
+      </div>
+    </div>
+
+    <!-- MATRIX TABLE -->
+    <table class="matrix-table">
+      <thead>
+        <tr>
+          <th class="col-feature">Feature</th>
+          <th class="col-category">Category</th>
+          <th class="col-them">Roon</th>
+          <th class="col-us">Sorriva</th>
+          <th class="col-advantage">Advantage</th>
+          <th class="col-response">Sorriva's response</th>
+        </tr>
+      </thead>
+      <tbody>
+
+        <!-- SETUP & ACCESS -->
+        <tr class="category-header"><td colspan="6">Setup &amp; Access</td></tr>
+
+        <tr>
+          <td>
+            <div class="feature-name">Server requirement</div>
+            <div class="feature-desc">Dedicated always-on Mac/PC/NAS required to run Roon Core</div>
+          </td>
+          <td><span class="chip chip-yes">Req'd</span></td>
+          <td><span class="chip chip-no">✗ Required</span></td>
+          <td><span class="chip chip-better">↑ None</span></td>
+          <td><span class="advantage adv-ours">Ours</span></td>
+          <td>
+            <div class="response-text">No server to buy, configure, or keep running. Sorriva is a pure App Store download — nothing to install at home.
+              <span class="response-quote">"Not a server. Not a project. Just music."</span>
+            </div>
+          </td>
+        </tr>
+
+        <tr>
+          <td>
+            <div class="feature-name">Pricing</div>
+            <div class="feature-desc">Cost of entry to the full experience</div>
+          </td>
+          <td><span class="chip chip-yes">Cost</span></td>
+          <td><span class="chip chip-no">$130/yr</span></td>
+          <td><span class="chip chip-planned">◎ $5–8/mo</span></td>
+          <td><span class="advantage adv-ours">Ours</span></td>
+          <td>
+            <div class="response-text">Sorriva household pricing at ~$5–8/month covers the entire family with individual profiles. Roon charges $130/year and still requires a server.
+              <span class="response-quote">"All the power. None of the overhead."</span>
+            </div>
+          </td>
+        </tr>
+
+        <tr>
+          <td>
+            <div class="feature-name">Mobile as first-class client</div>
+            <div class="feature-desc">iPhone/iPad as a full listening experience, not just a remote</div>
+          </td>
+          <td></td>
+          <td><span class="chip chip-partial">~ Remote only</span></td>
+          <td><span class="chip chip-better">↑ Full client</span></td>
+          <td><span class="advantage adv-ours">Ours</span></td>
+          <td>
+            <div class="response-text">Roon's mobile app is architecturally a controller — it remote-controls your server. Sorriva on iPhone is the whole product. Library, playback, Deriva, zones — everything available everywhere, server or not.</div>
+          </td>
+        </tr>
+
+        <tr>
+          <td>
+            <div class="feature-name">MQA support</div>
+            <div class="feature-desc">Master Quality Authenticated format decoding</div>
+          </td>
+          <td></td>
+          <td><span class="chip chip-yes">✓ Supported</span></td>
+          <td><span class="chip chip-no">✗ Not building</span></td>
+          <td><span class="advantage adv-ours">Ours</span></td>
+          <td>
+            <div class="response-text">MQA Ltd went into administration in 2023. Tidal — the only major service that pushed it — has been walking it back. Qobuz never supported it. Building MQA support in 2026 would be adding complexity for a dying format. Sorriva supports FLAC lossless natively — the format the industry is standardizing on.</div>
+          </td>
+        </tr>
+
+        <!-- LIBRARY -->
+        <tr class="category-header"><td colspan="6">Local Library</td></tr>
+
+        <tr>
+          <td>
+            <div class="feature-name">Local file playback</div>
+            <div class="feature-desc">FLAC, ALAC, MP3, hi-res audio</div>
+          </td>
+          <td></td>
+          <td><span class="chip chip-yes">✓ Yes</span></td>
+          <td><span class="chip chip-planned">◎ Planned</span></td>
+          <td><span class="advantage adv-parity">Parity</span></td>
+          <td>
+            <div class="response-text">Full local library support — FLAC, ALAC, MP3, WAV, AIFF. SMB/NAS, local storage, and USB-C external drives on iPad. No server required to index or play.</div>
+          </td>
+        </tr>
+
+        <tr>
+          <td>
+            <div class="feature-name">Album version grouping</div>
+            <div class="feature-desc">Collapse original, remaster, deluxe into one album card with a versions tab</div>
+          </td>
+          <td></td>
+          <td><span class="chip chip-yes">✓ Yes</span></td>
+          <td><span class="chip chip-planned">◎ Planned</span></td>
+          <td><span class="advantage adv-parity">Parity</span></td>
+          <td>
+            <div class="response-text">Handled by the unified music graph — same MusicBrainz recording ID, multiple versions. Audiophiles with both original and remaster copies get clean grouping rather than duplicates.</div>
+          </td>
+        </tr>
+
+        <tr>
+          <td>
+            <div class="feature-name">Focus / library filtering</div>
+            <div class="feature-desc">Multi-axis filtering by format, era, label, genre, mood, resolution</div>
+          </td>
+          <td></td>
+          <td><span class="chip chip-yes">✓ Yes</span></td>
+          <td><span class="chip chip-better">↑ Conversational</span></td>
+          <td><span class="advantage adv-ours">Ours</span></td>
+          <td>
+            <div class="response-text">Roon's Focus is powerful but takes real effort to learn. Sorriva's answer is natural language via Deriva — "show me my hi-res albums from the 70s I haven't played in a year" returns the right list instantly. No filter panels to navigate.
+              <span class="response-quote">"Just ask. Deriva finds it."</span>
+            </div>
+          </td>
+        </tr>
+
+        <!-- METADATA -->
+        <tr class="category-header"><td colspan="6">Metadata &amp; Discovery</td></tr>
+
+        <tr>
+          <td>
+            <div class="feature-name">Rich credits display</div>
+            <div class="feature-desc">Per-track credits — performer, engineer, producer, instrument</div>
+          </td>
+          <td></td>
+          <td><span class="chip chip-yes">✓ Yes</span></td>
+          <td><span class="chip chip-planned">◎ Planned</span></td>
+          <td><span class="advantage adv-parity">Parity</span></td>
+          <td>
+            <div class="response-text">Delivered via MusicBrainz. Apple TV now playing Credits tab is the primary surface. Same depth as Roon, with Sorriva's warmer visual presentation rather than Roon's clinical database feel.</div>
+          </td>
+        </tr>
+
+        <tr>
+          <td>
+            <div class="feature-name">AI discovery / radio</div>
+            <div class="feature-desc">Intelligent continuous play and music recommendation</div>
+          </td>
+          <td></td>
+          <td><span class="chip chip-partial">~ Roon Radio</span></td>
+          <td><span class="chip chip-better">↑ Deriva</span></td>
+          <td><span class="advantage adv-ours">Ours</span></td>
+          <td>
+            <div class="response-text">Roon Radio extends a queue algorithmically. Deriva is a discovery philosophy — mood-driven, conversational, learns from skips, resurfaces forgotten library tracks. It operates across your local files and all streaming sources simultaneously.
+              <span class="response-quote">"Let Deriva find the rest."</span>
+            </div>
+          </td>
+        </tr>
+
+        <tr>
+          <td>
+            <div class="feature-name">Cross-service track identity</div>
+            <div class="feature-desc">Recognizing the same track across local files, Spotify, Apple Music</div>
+          </td>
+          <td></td>
+          <td><span class="chip chip-partial">~ Tidal/Qobuz only</span></td>
+          <td><span class="chip chip-better">↑ Full graph</span></td>
+          <td><span class="advantage adv-ours">Ours</span></td>
+          <td>
+            <div class="response-text">Roon integrates Tidal and Qobuz awkwardly, and Spotify is absent entirely. Sorriva's unified music graph uses MusicBrainz IDs to resolve the same track across local FLAC, Spotify, Apple Music, and Qobuz — one identity, best source at playback time.</div>
+          </td>
+        </tr>
+
+        <!-- MULTI-ROOM -->
+        <tr class="category-header"><td colspan="6">Multi-Room Audio</td></tr>
+
+        <tr>
+          <td>
+            <div class="feature-name">Multi-room playback</div>
+            <div class="feature-desc">Synchronized audio across multiple rooms</div>
+          </td>
+          <td></td>
+          <td><span class="chip chip-yes">✓ RAAT</span></td>
+          <td><span class="chip chip-planned">◎ Native APIs</span></td>
+          <td><span class="advantage adv-parity">Parity</span></td>
+          <td>
+            <div class="response-text">Sorriva groups Sonos zones via the Sonos HTTP API and Bluesound zones via the BluOS API — the same native grouping layer Roon uses. Any combination of Sonos zones, any combination of Bluesound zones. Cross-ecosystem groups (Sonos + Bluesound together) use AirPlay 2 for sync — lossless CD quality, which is honest and clearly labelled.</div>
+          </td>
+        </tr>
+
+        <tr>
+          <td>
+            <div class="feature-name">Hardware freedom</div>
+            <div class="feature-desc">Works with any speaker/amplifier, not just a certified list</div>
+          </td>
+          <td></td>
+          <td><span class="chip chip-no">✗ Roon Ready only</span></td>
+          <td><span class="chip chip-better">↑ Open ecosystem</span></td>
+          <td><span class="advantage adv-ours">Ours</span></td>
+          <td>
+            <div class="response-text">Roon requires "Roon Ready" certification — a vendor-gated list that requires hardware manufacturers to license and implement RAAT. Sorriva works with any device supporting AirPlay 2, Spotify Connect, Qobuz Connect, or Tidal Connect — which covers essentially all serious audio hardware made in the last five years. No certification required. No ecosystem to join.
+              <span class="response-quote">"Any speaker. Any service. One app."</span>
+            </div>
+          </td>
+        </tr>
+
+        <tr>
+          <td>
+            <div class="feature-name">EQ &amp; tone control</div>
+            <div class="feature-desc">Per-room equalization and tone adjustment</div>
+          </td>
+          <td></td>
+          <td><span class="chip chip-yes">✓ DSP engine</span></td>
+          <td><span class="chip chip-planned">◎ EQService</span></td>
+          <td><span class="advantage adv-theirs">Theirs</span></td>
+          <td>
+            <div class="response-text">Roon's DSP engine — parametric EQ, upsampling, room correction — runs server-side and is genuinely powerful for critical listeners. Sorriva's EQService covers practical tone control (bass, treble, loudness, balance) via Sonos HTTP and BluOS APIs. Real honest gap: Sorriva doesn't do server-side DSP and isn't trying to. The target user wants great sound, not signal processing configuration.</div>
+          </td>
+        </tr>
+
+        <tr>
+          <td>
+            <div class="feature-name">Hi-res audio delivery</div>
+            <div class="feature-desc">Streaming or local files above CD quality (24-bit/96kHz+)</div>
+          </td>
+          <td></td>
+          <td><span class="chip chip-yes">✓ RAAT bit-perfect</span></td>
+          <td><span class="chip chip-planned">◎ Via Connect</span></td>
+          <td><span class="advantage adv-parity">Parity*</span></td>
+          <td>
+            <div class="response-text">Roon delivers bit-perfect hi-res via RAAT to Roon Ready DACs — genuinely impressive. Sorriva delivers 24/192 via Qobuz Connect and Tidal Connect to Bluesound hardware; 24/48 to Sonos via native API; lossless CD quality on AirPlay 2 paths. Hi-res requires the right endpoint hardware — Sorriva is honest about this with a per-zone Signal Path indicator. *Parity on Bluesound; Sonos caps at 24/48 regardless of app.
+              <span class="response-quote">"Nobody gets lossy. Everyone gets lossless. Hi-res requires the right hardware."</span>
+            </div>
+          </td>
+        </tr>
+
+        <tr>
+          <td>
+            <div class="feature-name">Zone grouping — any combination</div>
+            <div class="feature-desc">Group any mix of zones into named rooms or scenes</div>
+          </td>
+          <td></td>
+          <td><span class="chip chip-partial">~ Per-protocol only</span></td>
+          <td><span class="chip chip-better">↑ Best quality or everywhere</span></td>
+          <td><span class="advantage adv-ours">Ours</span></td>
+          <td>
+            <div class="response-text">Roon zones are siloed by protocol — you cannot group a Sonos zone with a RAAT zone or an AirPlay zone. Getting everything playing together requires understanding protocol types and manually reconfiguring endpoints. Most users never figure it out. Sorriva abstracts this into one decision the user actually cares about: <em>best quality</em> or <em>everywhere</em>. Best quality groups within ecosystems using native APIs — Sonos zones at 24/48, Bluesound zones at 24/192. Everywhere groups everything via AirPlay 2 fallback — whole house, lossless CD quality, one tap. Quality badge shown on every group before you press play. No protocol knowledge required.
+              <span class="response-quote">"Best quality when you want it. Everywhere when you want that."</span>
+            </div>
+          </td>
+        </tr>
+
+        <tr>
+          <td>
+            <div class="feature-name">Signal path transparency</div>
+            <div class="feature-desc">Shows exactly what quality is being delivered at this moment</div>
+          </td>
+          <td></td>
+          <td><span class="chip chip-yes">✓ Signal path view</span></td>
+          <td><span class="chip chip-planned">◎ Planned</span></td>
+          <td><span class="advantage adv-parity">Parity</span></td>
+          <td>
+            <div class="response-text">Roon's Signal Path is one of its best features — it shows the full chain from source to DAC and flags any quality loss. Sorriva's equivalent is a per-zone Signal Path indicator on the now playing screen: source quality, delivery protocol, and what actually reaches the endpoint. Transparency is a feature, not a disclaimer. Most apps hide this — Sorriva surfaces it.</div>
+          </td>
+        </tr>
+
+        <!-- STREAMING -->
+        <tr class="category-header"><td colspan="6">Streaming Integration</td></tr>
+
+        <tr>
+          <td>
+            <div class="feature-name">Spotify integration</div>
+            <div class="feature-desc">In-app Spotify playback without leaving the music app</div>
+          </td>
+          <td></td>
+          <td><span class="chip chip-no">✗ Not available</span></td>
+          <td><span class="chip chip-planned">◎ Connect API</span></td>
+          <td><span class="advantage adv-ours">Ours</span></td>
+          <td>
+            <div class="response-text">Roon has never integrated Spotify — a notable gap for the world's largest streaming service. Sorriva uses Spotify Connect to deliver in-app playback without app switching. Spotify keeps the stream and royalty. Sorriva is the interface.</div>
+          </td>
+        </tr>
+
+        <tr>
+          <td>
+            <div class="feature-name">Apple Music integration</div>
+            <div class="feature-desc">In-app Apple Music playback</div>
+          </td>
+          <td></td>
+          <td><span class="chip chip-no">✗ Not available</span></td>
+          <td><span class="chip chip-planned">◎ MusicKit</span></td>
+          <td><span class="advantage adv-ours">Ours</span></td>
+          <td>
+            <div class="response-text">Roon does not integrate Apple Music. Sorriva uses Apple's MusicKit framework for full in-app playback — the same path Apple offers to all App Store developers. Combined with local library, it covers the typical Apple household completely.</div>
+          </td>
+        </tr>
+
+        <!-- PLATFORM -->
+        <tr class="category-header"><td colspan="6">Platform &amp; UI</td></tr>
+
+        <tr>
+          <td>
+            <div class="feature-name">Apple TV app</div>
+            <div class="feature-desc">Lean-back living room experience on Apple TV</div>
+          </td>
+          <td></td>
+          <td><span class="chip chip-no">✗ No</span></td>
+          <td><span class="chip chip-planned">◎ Planned</span></td>
+          <td><span class="advantage adv-ours">Ours</span></td>
+          <td>
+            <div class="response-text">Roon has no Apple TV app. Sorriva's Phase 6 delivers a cinematic lean-back experience — full browse, Deriva prompt, zone control, and the six-tab Now Playing (Playing / Art / Info / Credits / Review / Artist). The living room screen it deserves.</div>
+          </td>
+        </tr>
+
+        <tr>
+          <td>
+            <div class="feature-name">Listening history &amp; stats</div>
+            <div class="feature-desc">Play counts, most-played artists, listening trends over time</div>
+          </td>
+          <td></td>
+          <td><span class="chip chip-yes">✓ Yes</span></td>
+          <td><span class="chip chip-planned">◎ Planned</span></td>
+          <td><span class="advantage adv-parity">Parity</span></td>
+          <td>
+            <div class="response-text">Play history runs from day one as infrastructure — UI surfaces in Phase 8. Per-track, per-artist, per-album stats. Household and individual profile breakdowns. Derives data for Deriva skip learning from the same source.</div>
+          </td>
+        </tr>
+
+      </tbody>
+    </table>
+
+    <!-- POSITIONING BLOCK -->
+    <div class="positioning-block">
+      <h3>Positioning summary vs Roon</h3>
+      <p>Roon proves the market. Audiophiles will pay a premium for a beautiful, intelligent music layer — they already do. But Roon's architecture is its ceiling: <strong>a $130/year product that requires a server, locks you to certified hardware, and treats your phone as an afterthought</strong>. Those aren't bugs they can easily fix — they're foundational to how RAAT and the Roon Core model works.</p>
+      <p>Sorriva's answer isn't "Roon, but cheaper." It's <strong>"what Roon would have built if it had been designed for the App Store era."</strong> No server. Zone grouping via native Sonos and BluOS APIs — the same layer Roon uses. Hi-res 24/192 to Bluesound hardware via Qobuz Connect and Tidal Connect. Spotify and Apple Music inside the same app as your local FLAC collection. A first-class iPhone and Apple TV experience. Deriva instead of a filter panel. Household pricing instead of a single-user annual fee.</p>
+      <p>On audio quality: Sorriva delivers lossless on every path. 24/192 to Bluesound via Connect protocols. 24/48 to Sonos via native API — the same ceiling Roon hits on Sonos. Lossless CD quality on mixed-hardware AirPlay 2 groups. Nobody gets lossy audio. The Signal Path indicator makes this visible and honest rather than hidden — because transparency about what your system is actually delivering is a feature, not a disclaimer.</p>
+      <p>On zone grouping: Roon's protocol rigidity means you cannot group across ecosystems at any quality level — a Sonos zone and a Bluesound zone simply cannot play together in Roon. Sorriva solves both ends: native API grouping within ecosystems for best quality, AirPlay 2 fallback for whole-house "everywhere" mode. One decision, clearly labelled, no protocol knowledge required. Roon presents this limitation as audiophile purity — Sorriva's users experience it as genuine flexibility.</p>
+      <p>Roon's existence is validation. Its limitations are the product brief.</p>
+    </div>
+
+  </div><!-- /section roon -->
+
+</main>
+</body>
+</html>
