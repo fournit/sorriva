@@ -3,11 +3,8 @@ import SwiftUI
 struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
-            // Navigation bar
             HStack {
-                Text("Settings")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundColor(.sTextPrimary)
+                SorrivaWordmark()
                 Spacer()
             }
             .padding(.horizontal, 20)
@@ -22,11 +19,6 @@ struct SettingsView: View {
 
             Spacer()
         }
-        .background(Color.sBackground)
+        .background(Color.clear)
     }
-}
-
-#Preview {
-    SettingsView()
-        .preferredColorScheme(.dark)
 }

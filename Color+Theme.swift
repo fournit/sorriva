@@ -8,9 +8,13 @@ import SwiftUI
 extension Color {
 
     // MARK: Backgrounds
-    static let sBackground  = Color(hex: "#243548")   // Page canvas
-    static let sSurface     = Color(hex: "#283E50")   // Cards, sheets
-    static let sCard        = Color(hex: "#334D63")   // Elevated cards, mini-player
+    // sBackground is not used directly — use gradient stops for the full-screen gradient
+    static let sBackground      = Color(hex: "#3A6880")   // Mid-point reference
+    static let sGradientTop     = Color(hex: "#5580A8")   // Gradient top — steel blue
+    static let sGradientMid     = Color(hex: "#3A6880")   // Gradient mid — blue-teal transition
+    static let sGradientBottom  = Color(hex: "#1E4E60")   // Gradient bottom — deep teal
+    static let sSurface         = Color(hex: "#253E58")   // Cards, sheets (slightly lighter than card)
+    static let sCard            = Color(hex: "#1A3048")   // Zone cards, elevated surfaces
 
     // MARK: Accent
     static let sAccent      = Color(hex: "#3D5A99")   // Primary accent, active states

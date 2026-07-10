@@ -1,0 +1,24 @@
+Add these keys to your Info.plist (Xcode: target → Info tab, or edit Info.plist source):
+
+1. NSLocalNetworkUsageDescription (String)
+   Value: "Sorriva needs access to your local network to discover and control Sonos and Bluesound speakers."
+
+2. NSBonjourServices (Array of Strings)
+   Items:
+   - _sonos._tcp
+   - _musc._tcp
+   - _musp._tcp
+   - _musz._tcp
+   - _mush._tcp
+
+In Xcode Info.plist XML format:
+<key>NSLocalNetworkUsageDescription</key>
+<string>Sorriva needs access to your local network to discover and control Sonos and Bluesound speakers.</string>
+<key>NSBonjourServices</key>
+<array>
+    <string>_sonos._tcp</string>
+    <string>_musc._tcp</string>
+    <string>_musp._tcp</string>
+    <string>_musz._tcp</string>
+    <string>_mush._tcp</string>
+</array>

@@ -24,8 +24,7 @@
 		80325AD33000B02B00308486 /* SorrivaWordmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AD23000B02B00308486 /* SorrivaWordmark.swift */; };
 		80325AD53000B03500308486 /* SplashView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AD43000B03500308486 /* SplashView.swift */; };
 		80325AD83001436B00308486 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 80325AD73001436B00308486 /* GRDB */; };
-		80325AE2300147C200308486 /* DatabaseModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AE0300147C200308486 /* DatabaseModels.swift */; };
-		80325AE3300147C200308486 /* SorrivaDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AE1300147C200308486 /* SorrivaDatabase.swift */; };
+		80325ADA3001436B00308486 /* GRDB-dynamic in Frameworks */ = {isa = PBXBuildFile; productRef = 80325AD93001436B00308486 /* GRDB-dynamic */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -46,8 +45,6 @@
 		80325AD03000AC1800308486 /* EQSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EQSheet.swift; sourceTree = "<group>"; };
 		80325AD23000B02B00308486 /* SorrivaWordmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SorrivaWordmark.swift; sourceTree = "<group>"; };
 		80325AD43000B03500308486 /* SplashView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashView.swift; sourceTree = "<group>"; };
-		80325AE0300147C200308486 /* DatabaseModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseModels.swift; sourceTree = "<group>"; };
-		80325AE1300147C200308486 /* SorrivaDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SorrivaDatabase.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -77,6 +74,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				80325AD83001436B00308486 /* GRDB in Frameworks */,
+				80325ADA3001436B00308486 /* GRDB-dynamic in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -86,8 +84,6 @@
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
-				80325AE0300147C200308486 /* DatabaseModels.swift */,
-				80325AE1300147C200308486 /* SorrivaDatabase.swift */,
 				80325AD43000B03500308486 /* SplashView.swift */,
 				80325AD23000B02B00308486 /* SorrivaWordmark.swift */,
 				80325AD03000AC1800308486 /* EQSheet.swift */,
@@ -146,6 +142,7 @@
 			name = Sorriva;
 			packageProductDependencies = (
 				80325AD73001436B00308486 /* GRDB */,
+				80325AD93001436B00308486 /* GRDB-dynamic */,
 			);
 			productName = Sorriva;
 			productReference = 80325AA02FFED8DE00308486 /* Sorriva.app */;
@@ -205,8 +202,6 @@
 			files = (
 				80325ACF3000A29D00308486 /* RadioStationBrowser.swift in Sources */,
 				80325AD53000B03500308486 /* SplashView.swift in Sources */,
-				80325AE2300147C200308486 /* DatabaseModels.swift in Sources */,
-				80325AE3300147C200308486 /* SorrivaDatabase.swift in Sources */,
 				80325AD13000AC1800308486 /* EQSheet.swift in Sources */,
 				80325AB62FFEE5DC00308486 /* DiscoverView.swift in Sources */,
 				80325AB72FFEE5DC00308486 /* LibraryView.swift in Sources */,
@@ -455,6 +450,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 80325AD63001436B00308486 /* XCRemoteSwiftPackageReference "GRDB" */;
 			productName = GRDB;
+		};
+		80325AD93001436B00308486 /* GRDB-dynamic */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 80325AD63001436B00308486 /* XCRemoteSwiftPackageReference "GRDB" */;
+			productName = "GRDB-dynamic";
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

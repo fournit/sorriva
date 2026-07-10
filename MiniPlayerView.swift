@@ -30,7 +30,7 @@ struct MiniPlayerView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(Color.sCard)
+        .background(Color.sGradientBottom.opacity(0.95))
     }
 }
 

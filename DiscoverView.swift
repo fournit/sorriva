@@ -3,16 +3,8 @@ import SwiftUI
 struct DiscoverView: View {
     var body: some View {
         VStack(spacing: 0) {
-            // Navigation bar
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Discover")
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundColor(.sTextPrimary)
-                    Text("Powered by Deriva")
-                        .font(.system(size: 12))
-                        .foregroundColor(.sBrass)
-                }
+                SorrivaWordmark()
                 Spacer()
             }
             .padding(.horizontal, 20)
@@ -27,11 +19,6 @@ struct DiscoverView: View {
 
             Spacer()
         }
-        .background(Color.sBackground)
+        .background(Color.clear)
     }
-}
-
-#Preview {
-    DiscoverView()
-        .preferredColorScheme(.dark)
 }
