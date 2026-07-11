@@ -159,6 +159,7 @@ struct ZoneCard: View, Equatable {
     let onNowPlaying: (String) -> Void
     @State private var isExpanded = false
     @State private var showEQ = false
+    @State private var showGroupPicker = false
 
     private var liveZone: SonosZone? {
         discovery.zones.first(where: { $0.id == zone.id })
@@ -204,7 +205,7 @@ struct ZoneCard: View, Equatable {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 // Text block — zone name + EQ on same line, station + track below
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 2) {
                     // Zone name + EQ bars inline
                     HStack(spacing: 6) {
                         Text(zone.name)
@@ -213,6 +214,16 @@ struct ZoneCard: View, Equatable {
                         if isPlaying {
                             EQBarsView()
                                 .frame(width: 18, height: 12)
+                        }
+                    }
+
+                    // Group members — same visual weight as coordinator
+                    if !z.groupMembers.isEmpty {
+                        ForEach(z.groupMembers, id: \.id) { member in
+                            Text(member.name)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(.sTextPrimary)
+                                .lineLimit(1)
                         }
                     }
 
@@ -265,14 +276,85 @@ struct ZoneCard: View, Equatable {
                         .background(Color.sSeparator)
                         .padding(.horizontal, 16)
 
-                    // Volume
+                    // Volume — group master (applies delta to all members)
                     VolumeControlView(zoneID: zone.id, discovery: discovery)
                         .padding(.horizontal, 16)
+
+                    // Individual member volume controls
+                    let liveMembers = (liveZone ?? zone).groupMembers
+                    if !liveMembers.isEmpty {
+                        Divider()
+                            .background(Color.sSeparator)
+                            .padding(.horizontal, 16)
+
+                        // Sync + Ungroup buttons
+                        HStack {
+                            Spacer()
+
+                            // Ungroup
+                            Button(action: {
+                                discovery.ungroupZone(zoneID: zone.id)
+                            }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "rectangle.on.rectangle.slash")
+                                        .font(.system(size: 11))
+                                    Text("Ungroup")
+                                        .font(.system(size: 11, weight: .medium))
+                                }
+                                .foregroundColor(.sHighlight)
+                            }
+                            .buttonStyle(.plain)
+
+                            Divider()
+                                .frame(height: 12)
+                                .padding(.horizontal, 8)
+
+                            // Sync
+                            Button(action: {
+                                let coordVol = (liveZone ?? zone).volume
+                                for member in liveMembers {
+                                    discovery.setMemberVolume(zoneID: zone.id, memberID: member.id, volume: coordVol)
+                                }
+                            }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "arrow.left.arrow.right")
+                                        .font(.system(size: 11))
+                                    Text("Sync")
+                                        .font(.system(size: 11, weight: .medium))
+                                }
+                                .foregroundColor(.sHighlight)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 16)
+
+                        // Coordinator individual row
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(zone.name)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.sTextMuted)
+                                .padding(.horizontal, 16)
+                            VolumeControlView(zoneID: zone.id, memberID: zone.id, discovery: discovery)
+                                .padding(.horizontal, 16)
+                        }
+
+                        // Member individual rows
+                        ForEach(liveMembers, id: \.id) { member in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(member.name)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(.sTextMuted)
+                                    .padding(.horizontal, 16)
+                                VolumeControlView(zoneID: zone.id, memberID: member.id, discovery: discovery)
+                                    .padding(.horizontal, 16)
+                            }
+                        }
+                    }
 
                     // Action row
                     HStack(spacing: 10) {
                         // Group button
-                        Button(action: {}) {
+                        Button(action: { showGroupPicker = true }) {
                             HStack(spacing: 6) {
                                 Image(systemName: "rectangle.3.group")
                                     .font(.system(size: 13))
@@ -287,15 +369,15 @@ struct ZoneCard: View, Equatable {
                         }
                         .buttonStyle(.plain)
 
-                        // EQ button
-                        Button(action: { showEQ = true }) {
+                        // EQ button — disabled when grouped (ambiguous which zone)
+                        Button(action: { if liveMembers.isEmpty { showEQ = true } }) {
                             HStack(spacing: 6) {
                                 Image(systemName: "slider.horizontal.3")
                                     .font(.system(size: 13))
                                 Text("EQ")
                                     .font(.system(size: 13, weight: .medium))
                             }
-                            .foregroundColor(.sHighlight)
+                            .foregroundColor(liveMembers.isEmpty ? .sHighlight : .sTextMuted)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .background(Color.sSurface)
@@ -338,6 +420,9 @@ struct ZoneCard: View, Equatable {
                     .presentationBackground(Color.sCard)
             }
         }
+        .sheet(isPresented: $showGroupPicker) {
+            GroupPickerSheet(coordinatorZone: zone, discovery: discovery)
+        }
         .onAppear {
             if autoExpand && !isExpanded {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
@@ -353,4 +438,202 @@ struct ZoneCard: View, Equatable {
 #Preview {
     ZonesView(discovery: ZoneDiscoveryService(), expandZoneID: .constant(nil))
         .preferredColorScheme(.dark)
+}
+
+// MARK: - GroupPickerSheet
+
+struct GroupPickerSheet: View {
+    let coordinatorZone: SonosZone
+    @ObservedObject var discovery: ZoneDiscoveryService
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var selectedIDs: Set<String> = []
+    @State private var hasChanges = false
+
+    // Flat list of ALL rooms — coordinators + their members, minus invisible satellites
+    private var allRooms: [RoomEntry] {
+        var rooms: [RoomEntry] = []
+        for zone in discovery.zones {
+            // Add the coordinator
+            rooms.append(RoomEntry(
+                id: zone.id,
+                name: zone.name,
+                host: zone.host,
+                isPlaying: zone.isPlaying,
+                stationName: zone.stationName,
+                currentTrack: zone.currentTrack,
+                currentArtist: zone.currentArtist,
+                coordinatorName: nil,  // it IS a coordinator
+                isCoordinator: true
+            ))
+            // Add its members
+            for member in zone.groupMembers {
+                rooms.append(RoomEntry(
+                    id: member.id,
+                    name: member.name,
+                    host: member.host,
+                    isPlaying: zone.isPlaying,       // inherits coordinator state
+                    stationName: zone.stationName,
+                    currentTrack: zone.currentTrack,
+                    currentArtist: zone.currentArtist,
+                    coordinatorName: zone.id != coordinatorZone.id ? zone.name : nil,
+                    isCoordinator: false
+                ))
+            }
+        }
+        // Remove the coordinator zone itself — can't add yourself
+        return rooms.filter { $0.id != coordinatorZone.id }.sorted { $0.name < $1.name }
+    }
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color.sGradientTop, Color.sGradientMid, Color.sGradientBottom],
+                startPoint: .top, endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // Header
+                HStack {
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.sTextMuted)
+                            .padding(12)
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer()
+
+                    VStack(spacing: 2) {
+                        Text("Group")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.sTextPrimary)
+                        Text(coordinatorZone.name)
+                            .font(.system(size: 12))
+                            .foregroundColor(.sTextMuted)
+                    }
+
+                    Spacer()
+
+                    Button(action: applyChanges) {
+                        Text("Apply")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(hasChanges ? .white : .sTextMuted)
+                            .padding(12)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!hasChanges)
+                }
+                .padding(.top, 8)
+
+                Divider().background(Color.sSeparator)
+
+                ScrollView {
+                    VStack(spacing: 8) {
+                        ForEach(allRooms, id: \.id) { room in
+                            let isSelected = selectedIDs.contains(room.id)
+
+                            Button(action: { toggleRoom(room) }) {
+                                HStack(spacing: 12) {
+                                    // Playing indicator — EQ bars or dot
+                                    if room.isPlaying {
+                                        EQBarsView()
+                                            .frame(width: 16, height: 12)
+                                    } else {
+                                        Circle()
+                                            .fill(Color.sIdle)
+                                            .frame(width: 8, height: 8)
+                                            .padding(.horizontal, 4)
+                                    }
+
+                                    // Zone info
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(room.name)
+                                            .font(.system(size: 15, weight: .semibold))
+                                            .foregroundColor(.sTextPrimary)
+
+                                        let context: String = {
+                                            if !room.currentTrack.isEmpty {
+                                                return room.stationName.isEmpty
+                                                    ? room.currentTrack
+                                                    : "\(room.stationName) · \(room.currentTrack)"
+                                            } else if !room.stationName.isEmpty {
+                                                return room.stationName
+                                            }
+                                            return room.isPlaying ? "Playing" : "Idle"
+                                        }()
+                                        Text(context)
+                                            .font(.system(size: 12))
+                                            .foregroundColor(room.isPlaying ? .sHighlight : .sTextMuted)
+                                            .lineLimit(1)
+                                    }
+
+                                    Spacer()
+
+                                    // Coordinator name if in another group
+                                    if let coordName = room.coordinatorName {
+                                        Text(coordName)
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.sTextMuted)
+                                            .lineLimit(1)
+                                    }
+
+                                    // Selection indicator
+                                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                        .font(.system(size: 20))
+                                        .foregroundColor(isSelected ? .sBrass : .sTextMuted)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .background(Color.sSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .padding(.bottom, 32)
+                }
+            }
+        }
+        .onAppear {
+            selectedIDs = Set(coordinatorZone.groupMembers.map { $0.id })
+        }
+    }
+
+    private func toggleRoom(_ room: RoomEntry) {
+        if selectedIDs.contains(room.id) {
+            selectedIDs.remove(room.id)
+        } else {
+            selectedIDs.insert(room.id)
+        }
+        let currentMembers = Set(coordinatorZone.groupMembers.map { $0.id })
+        hasChanges = selectedIDs != currentMembers
+    }
+
+    private func applyChanges() {
+        let currentMembers = Set(coordinatorZone.groupMembers.map { $0.id })
+        let toAdd = Array(selectedIDs.subtracting(currentMembers))
+        let toRemove = Array(currentMembers.subtracting(selectedIDs))
+        discovery.groupZone(coordinatorID: coordinatorZone.id, addZoneIDs: toAdd, removeZoneIDs: toRemove)
+        dismiss()
+    }
+}
+
+// MARK: - RoomEntry
+// Flat room representation for GroupPickerSheet — includes coordinator members
+
+struct RoomEntry {
+    let id: String
+    let name: String
+    let host: String
+    let isPlaying: Bool
+    let stationName: String
+    let currentTrack: String
+    let currentArtist: String
+    let coordinatorName: String?  // nil = standalone or in this group
+    let isCoordinator: Bool
 }

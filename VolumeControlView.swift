@@ -7,28 +7,68 @@ import SwiftUI
 
 struct VolumeControlView: View {
     let zoneID: String
+    var memberID: String? = nil      // When set, controls this member's volume independently
+    var memberName: String? = nil    // Label shown when controlling a member
     @ObservedObject var discovery: ZoneDiscoveryService
     @State private var isDragging = false
     @State private var dragVolume: Int? = nil
     @State private var preMuteVolume: Int? = nil
+    @State private var preMuteGroupVolumes: [String: Int] = [:]
 
     private var volume: Int {
-        dragVolume ?? discovery.zones.first(where: { $0.id == zoneID })?.volume ?? 0
+        if let mid = memberID {
+            if mid == zoneID {
+                // Coordinator individual
+                return dragVolume ?? discovery.zones.first(where: { $0.id == zoneID })?.volume ?? 0
+            }
+            // Member individual
+            return dragVolume ?? discovery.zones
+                .first(where: { $0.id == zoneID })?
+                .groupMembers.first(where: { $0.id == mid })?.volume ?? 0
+        }
+        // Group master (default)
+        return dragVolume ?? discovery.zones.first(where: { $0.id == zoneID })?.volume ?? 0
     }
 
     private var isMuted: Bool { volume == 0 }
 
+    private func set(_ vol: Int) {
+        let clamped = max(0, min(100, vol))
+        if let mid = memberID {
+            discovery.setMemberVolume(zoneID: zoneID, memberID: mid, volume: clamped)
+        } else {
+            discovery.setVolume(zoneID: zoneID, volume: clamped)
+        }
+    }
+
     var body: some View {
         HStack(spacing: 10) {
 
-            // Mute button — stores pre-mute volume, restores on unmute
+            // Mute button — group master mutes all members explicitly
             Button(action: {
                 if isMuted {
-                    set(preMuteVolume ?? 20)
-                    preMuteVolume = nil
+                    if memberID == nil {
+                        // Group master unmute — restore all pre-mute volumes
+                        discovery.muteGroup(zoneID: zoneID, mute: false, restoreVolumes: preMuteGroupVolumes)
+                        preMuteGroupVolumes = [:]
+                    } else {
+                        set(preMuteVolume ?? 15)
+                        preMuteVolume = nil
+                    }
                 } else {
-                    preMuteVolume = volume
-                    set(0)
+                    if memberID == nil {
+                        // Group master mute — capture all volumes first
+                        if let zone = discovery.zones.first(where: { $0.id == zoneID }) {
+                            preMuteGroupVolumes[zoneID] = zone.volume
+                            for member in zone.groupMembers {
+                                preMuteGroupVolumes[member.id] = member.volume
+                            }
+                        }
+                        discovery.muteGroup(zoneID: zoneID, mute: true)
+                    } else {
+                        preMuteVolume = volume
+                        set(0)
+                    }
                 }
             }) {
                 Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
@@ -69,9 +109,9 @@ struct VolumeControlView: View {
                     // Thumb
                     Circle()
                         .fill(Color.sHighlight)
-                        .frame(width: 22, height: 22)
+                        .frame(width: 16, height: 16)
                         .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
-                        .offset(x: max(0, thumbX - 11))
+                        .offset(x: max(0, thumbX - 8))
                         .gesture(
                             DragGesture(minimumDistance: 0)
                                 .onChanged { value in
@@ -89,7 +129,7 @@ struct VolumeControlView: View {
                                 }
                         )
                 }
-                .frame(height: 22)
+                .frame(height: 16)
                 .onTapGesture { location in
                     guard !isDragging else { return }
                     if location.x > thumbX {
@@ -99,7 +139,7 @@ struct VolumeControlView: View {
                     }
                 }
             }
-            .frame(height: 22)
+            .frame(height: 16)
 
             // + 1
             Button(action: { set(volume + 1) }) {
@@ -121,7 +161,4 @@ struct VolumeControlView: View {
         }
     }
 
-    private func set(_ vol: Int) {
-        discovery.setVolume(zoneID: zoneID, volume: max(0, min(100, vol)))
-    }
 }

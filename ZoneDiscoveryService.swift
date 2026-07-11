@@ -217,6 +217,20 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             }
         }
 
+        // Fetch volume for group members
+        for (zoneIdx, zone) in zones.enumerated() {
+            guard !zone.groupMembers.isEmpty else { continue }
+            for (memberIdx, member) in zone.groupMembers.enumerated() {
+                let host = member.host
+                Task { @MainActor in
+                    let vol = await ZoneDiscoveryService.volumeInfo(host: host)
+                    if zoneIdx < self.zones.count && memberIdx < self.zones[zoneIdx].groupMembers.count {
+                        self.zones[zoneIdx].groupMembers[memberIdx].volume = vol
+                    }
+                }
+            }
+        }
+
         // Fetch GetPositionInfo for ALL playing zones (track/artist updates every ~3min)
         let positionResults: [(String, Data)] = await withTaskGroup(of: (String, Data?).self) { group in
             for zone in zones.filter({ $0.isPlaying }) {
@@ -788,14 +802,235 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
 
     func setVolume(zoneID: String, volume: Int) {
         guard let zone = zones.first(where: { $0.id == zoneID }) else { return }
-        let clampedVol = max(0, min(100, volume))
-        // Optimistic UI update
+        let clamped = max(0, min(100, volume))
+        let delta = clamped - zone.volume
+
         if let idx = zones.firstIndex(where: { $0.id == zoneID }) {
-            zones[idx].volume = clampedVol
+            zones[idx].volume = clamped
+            // Apply same delta to all group members
+            for memberIdx in zones[idx].groupMembers.indices {
+                let newVol = max(0, min(100, zones[idx].groupMembers[memberIdx].volume + delta))
+                zones[idx].groupMembers[memberIdx].volume = newVol
+                let host = zones[idx].groupMembers[memberIdx].host
+                Task { await ZoneDiscoveryService.sendSetVolume(host: host, volume: newVol) }
+            }
         }
+        Task { await ZoneDiscoveryService.sendSetVolume(host: zone.host, volume: clamped) }
+    }
+
+    func muteGroup(zoneID: String, mute: Bool, restoreVolumes: [String: Int] = [:]) {
+        guard let zone = zones.first(where: { $0.id == zoneID }) else { return }
+        if let idx = zones.firstIndex(where: { $0.id == zoneID }) {
+            if mute {
+                // Mute all — set coordinator and all members to 0
+                zones[idx].volume = 0
+                Task { await ZoneDiscoveryService.sendSetVolume(host: zone.host, volume: 0) }
+                for memberIdx in zones[idx].groupMembers.indices {
+                    zones[idx].groupMembers[memberIdx].volume = 0
+                    let host = zones[idx].groupMembers[memberIdx].host
+                    Task { await ZoneDiscoveryService.sendSetVolume(host: host, volume: 0) }
+                }
+            } else {
+                // Restore coordinator
+                let coordVol = restoreVolumes[zoneID] ?? 15
+                zones[idx].volume = coordVol
+                Task { await ZoneDiscoveryService.sendSetVolume(host: zone.host, volume: coordVol) }
+                // Restore members
+                for memberIdx in zones[idx].groupMembers.indices {
+                    let memberId = zones[idx].groupMembers[memberIdx].id
+                    let memberVol = restoreVolumes[memberId] ?? 15
+                    zones[idx].groupMembers[memberIdx].volume = memberVol
+                    let host = zones[idx].groupMembers[memberIdx].host
+                    Task { await ZoneDiscoveryService.sendSetVolume(host: host, volume: memberVol) }
+                }
+            }
+        }
+    }
+
+    func groupZone(coordinatorID: String, addZoneIDs: [String], removeZoneIDs: [String]) {
+        guard let coordinator = zones.first(where: { $0.id == coordinatorID }) else { return }
+        print("SORRIVA: groupZone — coordinator: \(coordinator.name) (\(coordinatorID))")
+        print("SORRIVA: groupZone — adding: \(addZoneIDs)")
+        print("SORRIVA: groupZone — removing: \(removeZoneIDs)")
+
+        // Capture host data synchronously before async Task — zones may change during execution
+        var addHostMap: [String: String] = [:]  // id → host
+        for id in addZoneIDs {
+            if let zone = zones.first(where: { $0.id == id }) {
+                addHostMap[id] = zone.host
+            } else {
+                // Check if it's a member of another group
+                for z in zones {
+                    if let member = z.groupMembers.first(where: { $0.id == id }) {
+                        addHostMap[id] = member.host
+                        break
+                    }
+                }
+            }
+        }
+        var removeHostMap: [String: String] = [:]
+        for id in removeZoneIDs {
+            if let zone = zones.first(where: { $0.id == id }) {
+                removeHostMap[id] = zone.host
+            } else {
+                for z in zones {
+                    if let member = z.groupMembers.first(where: { $0.id == id }) {
+                        removeHostMap[id] = member.host
+                        break
+                    }
+                }
+            }
+        }
+        let coordinatorHost = coordinator.host
+        let coordinatorName = coordinator.name
+
+        print("SORRIVA: groupZone — host map: \(addHostMap)")
+
         Task {
-            await ZoneDiscoveryService.sendSetVolume(host: zone.host, volume: clampedVol)
+            // Remove zones from this group
+            for id in removeZoneIDs {
+                if let host = removeHostMap[id] {
+                    await ZoneDiscoveryService.becomeCoordinator(host: host)
+                    print("SORRIVA: Removed zone \(id) from group")
+                }
+            }
+
+            // Add new zones to this group
+            for id in addZoneIDs {
+                if let memberHost = addHostMap[id] {
+                    await ZoneDiscoveryService.addMember(
+                        coordinatorHost: coordinatorHost,
+                        memberHost: memberHost,
+                        memberUUID: coordinatorID
+                    )
+                    print("SORRIVA: Added zone \(id) (\(memberHost)) to \(coordinatorName)")
+                } else {
+                    print("SORRIVA: Could not find host for zone \(id)")
+                }
+            }
+
+            // Refresh after grouping — lightweight, no zone array replacement
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            await fetchTransportStates()
+            if let host = zones.first?.host {
+                await refreshIdleStates(host: host)
+            }
+            // Full topology refresh to get updated group members
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if let host = zones.first?.host {
+                await fetchTopology(host: host)
+            }
         }
+    }
+
+    private static func addMember(coordinatorHost: String, memberHost: String, memberUUID: String) async {
+        // SetAVTransportURI with x-rincon: (single colon) sent to MEMBER's host
+        // x-rincon:RINCON_XXXX tells the member to join the coordinator's group
+        let soapBody = """
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+          <s:Body>
+            <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+              <InstanceID>0</InstanceID>
+              <CurrentURI>x-rincon:\(memberUUID)</CurrentURI>
+              <CurrentURIMetaData></CurrentURIMetaData>
+            </u:SetAVTransportURI>
+          </s:Body>
+        </s:Envelope>
+        """
+        guard let url = URL(string: "http://\(memberHost):1400/MediaRenderer/AVTransport/Control"),
+              let bodyData = soapBody.data(using: .utf8) else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("\"urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI\"",
+                         forHTTPHeaderField: "SOAPACTION")
+        request.httpBody = bodyData
+        request.timeoutInterval = 5
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            print("SORRIVA: AddMember \(memberHost) → \(memberUUID) status=\(status)")
+        } catch {
+            print("SORRIVA: AddMember error: \(error.localizedDescription)")
+        }
+    }
+
+    func ungroupZone(zoneID: String) {
+        guard let zone = zones.first(where: { $0.id == zoneID }),
+              !zone.groupMembers.isEmpty else { return }
+
+        // Send each member to standalone — dissolves playback group
+        // Hardware bonds (stereo pairs, Arc+Sub) are not affected
+        for member in zone.groupMembers {
+            let host = member.host
+            Task {
+                await ZoneDiscoveryService.becomeCoordinator(host: host)
+                print("SORRIVA: Ungrouped \(member.name) from \(zone.name)")
+            }
+        }
+
+        // Optimistic update — clear members immediately
+        if let idx = zones.firstIndex(where: { $0.id == zoneID }) {
+            zones[idx].groupMembers = []
+        }
+
+        // Refresh topology after short delay to get new zone list
+        Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if let host = zones.first?.host {
+                await fetchTopology(host: host)
+            }
+        }
+    }
+
+    private static func becomeCoordinator(host: String) async {
+        let soapBody = """
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+          <s:Body>
+            <u:BecomeCoordinatorOfStandaloneGroup xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+              <InstanceID>0</InstanceID>
+            </u:BecomeCoordinatorOfStandaloneGroup>
+          </s:Body>
+        </s:Envelope>
+        """
+        guard let url = URL(string: "http://\(host):1400/MediaRenderer/AVTransport/Control"),
+              let bodyData = soapBody.data(using: .utf8) else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("\"urn:schemas-upnp-org:service:AVTransport:1#BecomeCoordinatorOfStandaloneGroup\"",
+                         forHTTPHeaderField: "SOAPACTION")
+        request.httpBody = bodyData
+        request.timeoutInterval = 5
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            print("SORRIVA: BecomeCoordinator \(host) status=\(status)")
+        } catch {
+            print("SORRIVA: BecomeCoordinator error: \(error.localizedDescription)")
+        }
+    }
+
+    func setMemberVolume(zoneID: String, memberID: String, volume: Int) {
+        let clamped = max(0, min(100, volume))
+
+        // Coordinator case — set directly without delta
+        if memberID == zoneID {
+            if let idx = zones.firstIndex(where: { $0.id == zoneID }) {
+                zones[idx].volume = clamped
+                let host = zones[idx].host
+                Task { await ZoneDiscoveryService.sendSetVolume(host: host, volume: clamped) }
+            }
+            return
+        }
+
+        // Member case
+        guard let zoneIdx = zones.firstIndex(where: { $0.id == zoneID }),
+              let memberIdx = zones[zoneIdx].groupMembers.firstIndex(where: { $0.id == memberID })
+        else { return }
+        let host = zones[zoneIdx].groupMembers[memberIdx].host
+        zones[zoneIdx].groupMembers[memberIdx].volume = clamped
+        Task { await ZoneDiscoveryService.sendSetVolume(host: host, volume: clamped) }
     }
 
     private static func sendSetVolume(host: String, volume: Int) async {
@@ -988,6 +1223,15 @@ extension ZoneDiscoveryService: NetServiceDelegate {
     }
 }
 
+// MARK: - SonosGroupMember
+
+struct SonosGroupMember: Equatable {
+    let id: String
+    let name: String
+    let host: String
+    var volume: Int = 0
+}
+
 // MARK: - SonosZone
 // A display-ready zone — coordinator only, satellites filtered out.
 
@@ -1002,7 +1246,8 @@ struct SonosZone: Identifiable, Equatable {
         lhs.stationLogoURL == rhs.stationLogoURL &&
         lhs.isHDMI == rhs.isHDMI &&
         lhs.idleState == rhs.idleState &&
-        lhs.capabilities == rhs.capabilities
+        lhs.capabilities == rhs.capabilities &&
+        lhs.groupMembers == rhs.groupMembers
         // playingUntil intentionally excluded — internal timing state, not display state
     }
     let id: String          // RINCON UUID of coordinator
@@ -1019,6 +1264,7 @@ struct SonosZone: Identifiable, Equatable {
     var capabilities: [String] = ["eq", "volume", "mute"]  // Loaded from DB devices table
     var dbDeviceId: String = ""     // Sorriva UUID from devices table
     var playingUntil: Date? = nil   // Grace period — ignore transport STOPPED within 5s of station play
+    var groupMembers: [SonosGroupMember] = [] // Non-coordinator zones in this playback group
 
     // Shim adapters for ZonesView compatibility
     var asDevice: SonosDevice {
@@ -1107,6 +1353,10 @@ private class TopologyParser: NSObject, XMLParserDelegate {
                     volume: 0
                 )
                 zone.idleState = coordinator.idleState
+                // Store non-coordinator, non-invisible members with full data
+                zone.groupMembers = currentMembers
+                    .filter { $0.uuid != currentCoordinatorID && !$0.invisible }
+                    .map { SonosGroupMember(id: $0.uuid, name: $0.name, host: $0.host) }
                 zones.append(zone)
             }
             currentCoordinatorID = ""
