@@ -127,12 +127,23 @@ struct AddSMBSourceView: View {
 struct SMBSharePickerView: View {
     var device: SMBDevice
     let onSaved: () -> Void
+    var prefillUsername: String = ""
+    var prefillPassword: String = ""
 
     @Environment(\.dismiss) private var dismiss
 
-    @State private var username = ""
-    @State private var password = ""
+    @State private var username: String
+    @State private var password: String
     @State private var manualHost = ""
+
+    init(device: SMBDevice, prefillUsername: String = "", prefillPassword: String = "", onSaved: @escaping () -> Void) {
+        self.device = device
+        self.onSaved = onSaved
+        self.prefillUsername = prefillUsername
+        self.prefillPassword = prefillPassword
+        _username = State(initialValue: prefillUsername)
+        _password = State(initialValue: prefillPassword)
+    }
     @State private var shares: [String] = []
     @State private var isLoading = false
     @State private var error: String? = nil

@@ -968,6 +968,38 @@ final class SorrivaDatabase {
         }
     }
 
+    func deleteLibrarySourcesByHost(host: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM library_sources WHERE host = ?", arguments: [host])
+        }
+    }
+
+    func updateServerCredentials(host: String, displayName: String, username: String?, password: String?) throws {
+        let now = Int(Date().timeIntervalSince1970)
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE library_sources
+                SET displayName = ?, username = ?, password = ?, updatedAt = ?
+                WHERE host = ?
+            """, arguments: [displayName, username, password, now, host])
+        }
+    }
+
+    func allLibrarySourcesByHost() throws -> [(host: String, sources: [LibrarySource])] {
+        let all = try allLibrarySources()
+        var grouped: [(host: String, sources: [LibrarySource])] = []
+        var seen: [String: Int] = [:]
+        for source in all {
+            if let idx = seen[source.host] {
+                grouped[idx].sources.append(source)
+            } else {
+                seen[source.host] = grouped.count
+                grouped.append((host: source.host, sources: [source]))
+            }
+        }
+        return grouped
+    }
+
     // MARK: - Model fetch from device description
 
     static func fetchModelName(host: String) async -> String? {
