@@ -42,8 +42,19 @@ struct ContentView: View {
                 DiscoverView()
                     .opacity(selectedTab == .discover ? 1 : 0)
 
-                SettingsView()
-                    .opacity(selectedTab == .settings ? 1 : 0)
+                SettingsView(
+                    discovery: discovery,
+                    onPlayStation: { station, zone in
+                        discovery.playStation(streamID: station.id, on: zone)
+                        expandZoneID = zone.id
+                        withAnimation { selectedTab = .zones }
+                    },
+                    onNavigateToZone: { zoneID in
+                        expandZoneID = zoneID
+                        withAnimation { selectedTab = .zones }
+                    }
+                )
+                .opacity(selectedTab == .settings ? 1 : 0)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.bottom, 72)

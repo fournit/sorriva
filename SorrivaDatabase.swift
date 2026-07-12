@@ -13,7 +13,6 @@ final class SorrivaDatabase {
     let dbQueue: DatabaseQueue
 
     private init() {
-        // Database path — persists across app launches
         let appSupport = try! FileManager.default
             .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let dbURL = appSupport.appendingPathComponent("sorriva.sqlite")
@@ -57,7 +56,6 @@ final class SorrivaDatabase {
                 t.column("syncedAt", .integer)
             }
 
-            // Index for fast source_id lookup (e.g. RINCON → device)
             try db.create(index: "devices_by_source_id", on: "devices",
                          columns: ["source", "sourceId"], unique: true, ifNotExists: true)
 
@@ -86,6 +84,326 @@ final class SorrivaDatabase {
             try db.alter(table: "stations") { t in
                 t.add(column: "isFavorite", .boolean).notNull().defaults(to: false)
             }
+        }
+
+        // v3 — genre taxonomy + station-genre relationship + source xref
+        migrator.registerMigration("v3_genres") { db in
+
+            // Canonical genre table — AllMusic hierarchy
+            try db.create(table: "genres", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()          // slug e.g. "jazz", "jazz-fusion"
+                t.column("name", .text).notNull()           // display name e.g. "Jazz", "Fusion"
+                t.column("parentId", .text).references("genres")
+                t.column("sortOrder", .integer).notNull().defaults(to: 0)
+                t.column("imageURL", .text)                 // null until fGenreImages resolved
+            }
+
+            // Many-to-many: stations ↔ genres
+            try db.create(table: "station_genres", ifNotExists: true) { t in
+                t.column("stationId", .integer).notNull().references("stations", onDelete: .cascade)
+                t.column("genreId", .text).notNull().references("genres", onDelete: .cascade)
+                t.primaryKey(["stationId", "genreId"])
+            }
+
+            // Genre → service ID/name mapping
+            // Enables genre-aware search across all future radio/streaming sources
+            try db.create(table: "genre_source_xref", ifNotExists: true) { t in
+                t.column("genreId", .text).notNull().references("genres", onDelete: .cascade)
+                t.column("source", .text).notNull()         // "iheart" | "somafm" | "spotify" | "applemusic" | "lastfm"
+                t.column("sourceGenreId", .text)            // service's internal ID (null if name-only)
+                t.column("sourceGenreName", .text).notNull() // service's keyword / display name
+                t.primaryKey(["genreId", "source"])
+            }
+
+            // MARK: Seed — AllMusic parent genres
+            let parents: [(id: String, name: String, sort: Int)] = [
+                ("avant-garde",    "Avant-Garde",     1),
+                ("blues",          "Blues",           2),
+                ("childrens",      "Children's",      3),
+                ("classical",      "Classical",       4),
+                ("comedy-spoken",  "Comedy/Spoken",   5),
+                ("country",        "Country",         6),
+                ("easy-listening", "Easy Listening",  7),
+                ("electronic",     "Electronic",      8),
+                ("folk",           "Folk",            9),
+                ("holiday",        "Holiday",        10),
+                ("international",  "International",  11),
+                ("jazz",           "Jazz",           12),
+                ("latin",          "Latin",          13),
+                ("new-age",        "New Age",        14),
+                ("pop-rock",       "Pop/Rock",       15),
+                ("rb",             "R&B",            16),
+                ("rap",            "Rap",            17),
+                ("reggae",         "Reggae",         18),
+                ("religious",      "Religious",      19),
+                ("stage-screen",   "Stage & Screen", 20),
+                ("vocal",          "Vocal",          21),
+            ]
+
+            for p in parents {
+                try db.execute(
+                    sql: "INSERT OR IGNORE INTO genres (id, name, parentId, sortOrder) VALUES (?, ?, NULL, ?)",
+                    arguments: [p.id, p.name, p.sort]
+                )
+            }
+
+            // MARK: Seed — AllMusic subgenres
+            // Format: (id, name, parentId, sortOrder)
+            let subgenres: [(String, String, String, Int)] = [
+                // Avant-Garde
+                ("avant-garde-experimental", "Experimental",        "avant-garde",    1),
+                ("avant-garde-noise",        "Noise",               "avant-garde",    2),
+                ("avant-garde-free-improv",  "Free Improvisation",  "avant-garde",    3),
+
+                // Blues
+                ("blues-chicago",            "Chicago Blues",       "blues",          1),
+                ("blues-delta",              "Delta Blues",         "blues",          2),
+                ("blues-electric",           "Electric Blues",      "blues",          3),
+                ("blues-texas",              "Texas Blues",         "blues",          4),
+                ("blues-jump",               "Jump Blues",          "blues",          5),
+                ("blues-soul",               "Soul Blues",          "blues",          6),
+                ("blues-acoustic",           "Acoustic Blues",      "blues",          7),
+
+                // Classical
+                ("classical-baroque",        "Baroque",             "classical",      1),
+                ("classical-chamber",        "Chamber Music",       "classical",      2),
+                ("classical-choral",         "Choral",              "classical",      3),
+                ("classical-contemporary",   "Contemporary",        "classical",      4),
+                ("classical-early",          "Early Music",         "classical",      5),
+                ("classical-opera",          "Opera",               "classical",      6),
+                ("classical-orchestral",     "Orchestral",          "classical",      7),
+                ("classical-piano",          "Piano",               "classical",      8),
+                ("classical-romantic",       "Romantic",            "classical",      9),
+
+                // Country
+                ("country-alternative",      "Alternative Country", "country",        1),
+                ("country-bluegrass",        "Bluegrass",           "country",        2),
+                ("country-classic",          "Classic Country",     "country",        3),
+                ("country-contemporary",     "Contemporary Country","country",        4),
+                ("country-honky-tonk",       "Honky Tonk",          "country",        5),
+                ("country-outlaw",           "Outlaw Country",      "country",        6),
+                ("country-western-swing",    "Western Swing",       "country",        7),
+
+                // Easy Listening
+                ("easy-adult-contemporary",  "Adult Contemporary",  "easy-listening", 1),
+                ("easy-background",          "Background Music",    "easy-listening", 2),
+                ("easy-lounge",              "Lounge",              "easy-listening", 3),
+                ("easy-soft-rock",           "Soft Rock",           "easy-listening", 4),
+
+                // Electronic
+                ("electronic-ambient",       "Ambient",             "electronic",     1),
+                ("electronic-dance",         "Dance",               "electronic",     2),
+                ("electronic-downtempo",     "Downtempo",           "electronic",     3),
+                ("electronic-edm",           "EDM",                 "electronic",     4),
+                ("electronic-house",         "House",               "electronic",     5),
+                ("electronic-idm",           "IDM",                 "electronic",     6),
+                ("electronic-techno",        "Techno",              "electronic",     7),
+                ("electronic-trance",        "Trance",              "electronic",     8),
+                ("electronic-trip-hop",      "Trip Hop",            "electronic",     9),
+
+                // Folk
+                ("folk-acoustic",            "Acoustic Folk",       "folk",           1),
+                ("folk-americana",           "Americana",           "folk",           2),
+                ("folk-contemporary",        "Contemporary Folk",   "folk",           3),
+                ("folk-singer-songwriter",   "Singer-Songwriter",   "folk",           4),
+                ("folk-traditional",         "Traditional Folk",    "folk",           5),
+
+                // International
+                ("international-african",    "African",             "international",  1),
+                ("international-asian",      "Asian",               "international",  2),
+                ("international-bossa-nova", "Bossa Nova",          "international",  3),
+                ("international-celtic",     "Celtic",              "international",  4),
+                ("international-flamenco",   "Flamenco",            "international",  5),
+                ("international-world",      "World Music",         "international",  6),
+
+                // Jazz
+                ("jazz-bebop",               "Bebop",               "jazz",           1),
+                ("jazz-contemporary",        "Contemporary Jazz",   "jazz",           2),
+                ("jazz-cool",                "Cool Jazz",           "jazz",           3),
+                ("jazz-crossover",           "Crossover Jazz",      "jazz",           4),
+                ("jazz-fusion",              "Fusion",              "jazz",           5),
+                ("jazz-hard-bop",            "Hard Bop",            "jazz",           6),
+                ("jazz-instrument",          "Jazz Instrument",     "jazz",           7),
+                ("jazz-latin",               "Latin Jazz",          "jazz",           8),
+                ("jazz-modern-creative",     "Modern Creative",     "jazz",           9),
+                ("jazz-post-bop",            "Post-Bop",            "jazz",          10),
+                ("jazz-smooth",              "Smooth Jazz",         "jazz",          11),
+                ("jazz-standards",           "Standards",           "jazz",          12),
+                ("jazz-swing",               "Swing",               "jazz",          13),
+                ("jazz-vocal",               "Vocal Jazz",          "jazz",          14),
+
+                // Latin
+                ("latin-cumbia",             "Cumbia",              "latin",          1),
+                ("latin-merengue",           "Merengue",            "latin",          2),
+                ("latin-pop",                "Latin Pop",           "latin",          3),
+                ("latin-reggaeton",          "Reggaeton",           "latin",          4),
+                ("latin-salsa",              "Salsa",               "latin",          5),
+                ("latin-tejano",             "Tejano",              "latin",          6),
+
+                // New Age
+                ("new-age-ambient",          "Ambient",             "new-age",        1),
+                ("new-age-healing",          "Healing",             "new-age",        2),
+                ("new-age-meditation",       "Meditation",          "new-age",        3),
+                ("new-age-nature",           "Nature Sounds",       "new-age",        4),
+
+                // Pop/Rock
+                ("pop-rock-alternative",     "Alternative",         "pop-rock",       1),
+                ("pop-rock-classic-rock",    "Classic Rock",        "pop-rock",       2),
+                ("pop-rock-dance-pop",       "Dance Pop",           "pop-rock",       3),
+                ("pop-rock-glam",            "Glam Rock",           "pop-rock",       4),
+                ("pop-rock-hard-rock",       "Hard Rock",           "pop-rock",       5),
+                ("pop-rock-indie",           "Indie Rock",          "pop-rock",       6),
+                ("pop-rock-metal",           "Metal",               "pop-rock",       7),
+                ("pop-rock-new-wave",        "New Wave",            "pop-rock",       8),
+                ("pop-rock-pop",             "Pop",                 "pop-rock",       9),
+                ("pop-rock-punk",            "Punk",                "pop-rock",      10),
+                ("pop-rock-singer-sw",       "Singer-Songwriter",   "pop-rock",      11),
+                ("pop-rock-soft-rock",       "Soft Rock",           "pop-rock",      12),
+
+                // R&B
+                ("rb-contemporary",          "Contemporary R&B",    "rb",             1),
+                ("rb-funk",                  "Funk",                "rb",             2),
+                ("rb-gospel",                "Gospel",              "rb",             3),
+                ("rb-motown",                "Motown",              "rb",             4),
+                ("rb-neo-soul",              "Neo-Soul",            "rb",             5),
+                ("rb-soul",                  "Soul",                "rb",             6),
+
+                // Rap
+                ("rap-conscious",            "Conscious Rap",       "rap",            1),
+                ("rap-east-coast",           "East Coast",          "rap",            2),
+                ("rap-gangsta",              "Gangsta Rap",         "rap",            3),
+                ("rap-hip-hop",              "Hip-Hop",             "rap",            4),
+                ("rap-old-school",           "Old School",          "rap",            5),
+                ("rap-trap",                 "Trap",                "rap",            6),
+                ("rap-west-coast",           "West Coast",          "rap",            7),
+
+                // Reggae
+                ("reggae-dancehall",         "Dancehall",           "reggae",         1),
+                ("reggae-dub",               "Dub",                 "reggae",         2),
+                ("reggae-roots",             "Roots Reggae",        "reggae",         3),
+                ("reggae-ska",               "Ska",                 "reggae",         4),
+
+                // Stage & Screen
+                ("stage-screen-broadway",    "Broadway",            "stage-screen",   1),
+                ("stage-screen-film-score",  "Film Score",          "stage-screen",   2),
+                ("stage-screen-tv",          "Television",          "stage-screen",   3),
+                ("stage-screen-video-game",  "Video Game Music",    "stage-screen",   4),
+
+                // Vocal
+                ("vocal-big-band",           "Big Band",            "vocal",          1),
+                ("vocal-cabaret",            "Cabaret",             "vocal",          2),
+                ("vocal-crooners",           "Crooners",            "vocal",          3),
+                ("vocal-standards",          "Standards",           "vocal",          4),
+                ("vocal-torch",              "Torch Songs",         "vocal",          5),
+            ]
+
+            for s in subgenres {
+                try db.execute(
+                    sql: "INSERT OR IGNORE INTO genres (id, name, parentId, sortOrder) VALUES (?, ?, ?, ?)",
+                    arguments: [s.0, s.1, s.2, s.3]
+                )
+            }
+
+            // MARK: Seed — iHeart genre xref
+            // sourceGenreId = iHeart's numeric genre ID (confirmed via API July 2026)
+            // sourceGenreName = iHeart's display name for that genre
+            // Maps our canonical AllMusic genre slugs → iHeart genre IDs
+            //
+            // iHeart genre ID reference:
+            // 1=Alternative, 2=Christian&Gospel, 3=Classic Rock, 4=Classical,
+            // 5=Country, 6=Hip Hop and R&B, 7=Jazz, 8=Mix&Variety, 10=Oldies,
+            // 12=Rock, 13=Mix, 14=Spanish, 16=Top40&Pop, 18=80s&90s,
+            // 77=Dance, 93=Public Radio, 97=Holiday, 104=R&B,
+            // 1201=iHeart Originals, 1208=Decades, 1209=Commercial Free
+
+            let iheartXref: [(genreId: String, iheartId: String, iheartName: String)] = [
+                // Parent genre mappings
+                ("pop-rock",       "16",   "Top 40 & Pop"),
+                ("pop-rock",       "12",   "Rock"),           // Rock maps to pop-rock parent
+                ("blues",          "10",   "Oldies"),         // closest iHeart match
+                ("classical",      "4",    "Classical"),
+                ("country",        "5",    "Country"),
+                ("electronic",     "77",   "Dance"),
+                ("holiday",        "97",   "Holiday"),
+                ("international",  "14",   "Spanish"),        // closest iHeart match for international
+                ("jazz",           "7",    "Jazz"),
+                ("latin",          "14",   "Spanish"),
+                ("rb",             "104",  "R&B"),
+                ("rap",            "6",    "Hip Hop and R&B"),
+                ("religious",      "2",    "Christian & Gospel"),
+                ("vocal",          "8",    "Mix & Variety"),
+                // Subgenre mappings
+                ("pop-rock-alternative",  "1",    "Alternative"),
+                ("pop-rock-classic-rock", "3",    "Classic Rock"),
+                ("pop-rock-hard-rock",    "12",   "Rock"),
+                ("rb-gospel",             "2",    "Christian & Gospel"),
+                ("jazz-smooth",           "7",    "Jazz"),
+                // Decade/era genres
+                ("pop-rock",       "18",   "80s & 90s Hits"),
+                ("pop-rock",       "1208", "Decades"),
+            ]
+
+            // iHeart IDs can map to multiple internal genres — use INSERT OR IGNORE
+            // Primary key is (genreId, source) so only first insert per genre wins
+            for x in iheartXref {
+                try db.execute(
+                    sql: """
+                    INSERT OR IGNORE INTO genre_source_xref
+                    (genreId, source, sourceGenreId, sourceGenreName)
+                    VALUES (?, 'iheart', ?, ?)
+                    """,
+                    arguments: [x.genreId, x.iheartId, x.iheartName]
+                )
+            }
+
+            print("SORRIVA DB: v3 genre seed complete")
+        }
+
+        // v4 — add cume to stations for popularity sort
+        migrator.registerMigration("v4_station_cume") { db in
+            try db.alter(table: "stations") { t in
+                t.add(column: "cume", .integer).notNull().defaults(to: 0)
+            }
+        }
+
+        // v5 — add Decades and Public Radio parent genres + subgenres + iHeart xref
+        migrator.registerMigration("v5_decades_publicradio") { db in
+
+            // Decades parent
+            try db.execute(sql: "INSERT OR IGNORE INTO genres (id, name, parentId, sortOrder) VALUES ('decades', 'Decades', NULL, 22)")
+            let decadesSubgenres: [(String, String, Int)] = [
+                ("decades-50s", "50s", 1),
+                ("decades-60s", "60s", 2),
+                ("decades-70s", "70s", 3),
+                ("decades-80s", "80s", 4),
+                ("decades-90s", "90s", 5),
+                ("decades-2000s", "2000s", 6),
+            ]
+            for s in decadesSubgenres {
+                try db.execute(sql: "INSERT OR IGNORE INTO genres (id, name, parentId, sortOrder) VALUES (?, ?, 'decades', ?)",
+                               arguments: [s.0, s.1, s.2])
+            }
+            // iHeart xref for decades
+            try db.execute(sql: "INSERT OR IGNORE INTO genre_source_xref (genreId, source, sourceGenreId, sourceGenreName) VALUES ('decades', 'iheart', '1208', 'Decades')")
+            try db.execute(sql: "INSERT OR IGNORE INTO genre_source_xref (genreId, source, sourceGenreId, sourceGenreName) VALUES ('decades-80s', 'iheart', '18', '80s & 90s Hits')")
+
+            // Public Radio parent
+            try db.execute(sql: "INSERT OR IGNORE INTO genres (id, name, parentId, sortOrder) VALUES ('public-radio', 'Public Radio', NULL, 23)")
+            let publicRadioSubgenres: [(String, String, Int)] = [
+                ("public-radio-news", "News", 1),
+                ("public-radio-talk", "Talk", 2),
+                ("public-radio-npr",  "NPR",  3),
+                ("public-radio-college", "College Radio", 4),
+            ]
+            for s in publicRadioSubgenres {
+                try db.execute(sql: "INSERT OR IGNORE INTO genres (id, name, parentId, sortOrder) VALUES (?, ?, 'public-radio', ?)",
+                               arguments: [s.0, s.1, s.2])
+            }
+            // iHeart xref for public radio
+            try db.execute(sql: "INSERT OR IGNORE INTO genre_source_xref (genreId, source, sourceGenreId, sourceGenreName) VALUES ('public-radio', 'iheart', '93', 'Public Radio')")
+            try db.execute(sql: "INSERT OR IGNORE INTO genre_source_xref (genreId, source, sourceGenreId, sourceGenreName) VALUES ('public-radio-news', 'iheart', '9', 'News & Talk')")
+
+            print("SORRIVA DB: v5 decades + public radio genres added")
         }
 
         try migrator.migrate(dbQueue)
@@ -124,7 +442,6 @@ final class SorrivaDatabase {
                       modelName: String?, sourceName: String?) throws -> Device {
         let now = Int(Date().timeIntervalSince1970)
         return try dbQueue.write { db -> Device in
-            // Look up by source + sourceId
             if var existing = try Device
                 .filter(Device.Columns.source == source)
                 .filter(Device.Columns.sourceId == sourceId)
@@ -178,13 +495,14 @@ final class SorrivaDatabase {
     // MARK: - Station operations
 
     func upsertStation(id: Int, source: String, name: String,
-                       logoURL: String?, streamURL: String?) throws {
+                       logoURL: String?, streamURL: String?, cume: Int = 0) throws {
         let now = Int(Date().timeIntervalSince1970)
         try dbQueue.write { db in
             if var existing = try Station.fetchOne(db, key: id) {
                 existing.name = name
                 existing.logoURL = logoURL ?? existing.logoURL
                 existing.streamURL = streamURL ?? existing.streamURL
+                if cume > 0 { existing.cume = cume }
                 existing.lastFetched = now
                 existing.updatedAt = now
                 try existing.update(db)
@@ -192,7 +510,7 @@ final class SorrivaDatabase {
                 let station = Station(
                     id: id, source: source, name: name,
                     logoURL: logoURL, streamURL: streamURL,
-                    isFavorite: false, lastFetched: now, updatedAt: now
+                    isFavorite: false, cume: cume, lastFetched: now, updatedAt: now
                 )
                 try station.insert(db)
                 print("SORRIVA DB: New station \(id) \(name)")
@@ -261,6 +579,235 @@ final class SorrivaDatabase {
 
     func zoneState(deviceId: String) throws -> ZoneState? {
         try dbQueue.read { db in try ZoneState.fetchOne(db, key: deviceId) }
+    }
+
+    // MARK: - Genre operations
+
+    /// All top-level (parent) genres, sorted by sortOrder
+    func topLevelGenres() throws -> [Genre] {
+        try dbQueue.read { db in
+            try Genre
+                .filter(Genre.Columns.parentId == nil)
+                .order(Genre.Columns.sortOrder)
+                .fetchAll(db)
+        }
+    }
+
+    /// Subgenres for a given parent genre ID, sorted by sortOrder
+    func subgenres(parentId: String) throws -> [Genre] {
+        try dbQueue.read { db in
+            try Genre
+                .filter(Genre.Columns.parentId == parentId)
+                .order(Genre.Columns.sortOrder)
+                .fetchAll(db)
+        }
+    }
+
+    func genre(id: String) throws -> Genre? {
+        try dbQueue.read { db in try Genre.fetchOne(db, key: id) }
+    }
+
+    /// iHeart search keyword for a given genre ID
+    func iheartKeyword(genreId: String) throws -> String? {
+        try dbQueue.read { db in
+            try GenreSourceXref
+                .filter(GenreSourceXref.Columns.genreId == genreId)
+                .filter(GenreSourceXref.Columns.source == "iheart")
+                .fetchOne(db)?
+                .sourceGenreName
+        }
+    }
+
+    /// All iHeart keywords for a set of genre IDs
+    func iheartKeywords(genreIds: [String]) throws -> [String] {
+        try dbQueue.read { db in
+            try GenreSourceXref
+                .filter(genreIds.contains(GenreSourceXref.Columns.genreId))
+                .filter(GenreSourceXref.Columns.source == "iheart")
+                .fetchAll(db)
+                .map { $0.sourceGenreName }
+        }
+    }
+
+    /// Look up our internal genre ID from an iHeart numeric genre ID
+    /// Used when saving stations from the browser to tag them with our canonical genre
+    func internalGenreId(forIHeartGenreId iheartId: Int) throws -> String? {
+        try dbQueue.read { db in
+            try GenreSourceXref
+                .filter(GenreSourceXref.Columns.source == "iheart")
+                .filter(GenreSourceXref.Columns.sourceGenreId == "\(iheartId)")
+                .fetchOne(db)?
+                .genreId
+        }
+    }
+
+    // MARK: - Station-Genre operations
+
+    /// Add a genre tag to a station. Safe to call multiple times (INSERT OR IGNORE).
+    func addStationGenre(stationId: Int, genreId: String) throws {
+        try dbQueue.write { db in
+            let sg = StationGenre(stationId: stationId, genreId: genreId)
+            try sg.insert(db, onConflict: .ignore)
+        }
+    }
+
+    /// All genre IDs for a station
+    func genres(forStationId stationId: Int) throws -> [String] {
+        try dbQueue.read { db in
+            try StationGenre
+                .filter(StationGenre.Columns.stationId == stationId)
+                .fetchAll(db)
+                .map { $0.genreId }
+        }
+    }
+
+    /// Genres present in the user's station library — for filter chips on See All screen.
+    /// Only returns genres that have at least one station saved.
+    func genresInStationLibrary() throws -> [Genre] {
+        try dbQueue.read { db in
+            // Get parent genre IDs that have stations via station_genres join
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT DISTINCT g.id, g.name, g.parentId, g.sortOrder, g.imageURL
+                FROM genres g
+                INNER JOIN station_genres sg ON sg.genreId = g.id
+                WHERE g.parentId IS NULL
+                ORDER BY g.sortOrder
+            """)
+            return rows.map { row in
+                Genre(id: row["id"], name: row["name"], parentId: row["parentId"],
+                      sortOrder: row["sortOrder"], imageURL: row["imageURL"])
+            }
+        }
+    }
+
+    /// Stations in the user's library filtered by genre ID.
+    func stations(inGenre genreId: String, source: String = "iheart") throws -> [Station] {
+        try dbQueue.read { db in
+            try Station.fetchAll(db, sql: """
+                SELECT s.* FROM stations s
+                INNER JOIN station_genres sg ON sg.stationId = s.id
+                INNER JOIN genres g ON g.id = sg.genreId
+                WHERE (g.id = ? OR g.parentId = ?)
+                AND s.source = ?
+            """, arguments: [genreId, genreId, source])
+        }
+    }
+
+    /// Remove a station from the library entirely.
+    /// Cascades to station_genres and zone_state via FK onDelete: .cascade.
+    func removeStation(id: Int) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM stations WHERE id = ?", arguments: [id])
+            print("SORRIVA DB: Removed station \(id)")
+        }
+    }
+
+    // MARK: - iHeart catalog (ephemeral browse table)
+    // Dropped and recreated each time the station browser opens.
+    // Raw SQL — no GRDB model needed, this is not user data.
+
+    func rebuildIHeartCatalog(stations: [(id: Int, name: String, description: String,
+                                          logoURL: String, streamURL: String?,
+                                          cume: Int, genreIDs: String)]) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DROP TABLE IF EXISTS iheart_catalog")
+            try db.execute(sql: """
+                CREATE TABLE iheart_catalog (
+                    id          INTEGER PRIMARY KEY,
+                    name        TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    logoURL     TEXT NOT NULL DEFAULT '',
+                    streamURL   TEXT,
+                    cume        INTEGER NOT NULL DEFAULT 0,
+                    genreIDs    TEXT NOT NULL DEFAULT ''
+                )
+            """)
+            for s in stations {
+                try db.execute(
+                    sql: """
+                    INSERT INTO iheart_catalog (id, name, description, logoURL, streamURL, cume, genreIDs)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    arguments: [s.id, s.name, s.description, s.logoURL, s.streamURL, s.cume, s.genreIDs]
+                )
+            }
+            print("SORRIVA DB: iheart_catalog rebuilt with \(stations.count) stations")
+        }
+    }
+
+    /// Search the ephemeral iHeart catalog.
+    /// Genre filter uses iHeart genre IDs from xref + ONLY the parent genre name as
+    /// a description keyword. Using subgenre names was too broad and caused false matches
+    /// (e.g. "Soul Blues" subgenre matching 80s stations via "Soul" keyword).
+    func searchIHeartCatalog(query: String, parentGenreId: String?,
+                              existingIDs: Set<Int>) throws -> [RadioStation] {
+        try dbQueue.read { db in
+            var sql = "SELECT * FROM iheart_catalog WHERE 1=1"
+            var args: [DatabaseValue] = []
+
+            // Search bar — name OR description
+            if !query.isEmpty {
+                sql += " AND (name LIKE ? OR description LIKE ?)"
+                let pattern = "%\(query)%"
+                args.append(pattern.databaseValue)
+                args.append(pattern.databaseValue)
+            }
+
+            // Genre chip filter
+            if let parentId = parentGenreId {
+                // iHeart genre IDs from xref
+                let xrefRows = try Row.fetchAll(db, sql: """
+                    SELECT sourceGenreId FROM genre_source_xref
+                    WHERE source = 'iheart'
+                    AND sourceGenreId IS NOT NULL
+                    AND (genreId = ? OR genreId IN (
+                        SELECT id FROM genres WHERE parentId = ?
+                    ))
+                """, arguments: [parentId, parentId])
+                let iheartIDs = xrefRows.compactMap { $0["sourceGenreId"] as String? }
+
+                // Parent genre name only as description keyword — avoids subgenre false matches
+                let parentName = try Row.fetchOne(db, sql: "SELECT name FROM genres WHERE id = ?",
+                                                   arguments: [parentId])?["name"] as String? ?? ""
+
+                var genreClauses: [String] = []
+
+                for iheartID in iheartIDs {
+                    genreClauses.append("genreIDs LIKE ?")
+                    args.append("%,\(iheartID),%".databaseValue)
+                }
+                if !parentName.isEmpty {
+                    genreClauses.append("description LIKE ?")
+                    args.append("%\(parentName)%".databaseValue)
+                    genreClauses.append("name LIKE ?")
+                    args.append("%\(parentName)%".databaseValue)
+                }
+
+                if !genreClauses.isEmpty {
+                    sql += " AND (\(genreClauses.joined(separator: " OR ")))"
+                }
+            }
+
+            sql += " ORDER BY cume DESC"
+
+            let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
+            return rows.map { row in
+                RadioStation(
+                    id: row["id"],
+                    name: row["name"],
+                    description: row["description"],
+                    logoURL: row["logoURL"],
+                    streamURL: row["streamURL"],
+                    cume: row["cume"]
+                )
+            }
+        }
+    }
+
+    func iHeartCatalogCount() throws -> Int {
+        try dbQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM iheart_catalog") ?? 0
+        }
     }
 
     // MARK: - Model fetch from device description

@@ -26,6 +26,9 @@
 		80325AD83001436B00308486 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 80325AD73001436B00308486 /* GRDB */; };
 		80325AE2300147C200308486 /* DatabaseModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AE0300147C200308486 /* DatabaseModels.swift */; };
 		80325AE3300147C200308486 /* SorrivaDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AE1300147C200308486 /* SorrivaDatabase.swift */; };
+		80325AFE3003C8F200308486 /* IHeartServiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AFB3003C8F200308486 /* IHeartServiceView.swift */; };
+		80325AFF3003C8F200308486 /* IHeartStationBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AFC3003C8F200308486 /* IHeartStationBrowserView.swift */; };
+		80325B003003C8F200308486 /* SomaFMServiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AFD3003C8F200308486 /* SomaFMServiceView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -48,6 +51,9 @@
 		80325AD43000B03500308486 /* SplashView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashView.swift; sourceTree = "<group>"; };
 		80325AE0300147C200308486 /* DatabaseModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseModels.swift; sourceTree = "<group>"; };
 		80325AE1300147C200308486 /* SorrivaDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SorrivaDatabase.swift; sourceTree = "<group>"; };
+		80325AFB3003C8F200308486 /* IHeartServiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IHeartServiceView.swift; sourceTree = "<group>"; };
+		80325AFC3003C8F200308486 /* IHeartStationBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IHeartStationBrowserView.swift; sourceTree = "<group>"; };
+		80325AFD3003C8F200308486 /* SomaFMServiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SomaFMServiceView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -86,6 +92,9 @@
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
+				80325AFB3003C8F200308486 /* IHeartServiceView.swift */,
+				80325AFC3003C8F200308486 /* IHeartStationBrowserView.swift */,
+				80325AFD3003C8F200308486 /* SomaFMServiceView.swift */,
 				80325AE0300147C200308486 /* DatabaseModels.swift */,
 				80325AE1300147C200308486 /* SorrivaDatabase.swift */,
 				80325AD43000B03500308486 /* SplashView.swift */,
@@ -213,6 +222,9 @@
 				80325AB82FFEE5DC00308486 /* MiniPlayerView.swift in Sources */,
 				80325AB92FFEE5DC00308486 /* Color+Theme.swift in Sources */,
 				80325AD33000B02B00308486 /* SorrivaWordmark.swift in Sources */,
+				80325AFE3003C8F200308486 /* IHeartServiceView.swift in Sources */,
+				80325AFF3003C8F200308486 /* IHeartStationBrowserView.swift in Sources */,
+				80325B003003C8F200308486 /* SomaFMServiceView.swift in Sources */,
 				80325ACB3000860000308486 /* NowPlayingView.swift in Sources */,
 				80325ABA2FFEE5DC00308486 /* SettingsView.swift in Sources */,
 				80325ACD3000948400308486 /* VolumeControlView.swift in Sources */,

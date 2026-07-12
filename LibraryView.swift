@@ -3,6 +3,8 @@ import SwiftUI
 // MARK: - LibraryView
 // Row-based dashboard. Favorites and Radio rows share favoriteIDs state
 // so toggling a heart anywhere updates all views instantly.
+// Radio row is now DB-driven — stations come from the stations table,
+// seeded via Settings → Services → iHeart.
 
 struct LibraryView: View {
     @ObservedObject var discovery: ZoneDiscoveryService
@@ -44,7 +46,7 @@ struct LibraryView: View {
                     )
                 }
 
-                // Radio row
+                // Radio row — DB-driven
                 LibraryRow(title: "Radio", onSeeAll: { showRadioGrid = true }) {
                     RadioRow(
                         favoriteIDs: $favoriteIDs,
@@ -60,7 +62,9 @@ struct LibraryView: View {
             }
         }
         .background(Color.clear)
-        .onAppear { loadFavorites() }
+        .onAppear {
+            loadFavorites()
+        }
         .fullScreenCover(isPresented: $showFavoritesGrid) {
             MediaGridView(
                 title: "Favorites",
@@ -88,8 +92,9 @@ struct LibraryView: View {
     }
 
     private func loadFavorites() {
-        let stations = (try? SorrivaDatabase.shared.allStations()) ?? []
-        favoriteIDs = Set(stations.filter { $0.isFavorite }.map { $0.id })
+        let iheart = (try? SorrivaDatabase.shared.allStations(source: "iheart")) ?? []
+        let somafm = (try? SorrivaDatabase.shared.allStations(source: "somafm")) ?? []
+        favoriteIDs = Set((iheart + somafm).filter { $0.isFavorite }.map { $0.id })
     }
 
     private func toggleFavorite(id: Int, isFav: Bool) {
@@ -110,7 +115,6 @@ struct LibraryRow<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Section title — tappable, same as See All
             HStack {
                 Button(action: onSeeAll) {
                     HStack(spacing: 4) {
@@ -142,6 +146,7 @@ struct LibraryRow<Content: View>: View {
 }
 
 // MARK: - FavoritesRow
+// Shows only stations marked isFavorite in the DB.
 
 struct FavoritesRow: View {
     @Binding var favoriteIDs: Set<Int>
@@ -151,42 +156,66 @@ struct FavoritesRow: View {
     let onNavigateToZone: (String) -> Void
     let onFavoriteToggled: (Int, Bool) -> Void
 
+    @State private var dbStations: [Station] = []
+
     private var favoriteStations: [RadioStation] {
-        RadioStation.catalog.filter { favoriteIDs.contains($0.id) }
+        dbStations
+            .filter { favoriteIDs.contains($0.id) }
+            .map { RadioStation(from: $0) }
     }
 
     var body: some View {
-        if favoriteStations.isEmpty {
-            HStack {
-                Text("Heart a station to add it here")
-                    .font(.system(size: 13))
-                    .foregroundColor(.sTextMuted)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-                Spacer()
-            }
-        } else {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 14) {
-                    ForEach(favoriteStations, id: \.id) { station in
-                        MediaCard(
-                            radioStation: station,
-                            logoURL: loadedLogos[station.id] ?? "",
-                            isFavorite: true,
-                            discovery: discovery,
-                            onPlayStation: onPlayStation,
-                            onNavigateToZone: onNavigateToZone,
-                            onFavoriteToggled: onFavoriteToggled
-                        )
-                    }
+        Group {
+            if favoriteStations.isEmpty {
+                HStack {
+                    Text("Heart a station to add it here")
+                        .font(.system(size: 13))
+                        .foregroundColor(.sTextMuted)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                    Spacer()
                 }
-                .padding(.horizontal, 20)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 14) {
+                        ForEach(favoriteStations, id: \.id) { station in
+                            MediaCard(
+                                radioStation: station,
+                                logoURL: loadedLogos[station.id] ?? station.logoURL,
+                                isFavorite: true,
+                                discovery: discovery,
+                                onPlayStation: onPlayStation,
+                                onNavigateToZone: onNavigateToZone,
+                                onFavoriteToggled: onFavoriteToggled
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
             }
         }
+        .onAppear { loadFromDB() }
+        .onReceive(NotificationCenter.default.publisher(for: .stationsDidUpdate)) { _ in
+            loadFromDB()
+        }
     }
+
+    private func loadFromDB() {
+        let iheart = (try? SorrivaDatabase.shared.allStations(source: "iheart")) ?? []
+        let somafm = (try? SorrivaDatabase.shared.allStations(source: "somafm")) ?? []
+        dbStations = iheart + somafm
+        for s in dbStations {
+            if let logo = s.logoURL { loadedLogos[s.id] = logo }
+        }
+    }
+
+    // Reload when a station is favorited elsewhere
+    func refresh() { loadFromDB() }
 }
 
 // MARK: - RadioRow
+// DB-driven. Loads all stations from the stations table.
+// Empty state prompts user to go to Settings → Services to add stations.
 
 struct RadioRow: View {
     @Binding var favoriteIDs: Set<Int>
@@ -196,54 +225,66 @@ struct RadioRow: View {
     let onNavigateToZone: (String) -> Void
     let onFavoriteToggled: (Int, Bool) -> Void
 
-    @State private var loadedStreamURLs: [Int: String] = [:]
+    @State private var dbStations: [Station] = []
+
+    private var radioStations: [RadioStation] {
+        dbStations.map { RadioStation(from: $0) }
+    }
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 14) {
-                ForEach(RadioStation.catalog, id: \.id) { station in
-                    MediaCard(
-                        radioStation: station,
-                        logoURL: loadedLogos[station.id] ?? "",
-                        isFavorite: favoriteIDs.contains(station.id),
-                        discovery: discovery,
-                        onPlayStation: onPlayStation,
-                        onNavigateToZone: onNavigateToZone,
-                        onFavoriteToggled: onFavoriteToggled
-                    )
+        Group {
+            if radioStations.isEmpty {
+                // Empty state — prompt to add stations via Settings
+                HStack(spacing: 12) {
+                    Image(systemName: "radio")
+                        .font(.system(size: 20))
+                        .foregroundColor(.sTextMuted)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("No stations yet")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.sTextPrimary)
+                        Text("Add radio stations in Settings → Services")
+                            .font(.system(size: 12))
+                            .foregroundColor(.sTextMuted)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 14) {
+                        ForEach(radioStations, id: \.id) { station in
+                            MediaCard(
+                                radioStation: station,
+                                logoURL: loadedLogos[station.id] ?? station.logoURL,
+                                isFavorite: favoriteIDs.contains(station.id),
+                                discovery: discovery,
+                                onPlayStation: onPlayStation,
+                                onNavigateToZone: onNavigateToZone,
+                                onFavoriteToggled: onFavoriteToggled
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 20)
                 }
             }
-            .padding(.horizontal, 20)
         }
-        .onAppear { loadFromDB(); fetchMetadata() }
+        // Reload every time this row appears
+        .onAppear { loadFromDB() }
+        // Also reload when stations are added via the browser
+        .onReceive(NotificationCenter.default.publisher(for: .stationsDidUpdate)) { _ in
+            loadFromDB()
+        }
     }
 
-    private func loadFromDB() {
-        let stations = (try? SorrivaDatabase.shared.allStations()) ?? []
-        for s in stations {
+    func loadFromDB() {
+        // Load stations from all radio sources
+        let iheart = (try? SorrivaDatabase.shared.allStations(source: "iheart")) ?? []
+        let somafm = (try? SorrivaDatabase.shared.allStations(source: "somafm")) ?? []
+        dbStations = (iheart + somafm).sorted { $0.name < $1.name }
+        for s in dbStations {
             if let logo = s.logoURL { loadedLogos[s.id] = logo }
-            if let url = s.streamURL { loadedStreamURLs[s.id] = url }
-        }
-    }
-
-    private func fetchMetadata() {
-        for station in RadioStation.catalog {
-            guard loadedLogos[station.id] == nil else { continue }
-            Task {
-                if let logo = await IHeartAPI.fetchStationLogo(streamID: station.id) {
-                    loadedLogos[station.id] = logo
-                    try? SorrivaDatabase.shared.upsertStation(
-                        id: station.id, source: "iheart",
-                        name: station.name, logoURL: logo, streamURL: nil)
-                }
-                if loadedStreamURLs[station.id] == nil,
-                   let url = await IHeartAPI.fetchStreamURL(streamID: station.id) {
-                    loadedStreamURLs[station.id] = url
-                    try? SorrivaDatabase.shared.upsertStation(
-                        id: station.id, source: "iheart",
-                        name: station.name, logoURL: loadedLogos[station.id], streamURL: url)
-                }
-            }
         }
     }
 }
@@ -273,7 +314,6 @@ struct MediaCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Art with favorite indicator + UIKit context menu (no first-render lag)
             ZStack(alignment: .bottomTrailing) {
                 Group {
                     if !displayLogoURL.isEmpty, let url = URL(string: displayLogoURL) {
@@ -287,16 +327,20 @@ struct MediaCard: View {
                         artPlaceholder
                     }
                 }
-                .frame(width: 120, height: 120)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .frame(width: 100, height: 100)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
-                // Bare brass heart — favorite indicator
+                // Brass heart in circle — favorite indicator
                 if localFavorite {
-                    Image(systemName: "heart.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.sBrass)
-                        .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
-                        .padding(6)
+                    ZStack {
+                        Circle()
+                            .fill(Color.sCard.opacity(0.85))
+                            .frame(width: 26, height: 26)
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.sBrass)
+                    }
+                    .padding(5)
                 }
             }
             .onTapGesture { zonePickerStation = radioStation }
@@ -304,16 +348,14 @@ struct MediaCard: View {
                 showActionSheet = true
             }
 
-            // Name only
             Text(displayName)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 10, weight: .semibold))
                 .foregroundColor(.sTextPrimary)
                 .lineLimit(1)
-                .frame(width: 120, alignment: .leading)
+                .frame(width: 100, alignment: .leading)
         }
         .onAppear { localFavorite = isFavorite }
         .onChange(of: isFavorite) { localFavorite = $0 }
-        // Action sheet — instant appearance, no context menu init cost
         .sheet(isPresented: $showActionSheet) {
             if let rs = radioStation {
                 StationActionSheet(
@@ -336,7 +378,6 @@ struct MediaCard: View {
                 .presentationBackground(Color.sCard)
             }
         }
-        // sheet(item:) — sheet only constructed when item is non-nil, no pre-warm hack needed
         .sheet(item: $zonePickerStation) { rs in
             ZonePickerSheet(
                 station: rs,
@@ -352,6 +393,7 @@ struct MediaCard: View {
                         if streamURL == nil {
                             streamURL = await IHeartAPI.fetchStreamURL(streamID: stationId)
                         }
+
                         guard let url = streamURL else { return }
 
                         await ZoneDiscoveryService.playStationURL(
@@ -389,14 +431,14 @@ struct MediaCard: View {
             _ = try? SorrivaDatabase.shared.toggleFavorite(stationId: displayID)
             await MainActor.run {
                 onFavoriteToggled?(displayID, newState)
+                // Notify FavoritesRow to reload so new favorite appears immediately
+                NotificationCenter.default.post(name: .stationsDidUpdate, object: nil)
             }
         }
     }
 }
 
 // MARK: - StationActionSheet
-// Compact bottom sheet on long press — instant appearance, no context menu lag.
-// Shows station art + name in header, action rows below.
 
 struct StationActionSheet: View {
     let station: RadioStation
@@ -407,8 +449,6 @@ struct StationActionSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-
-            // Header — art + name + source
             HStack(spacing: 14) {
                 Group {
                     if !logoURL.isEmpty, let url = URL(string: logoURL) {
@@ -441,9 +481,7 @@ struct StationActionSheet: View {
 
             Divider().background(Color.sSeparator)
 
-            // Actions
             VStack(spacing: 0) {
-                // Favorite
                 ActionRow(
                     icon: isFavorite ? "heart.fill" : "heart",
                     iconColor: isFavorite ? .sBrass : .sTextPrimary,
@@ -453,7 +491,6 @@ struct StationActionSheet: View {
 
                 Divider().background(Color.sSeparator).padding(.leading, 56)
 
-                // Play on
                 ActionRow(
                     icon: "hifispeaker.2",
                     iconColor: .sTextPrimary,
@@ -484,11 +521,9 @@ struct ActionRow: View {
                         .font(.system(size: 16))
                         .foregroundColor(iconColor)
                 }
-
                 Text(title)
                     .font(.system(size: 15))
                     .foregroundColor(.sTextPrimary)
-
                 Spacer()
             }
             .padding(.horizontal, 20)
@@ -500,6 +535,10 @@ struct ActionRow: View {
 }
 
 // MARK: - MediaGridView
+// See All screen for a library category.
+// Radio: 3-column grid, genre chips derived from actual stations in library.
+// Albums: 2-column grid (when implemented).
+// Genre chips show only genres present in the user's data.
 
 enum MediaFilter { case favorites, radio }
 
@@ -514,11 +553,34 @@ struct MediaGridView: View {
     let onFavoriteToggled: (Int, Bool) -> Void
     @Environment(\.dismiss) private var dismiss
 
-    private var displayStations: [RadioStation] {
+    @State private var allStations: [Station] = []
+    @State private var availableGenres: [Genre] = []
+    @State private var selectedGenreID: String? = nil
+
+    // Columns per filter type
+    private var columns: [GridItem] {
         switch filter {
-        case .radio: return RadioStation.catalog
-        case .favorites: return RadioStation.catalog.filter { favoriteIDs.contains($0.id) }
+        case .radio, .favorites:
+            return [
+                GridItem(.flexible(), spacing: 12),
+                GridItem(.flexible(), spacing: 12),
+                GridItem(.flexible(), spacing: 12)
+            ]
         }
+    }
+
+    private var displayStations: [RadioStation] {
+        var base = allStations
+        switch filter {
+        case .favorites: base = base.filter { favoriteIDs.contains($0.id) }
+        case .radio: break
+        }
+        if let genreID = selectedGenreID {
+            let filtered = (try? SorrivaDatabase.shared.stations(inGenre: genreID)) ?? []
+            let filteredIDs = Set(filtered.map { $0.id })
+            base = base.filter { filteredIDs.contains($0.id) }
+        }
+        return base.map { RadioStation(from: $0) }
     }
 
     var body: some View {
@@ -528,6 +590,7 @@ struct MediaGridView: View {
             .ignoresSafeArea()
 
             VStack(spacing: 0) {
+                // Header
                 HStack {
                     Button(action: { dismiss() }) {
                         Image(systemName: "chevron.left")
@@ -544,39 +607,92 @@ struct MediaGridView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 56)
-                .padding(.bottom, 16)
+                .padding(.bottom, 12)
+
+                // Genre chips — only genres present in user's library
+                if !availableGenres.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            GenreFilterChip(label: "All", isSelected: selectedGenreID == nil) {
+                                selectedGenreID = nil
+                            }
+                            ForEach(availableGenres, id: \.id) { genre in
+                                GenreFilterChip(
+                                    label: genre.name,
+                                    isSelected: selectedGenreID == genre.id
+                                ) {
+                                    selectedGenreID = selectedGenreID == genre.id ? nil : genre.id
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                    .padding(.bottom, 12)
+                }
 
                 if displayStations.isEmpty {
                     Spacer()
-                    Text("No favorites yet\nHeart a station to add it here")
+                    Text(filter == .favorites
+                         ? "No favorites yet\nHeart a station to add it here"
+                         : "No stations yet\nAdd stations in Settings → Services")
                         .font(.system(size: 15))
                         .foregroundColor(.sTextMuted)
                         .multilineTextAlignment(.center)
                     Spacer()
                 } else {
                     ScrollView {
-                        LazyVGrid(columns: [
-                            GridItem(.flexible(), spacing: 16),
-                            GridItem(.flexible(), spacing: 16)
-                        ], spacing: 20) {
+                        LazyVGrid(columns: columns, spacing: 16) {
                             ForEach(displayStations, id: \.id) { rs in
                                 MediaCard(
                                     radioStation: rs,
-                                    logoURL: loadedLogos[rs.id] ?? "",
+                                    logoURL: loadedLogos[rs.id] ?? rs.logoURL,
                                     isFavorite: favoriteIDs.contains(rs.id),
                                     discovery: discovery,
                                     onPlayStation: onPlayStation,
                                     onNavigateToZone: onNavigateToZone,
                                     onFavoriteToggled: onFavoriteToggled
                                 )
-                                .frame(maxWidth: .infinity)
                             }
                         }
-                        .padding(.horizontal, 20)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 4)
                         .padding(.bottom, 32)
                     }
                 }
             }
         }
+        .onAppear { loadFromDB() }
+    }
+
+    private func loadFromDB() {
+        let iheart = (try? SorrivaDatabase.shared.allStations(source: "iheart")) ?? []
+        let somafm = (try? SorrivaDatabase.shared.allStations(source: "somafm")) ?? []
+        allStations = (iheart + somafm).sorted { $0.name < $1.name }
+        for s in allStations {
+            if let logo = s.logoURL { loadedLogos[s.id] = logo }
+        }
+        availableGenres = (try? SorrivaDatabase.shared.genresInStationLibrary()) ?? []
+    }
+}
+
+// MARK: - GenreFilterChip
+// Used in the See All grid — distinct from GenreChip in the station browser.
+
+struct GenreFilterChip: View {
+    let label: String
+    let isSelected: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            Text(label)
+                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                .foregroundColor(isSelected ? .white : .sTextSecondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(isSelected ? Color.sAccent : Color.sSurface)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }

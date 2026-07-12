@@ -68,19 +68,15 @@ struct Device: Codable, FetchableRecord, PersistableRecord {
         let name = modelName.lowercased()
         var caps: [String] = ["eq", "volume", "mute"]
 
-        // Arc family — full TV soundbar capabilities
         if name.contains("arc") {
             caps += ["hdmi", "night_sound", "speech_enhancement", "subwoofer", "height_channel"]
         }
-        // Beam family
         if name.contains("beam") {
             caps += ["hdmi", "night_sound", "speech_enhancement"]
         }
-        // Playbar / Playbase
         if name.contains("playbar") || name.contains("playbase") {
             caps += ["hdmi", "night_sound", "speech_enhancement"]
         }
-        // Sub — no independent controls
         if name.contains("sub") {
             caps = ["subwoofer_satellite"]
         }
@@ -102,7 +98,7 @@ struct Device: Codable, FetchableRecord, PersistableRecord {
 // MARK: - Station
 // Radio station catalog — iHeart for now, source-agnostic schema.
 
-struct Station: Codable, FetchableRecord, PersistableRecord {
+struct Station: Codable, FetchableRecord, PersistableRecord, Identifiable {
     static let databaseTableName = "stations"
 
     var id: Int
@@ -111,6 +107,7 @@ struct Station: Codable, FetchableRecord, PersistableRecord {
     var logoURL: String?
     var streamURL: String?
     var isFavorite: Bool = false
+    var cume: Int = 0       // iHeart cumulative audience — used for popularity sort
     var lastFetched: Int
     var updatedAt: Int
 
@@ -121,6 +118,7 @@ struct Station: Codable, FetchableRecord, PersistableRecord {
         static let logoURL = Column(CodingKeys.logoURL)
         static let streamURL = Column(CodingKeys.streamURL)
         static let isFavorite = Column(CodingKeys.isFavorite)
+        static let cume = Column(CodingKeys.cume)
         static let lastFetched = Column(CodingKeys.lastFetched)
     }
 }
@@ -140,4 +138,74 @@ struct ZoneState: Codable, FetchableRecord, PersistableRecord {
 
     static let databasePrimaryKey = ["deviceId"]
     static var databaseDecodingUserInfo: [CodingUserInfoKey: Any] = [:]
+}
+
+// MARK: - Genre
+// Canonical genre taxonomy based on AllMusic hierarchy.
+// Parent genres have parentId = nil. Subgenres point to their parent.
+// imageURL is null until fGenreImages is resolved (Phase 6).
+
+struct Genre: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "genres"
+
+    var id: String          // slug e.g. "pop-rock", "jazz", "jazz-fusion"
+    var name: String        // display name e.g. "Pop/Rock", "Jazz", "Fusion"
+    var parentId: String?   // FK → genres.id, null for top-level genres
+    var sortOrder: Int      // controls display sequence within parent
+    var imageURL: String?   // null until fGenreImages resolved
+
+    enum Columns {
+        static let id = Column(CodingKeys.id)
+        static let name = Column(CodingKeys.name)
+        static let parentId = Column(CodingKeys.parentId)
+        static let sortOrder = Column(CodingKeys.sortOrder)
+        static let imageURL = Column(CodingKeys.imageURL)
+    }
+}
+
+// MARK: - StationGenre
+// Many-to-many between stations and genres.
+// A station can belong to multiple genres (e.g. "Classic Hits" → pop-rock + decades).
+
+struct StationGenre: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "station_genres"
+
+    var stationId: Int      // FK → stations.id
+    var genreId: String     // FK → genres.id
+
+    static let databasePrimaryKey = ["stationId", "genreId"]
+
+    enum Columns {
+        static let stationId = Column(CodingKeys.stationId)
+        static let genreId = Column(CodingKeys.genreId)
+    }
+}
+
+// MARK: - GenreSourceXref
+// Maps canonical Sorriva genre IDs to each service's genre identifier.
+// sourceGenreId: service's internal numeric/opaque ID (null if none)
+// sourceGenreName: service's human-readable genre string / search keyword
+//
+// Examples:
+//   iHeart:       sourceGenreId=nil,  sourceGenreName="rock"
+//   Spotify:      sourceGenreId="6",  sourceGenreName="Rock"
+//   Last.fm:      sourceGenreId=nil,  sourceGenreName="rock"
+//   Apple Music:  sourceGenreId="21", sourceGenreName="Rock"
+
+struct GenreSourceXref: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "genre_source_xref"
+
+    var genreId: String         // FK → genres.id
+    var source: String          // "iheart" | "somafm" | "spotify" | "applemusic" | "lastfm"
+    var sourceGenreId: String?  // service's internal ID (null if service uses names only)
+    var sourceGenreName: String // service's genre string / search keyword
+
+    static let databasePrimaryKey = ["genreId", "source"]
+
+    enum Columns {
+        static let genreId = Column(CodingKeys.genreId)
+        static let source = Column(CodingKeys.source)
+        static let sourceGenreId = Column(CodingKeys.sourceGenreId)
+        static let sourceGenreName = Column(CodingKeys.sourceGenreName)
+    }
 }
