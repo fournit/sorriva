@@ -11,7 +11,6 @@ struct SettingsView: View {
     let onNavigateToZone: (String) -> Void
 
     var body: some View {
-        NavigationStack {
             ZStack {
                 LinearGradient(
                     colors: [Color.sGradientTop, Color.sGradientMid, Color.sGradientBottom],
@@ -49,6 +48,15 @@ struct SettingsView: View {
                             }
                             .buttonStyle(.plain)
 
+                            // Local Library — temporarily stubbed
+                            SettingsMenuRow(
+                                icon: "externaldrive.connected.to.line.below",
+                                iconColor: .sBrass,
+                                title: "Local Library",
+                                subtitle: "NAS and network share music",
+                                isStub: true
+                            )
+
                             // Zones (stub)
                             SettingsMenuRow(
                                 icon: "hifispeaker.2",
@@ -83,7 +91,6 @@ struct SettingsView: View {
                     .padding(.bottom, 48)
                 }
             }
-        }
     }
 
     private var appVersion: String {
@@ -135,8 +142,9 @@ struct SettingsMenuRow: View {
 }
 
 // MARK: - ServicesView
-// Shows connected services + Add Service entry.
-// Each connected service taps into its config screen.
+// Single screen: Connected section + Available section.
+// No sheet — available services navigate directly to their config.
+// Refreshes counts on every appear so adding a service updates the page immediately.
 
 struct ServicesView: View {
     @ObservedObject var discovery: ZoneDiscoveryService
@@ -144,11 +152,12 @@ struct ServicesView: View {
     let onNavigateToZone: (String) -> Void
 
     @State private var iHeartStationCount: Int = 0
-    @State private var showServiceBrowser = false
-
     @State private var somaFMStationCount: Int = 0
+
     private var isIHeartConnected: Bool { iHeartStationCount > 0 }
     private var isSomaFMConnected: Bool { somaFMStationCount > 0 }
+    private var hasAnyConnected: Bool { isIHeartConnected || isSomaFMConnected }
+    private var allRadioConnected: Bool { isIHeartConnected && isSomaFMConnected }
 
     var body: some View {
         ZStack {
@@ -159,26 +168,28 @@ struct ServicesView: View {
             .ignoresSafeArea()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 24) {
 
-                    // Connected services
-                    if isIHeartConnected {
+                    // CONNECTED section
+                    if hasAnyConnected {
                         VStack(alignment: .leading, spacing: 8) {
                             SettingsSectionLabel(title: "Connected")
 
-                            NavigationLink(destination: IHeartServiceView(
-                                discovery: discovery,
-                                onPlayStation: onPlayStation,
-                                onNavigateToZone: onNavigateToZone
-                            )) {
-                                ConnectedServiceRow(
-                                    icon: "radio",
-                                    iconColor: Color(hex: "#CC2027"),
-                                    name: "iHeartRADIO",
-                                    detail: "\(iHeartStationCount) station\(iHeartStationCount == 1 ? "" : "s")"
-                                )
+                            if isIHeartConnected {
+                                NavigationLink(destination: IHeartServiceView(
+                                    discovery: discovery,
+                                    onPlayStation: onPlayStation,
+                                    onNavigateToZone: onNavigateToZone
+                                )) {
+                                    ConnectedServiceRow(
+                                        icon: "radio",
+                                        iconColor: Color(hex: "#CC2027"),
+                                        name: "iHeartRADIO",
+                                        detail: "\(iHeartStationCount) station\(iHeartStationCount == 1 ? "" : "s")"
+                                    )
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
 
                             if isSomaFMConnected {
                                 NavigationLink(destination: SomaFMServiceView(
@@ -196,53 +207,69 @@ struct ServicesView: View {
                                 .buttonStyle(.plain)
                             }
                         }
-                        .padding(.bottom, 24)
-                    }
-
-                    // Add service
-                    VStack(alignment: .leading, spacing: 8) {
-                        SettingsSectionLabel(title: isIHeartConnected ? "Add Another" : "Available Services")
-
-                        Button(action: { showServiceBrowser = true }) {
-                            HStack(spacing: 14) {
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(Color.sAccent)
-                                        .frame(width: 36, height: 36)
-                                    Image(systemName: "plus")
-                                        .font(.system(size: 16, weight: .semibold))
-                                        .foregroundColor(.white)
-                                }
-                                Text("Add Service")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundColor(.sTextPrimary)
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(.sTextMuted)
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 14)
-                            .background(Color.sSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
-                        }
-                        .buttonStyle(.plain)
                         .padding(.horizontal, 16)
                     }
+
+                    // AVAILABLE section — radio services not yet connected
+                    if !allRadioConnected {
+                        VStack(alignment: .leading, spacing: 8) {
+                            SettingsSectionLabel(title: "Available")
+
+                            if !isIHeartConnected {
+                                NavigationLink(destination: IHeartServiceView(
+                                    discovery: discovery,
+                                    onPlayStation: onPlayStation,
+                                    onNavigateToZone: onNavigateToZone
+                                )) {
+                                    AvailableServiceRow(
+                                        icon: "radio",
+                                        iconColor: Color(hex: "#CC2027"),
+                                        name: "iHeartRADIO",
+                                        description: "Thousands of live radio stations, no account required"
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+
+                            if !isSomaFMConnected {
+                                NavigationLink(destination: SomaFMServiceView(
+                                    discovery: discovery,
+                                    onPlayStation: onPlayStation,
+                                    onNavigateToZone: onNavigateToZone
+                                )) {
+                                    AvailableServiceRow(
+                                        icon: "antenna.radiowaves.left.and.right",
+                                        iconColor: Color(hex: "#2C3E50"),
+                                        name: "SomaFM",
+                                        description: "46 curated commercial-free channels, no account required"
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+
+                    // COMING SOON section
+                    VStack(alignment: .leading, spacing: 8) {
+                        SettingsSectionLabel(title: "Coming Soon")
+                        VStack(spacing: 8) {
+                            ComingSoonRow(name: "Spotify",                   iconColor: Color(hex: "#1DB954"))
+                            ComingSoonRow(name: "Apple Music",               iconColor: Color(hex: "#FC3C44"))
+                            ComingSoonRow(name: "Qobuz",                     iconColor: Color(hex: "#1A56DB"))
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 48)
                 }
                 .padding(.top, 16)
-                .padding(.bottom, 48)
             }
         }
         .navigationTitle("Services")
         .navigationBarTitleDisplayMode(.large)
         .onAppear { refreshCounts() }
-        .sheet(isPresented: $showServiceBrowser, onDismiss: { refreshCounts() }) {
-            ServiceBrowserSheet(
-                discovery: discovery,
-                onPlayStation: onPlayStation,
-                onNavigateToZone: onNavigateToZone
-            )
+        .onReceive(NotificationCenter.default.publisher(for: .stationsDidUpdate)) { _ in
+            refreshCounts()
         }
     }
 
@@ -290,105 +317,6 @@ struct ConnectedServiceRow: View {
         .padding(.vertical, 14)
         .background(Color.sSurface)
         .clipShape(RoundedRectangle(cornerRadius: 14))
-    }
-}
-
-// MARK: - ServiceBrowserSheet
-// Full catalog of available services, grouped by type.
-// Only shows unconnected services.
-
-struct ServiceBrowserSheet: View {
-    @ObservedObject var discovery: ZoneDiscoveryService
-    let onPlayStation: (RadioStation, SonosZone) -> Void
-    let onNavigateToZone: (String) -> Void
-    @State private var iHeartConnected = false
-    @State private var somaFMConnected = false
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                LinearGradient(
-                    colors: [Color.sGradientTop, Color.sGradientMid, Color.sGradientBottom],
-                    startPoint: .top, endPoint: .bottom
-                )
-                .ignoresSafeArea()
-
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
-
-                        Text("Add Service")
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundColor(.sTextPrimary)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 8)
-
-                    // Radio
-                    ServiceBrowserSection(title: "Radio") {
-                        if iHeartConnected && somaFMConnected {
-                            Text("All available radio services connected.")
-                                .font(.system(size: 13))
-                                .foregroundColor(.sTextMuted)
-                                .padding(.horizontal, 4)
-                        } else {
-                            if !iHeartConnected {
-                                NavigationLink(destination: IHeartServiceView(
-                                    discovery: discovery,
-                                    onPlayStation: onPlayStation,
-                                    onNavigateToZone: onNavigateToZone
-                                )) {
-                                    AvailableServiceRow(
-                                        icon: "radio",
-                                        iconColor: Color(hex: "#CC2027"),
-                                        name: "iHeartRADIO",
-                                        description: "Thousands of live radio stations, no account required"
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            if !somaFMConnected {
-                                NavigationLink(destination: SomaFMServiceView(
-                                    discovery: discovery,
-                                    onPlayStation: onPlayStation,
-                                    onNavigateToZone: onNavigateToZone
-                                )) {
-                                    AvailableServiceRow(
-                                        icon: "antenna.radiowaves.left.and.right",
-                                        iconColor: Color(hex: "#2C3E50"),
-                                        name: "SomaFM",
-                                        description: "46 curated commercial-free channels, no account required"
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 16)
-
-                    // Streaming (coming Phase 4)
-                    ServiceBrowserSection(title: "Streaming") {
-                        VStack(spacing: 8) {
-                            ComingSoonRow(name: "Spotify",      iconColor: Color(hex: "#1DB954"))
-                            ComingSoonRow(name: "Apple Music",  iconColor: Color(hex: "#FC3C44"))
-                            ComingSoonRow(name: "Qobuz",        iconColor: Color(hex: "#1A56DB"))
-                        }
-                    }
-                    .padding(.horizontal, 16)
-
-                    // Library (coming Phase 3)
-                    ServiceBrowserSection(title: "Library") {
-                        ComingSoonRow(name: "Local Files (SMB / USB-C)", iconColor: .sAccent)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 48)
-                }
-                .padding(.top, 16)
-                }
-            }
-        }
-        .onAppear {
-            iHeartConnected = ((try? SorrivaDatabase.shared.allStations(source: "iheart"))?.count ?? 0) > 0
-            somaFMConnected = ((try? SorrivaDatabase.shared.allStations(source: "somafm"))?.count ?? 0) > 0
-        }
     }
 }
 

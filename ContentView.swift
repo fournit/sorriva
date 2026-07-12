@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var selectedTab: Tab = .zones
-    @State private var expandZoneID: String? = nil  // Zone to auto-expand after station play
+    @State private var expandZoneID: String? = nil
     @StateObject private var discovery = ZoneDiscoveryService()
 
     enum Tab {
@@ -12,7 +12,6 @@ struct ContentView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
 
-            // Full-screen gradient background
             LinearGradient(
                 colors: [Color.sGradientTop, Color.sGradientMid, Color.sGradientBottom],
                 startPoint: .top,
@@ -20,7 +19,6 @@ struct ContentView: View {
             )
             .ignoresSafeArea()
 
-            // Tab content — ZStack keeps all views alive so @State persists across tab switches
             ZStack {
                 LibraryView(
                     discovery: discovery,
@@ -35,31 +33,36 @@ struct ContentView: View {
                     }
                 )
                 .opacity(selectedTab == .library ? 1 : 0)
+                .allowsHitTesting(selectedTab == .library)
 
                 ZonesView(discovery: discovery, expandZoneID: $expandZoneID)
                     .opacity(selectedTab == .zones ? 1 : 0)
+                    .allowsHitTesting(selectedTab == .zones)
 
                 DiscoverView()
                     .opacity(selectedTab == .discover ? 1 : 0)
+                    .allowsHitTesting(selectedTab == .discover)
 
-                SettingsView(
-                    discovery: discovery,
-                    onPlayStation: { station, zone in
-                        discovery.playStation(streamID: station.id, on: zone)
-                        expandZoneID = zone.id
-                        withAnimation { selectedTab = .zones }
-                    },
-                    onNavigateToZone: { zoneID in
-                        expandZoneID = zoneID
-                        withAnimation { selectedTab = .zones }
-                    }
-                )
+                NavigationStack {
+                    SettingsView(
+                        discovery: discovery,
+                        onPlayStation: { station, zone in
+                            discovery.playStation(streamID: station.id, on: zone)
+                            expandZoneID = zone.id
+                            withAnimation { selectedTab = .zones }
+                        },
+                        onNavigateToZone: { zoneID in
+                            expandZoneID = zoneID
+                            withAnimation { selectedTab = .zones }
+                        }
+                    )
+                }
                 .opacity(selectedTab == .settings ? 1 : 0)
+                .allowsHitTesting(selectedTab == .settings)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.bottom, 72)
 
-            // Tab bar
             VStack(spacing: 0) {
                 Divider()
                     .background(Color.sSeparator)
