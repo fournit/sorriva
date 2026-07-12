@@ -2,97 +2,43 @@ import SwiftUI
 import Network
 import AMSMB2
 
+// MARK: - SMBDevice
+
+struct SMBDevice: Identifiable {
+    let id: String
+    var name: String
+    var host: String
+    let port: Int
+}
+
 // MARK: - AddSMBSourceView
-// Three-step flow: Discover → Select Share → Credentials & Test
+// Step 1 — Bonjour discovery + manual entry
 
 struct AddSMBSourceView: View {
     let onSaved: () -> Void
+
     @Environment(\.dismiss) private var dismiss
-
-    // Step management
-    @State private var step: AddSMBStep = .discover
-
-    // Discovery state
     @State private var discoveredDevices: [SMBDevice] = []
     @State private var isDiscovering = false
     @State private var browser: NWBrowser? = nil
 
-    // Selected device / share
-    @State private var selectedDevice: SMBDevice? = nil
-    @State private var shares: [String] = []
-    @State private var isLoadingShares = false
-    @State private var sharesError: String? = nil
-
-    // Credentials
-    @State private var selectedShare = ""
-    @State private var displayName = ""
-    @State private var username = ""
-    @State private var password = ""
-    @State private var rootPath = "/"
-
-    // Test connection
-    @State private var isTesting = false
-    @State private var testResult: TestResult? = nil
-
-    enum AddSMBStep { case discover, shares, credentials }
-    enum TestResult: Equatable { case success, failure(String) }
-
     var body: some View {
-        NavigationStack {
-            ZStack {
-                LinearGradient(
-                    colors: [Color.sGradientTop, Color.sGradientMid, Color.sGradientBottom],
-                    startPoint: .top, endPoint: .bottom
-                )
-                .ignoresSafeArea()
+        ZStack {
+            Color.sGradientBottom.ignoresSafeArea()
 
-                switch step {
-                case .discover: discoverView
-                case .shares: sharesView
-                case .credentials: credentialsView
-                }
-            }
-            .navigationTitle(stepTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(step == .discover ? "Cancel" : "Back") {
-                        if step == .discover {
-                            stopDiscovery()
-                            dismiss()
-                        } else if step == .shares {
-                            step = .discover
-                        } else {
-                            step = .shares
-                        }
-                    }
-                    .foregroundColor(.sTextSecondary)
-                }
-            }
-            .onAppear { startDiscovery() }
-            .onDisappear { stopDiscovery() }
-        }
-    }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
 
-    // MARK: - Step 1: Discover
-
-    private var discoverView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-
-                if isDiscovering || !discoveredDevices.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             SettingsSectionLabel(title: "Available on Network")
                             Spacer()
                             if isDiscovering {
-                                ProgressView()
-                                    .scaleEffect(0.7)
-                                    .tint(.sTextSecondary)
+                                ProgressView().scaleEffect(0.7).tint(.sTextSecondary)
                             }
                         }
 
-                        if discoveredDevices.isEmpty {
+                        if discoveredDevices.isEmpty && isDiscovering {
                             Text("Searching for devices…")
                                 .font(.system(size: 14))
                                 .foregroundColor(.sTextMuted)
@@ -101,9 +47,10 @@ struct AddSMBSourceView: View {
                         } else {
                             VStack(spacing: 8) {
                                 ForEach(discoveredDevices) { device in
-                                    Button {
-                                        selectDevice(device)
-                                    } label: {
+                                    NavigationLink(destination: SMBSharePickerView(
+                                        device: device,
+                                        onSaved: onSaved
+                                    )) {
                                         SMBDeviceRow(device: device)
                                     }
                                     .buttonStyle(.plain)
@@ -114,33 +61,91 @@ struct AddSMBSourceView: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 24)
                     .padding(.bottom, 24)
-                }
 
-                // Manual entry
-                VStack(alignment: .leading, spacing: 8) {
-                    SettingsSectionLabel(title: "Manual Entry")
-
-                    ManualSMBEntryRow {
-                        // User wants to enter hostname manually
-                        selectedDevice = SMBDevice(id: "manual", name: "Manual Entry", host: "", port: 445)
-                        shares = []
-                        step = .shares
+                    VStack(alignment: .leading, spacing: 8) {
+                        SettingsSectionLabel(title: "Manual Entry")
+                        NavigationLink(destination: SMBSharePickerView(
+                            device: SMBDevice(id: "manual", name: "Manual Entry", host: "", port: 445),
+                            onSaved: onSaved
+                        )) {
+                            ManualSMBEntryRow()
+                        }
+                        .buttonStyle(.plain)
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 48)
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 48)
             }
         }
+        .navigationTitle("Add Network Share")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear { startDiscovery() }
+        .onDisappear { stopDiscovery() }
+
     }
 
-    // MARK: - Step 2: Shares
+    private func startDiscovery() {
+        isDiscovering = true
+        discoveredDevices = []
+        let params = NWParameters()
+        let b = NWBrowser(for: .bonjourWithTXTRecord(type: "_smb._tcp", domain: "local."), using: params)
+        b.browseResultsChangedHandler = { _, changes in
+            DispatchQueue.main.async {
+                for change in changes {
+                    switch change {
+                    case .added(let result):
+                        if case .service(let name, _, let domain, _) = result.endpoint {
+                            let host = "\(name).\(domain)"
+                            let device = SMBDevice(id: name, name: name, host: host, port: 445)
+                            if !self.discoveredDevices.contains(where: { $0.id == device.id }) {
+                                self.discoveredDevices.append(device)
+                            }
+                        }
+                    case .removed(let result):
+                        if case .service(let name, _, _, _) = result.endpoint {
+                            self.discoveredDevices.removeAll { $0.id == name }
+                        }
+                    default: break
+                    }
+                }
+            }
+        }
+        b.start(queue: .global(qos: .userInitiated))
+        self.browser = b
+    }
 
-    private var sharesView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
+    private func stopDiscovery() {
+        browser?.cancel()
+        browser = nil
+        isDiscovering = false
+    }
+}
 
-                if let device = selectedDevice {
-                    // Device info
+// MARK: - SMBSharePickerView
+// Step 2 — Credentials + share list
+
+struct SMBSharePickerView: View {
+    var device: SMBDevice
+    let onSaved: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var username = ""
+    @State private var password = ""
+    @State private var manualHost = ""
+    @State private var shares: [String] = []
+    @State private var isLoading = false
+    @State private var error: String? = nil
+    @State private var shouldDismiss = false
+
+    var body: some View {
+        ZStack {
+            Color.sGradientBottom.ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+
+                    // Device card
                     VStack(alignment: .leading, spacing: 8) {
                         SettingsSectionLabel(title: "Device")
                         HStack(spacing: 12) {
@@ -152,13 +157,15 @@ struct AddSMBSourceView: View {
                                     .font(.system(size: 16))
                                     .foregroundColor(.sBrass)
                             }
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(device.name)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(device.id == "manual" ? (manualHost.isEmpty ? "Manual Entry" : manualHost) : device.name)
                                     .font(.system(size: 14, weight: .semibold))
                                     .foregroundColor(.sTextPrimary)
-                                Text(device.host.isEmpty ? "Enter address below" : device.host)
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.sTextMuted)
+                                if device.id != "manual" {
+                                    Text(device.host)
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.sTextMuted)
+                                }
                             }
                         }
                         .padding(12)
@@ -169,14 +176,19 @@ struct AddSMBSourceView: View {
                     .padding(.top, 24)
                     .padding(.bottom, 16)
 
-                    // Manual host field if manual entry
+                    // Manual host
                     if device.id == "manual" {
                         VStack(alignment: .leading, spacing: 8) {
                             SettingsSectionLabel(title: "Server Address")
-                            SMBTextField(placeholder: "192.168.1.x or hostname", text: Binding(
-                                get: { selectedDevice?.host ?? "" },
-                                set: { selectedDevice?.host = $0 }
-                            ))
+                            TextField("192.168.1.x or hostname", text: $manualHost)
+                                .font(.system(size: 15))
+                                .foregroundColor(.sTextPrimary)
+                                .padding(12)
+                                .background(Color.sSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
+                                .keyboardType(.URL)
                         }
                         .padding(.horizontal, 16)
                         .padding(.bottom, 16)
@@ -185,48 +197,41 @@ struct AddSMBSourceView: View {
                     // Credentials
                     VStack(alignment: .leading, spacing: 8) {
                         SettingsSectionLabel(title: "Credentials")
-                        VStack(spacing: 1) {
-                            TextField("Username", text: $username)
-                                .font(.system(size: 15))
-                                .foregroundColor(.sTextPrimary)
-                                .padding(12)
-                                .background(Color.sSurface)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                                .autocorrectionDisabled()
-                                .textInputAutocapitalization(.never)
-                                .textContentType(.username)
-                            SecureField("Password", text: $password)
-                                .font(.system(size: 15))
-                                .foregroundColor(.sTextPrimary)
-                                .padding(12)
-                                .background(Color.sSurface)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                                .textContentType(.password)
-                        }
+                        TextField("Username", text: $username)
+                            .font(.system(size: 15))
+                            .foregroundColor(.sTextPrimary)
+                            .padding(12)
+                            .background(Color.sSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                        SecureField("Password", text: $password)
+                            .font(.system(size: 15))
+                            .foregroundColor(.sTextPrimary)
+                            .padding(12)
+                            .background(Color.sSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
                     .padding(.horizontal, 16)
                     .padding(.bottom, 12)
 
                     // Connect buttons
                     VStack(spacing: 8) {
-                        Button {
-                            if let d = selectedDevice { loadShares(device: d) }
-                        } label: {
-                            Text(isLoadingShares ? "Connecting…" : "Connect")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 13)
-                                .background(Color.sAccent)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                        Button { loadShares(asGuest: false) } label: {
+                            HStack {
+                                if isLoading { ProgressView().scaleEffect(0.8).tint(.white) }
+                                Text(isLoading ? "Connecting…" : "Connect")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(.white)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 13)
+                            .background(Color.sAccent)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
                         }
-                        .disabled(isLoadingShares || (device.id == "manual" && (selectedDevice?.host.isEmpty ?? true)))
+                        .disabled(isLoading)
 
-                        Button {
-                            username = ""
-                            password = ""
-                            if let d = selectedDevice { loadShares(device: d) }
-                        } label: {
+                        Button { loadShares(asGuest: true) } label: {
                             Text("Connect as Guest")
                                 .font(.system(size: 15, weight: .medium))
                                 .foregroundColor(.sTextSecondary)
@@ -235,49 +240,35 @@ struct AddSMBSourceView: View {
                                 .background(Color.sSurface)
                                 .clipShape(RoundedRectangle(cornerRadius: 10))
                         }
-                        .disabled(isLoadingShares)
+                        .disabled(isLoading)
                     }
                     .padding(.horizontal, 16)
                     .padding(.bottom, 16)
 
-                    // Shares list
-                    if isLoadingShares {
-                        HStack {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                                .tint(.sTextSecondary)
-                            Text("Loading shares…")
-                                .font(.system(size: 14))
-                                .foregroundColor(.sTextMuted)
-                        }
-                        .padding(.vertical, 12)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.horizontal, 16)
-                    } else if let err = sharesError {
-                        VStack(spacing: 8) {
-                            Text(err)
-                                .font(.system(size: 13))
-                                .foregroundColor(.sTextMuted)
-                                .multilineTextAlignment(.center)
-                            Button("Try Again") {
-                                if let d = selectedDevice { loadShares(device: d) }
-                            }
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.sAccent)
-                        }
-                        .padding(.vertical, 12)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 16)
-                    } else if !shares.isEmpty {
+                    if let err = error {
+                        Text(err)
+                            .font(.system(size: 13))
+                            .foregroundColor(.red.opacity(0.8))
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 12)
+                    }
+
+                    // Shares
+                    if !shares.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             SettingsSectionLabel(title: "Shares")
                             VStack(spacing: 8) {
                                 ForEach(shares, id: \.self) { share in
-                                    Button {
-                                        selectedShare = share
-                                        displayName = device.name
-                                        step = .credentials
-                                    } label: {
+                                    NavigationLink(destination: SMBConfigureSourceView(
+                                        device: resolvedDevice,
+                                        share: share,
+                                        username: username,
+                                        password: password,
+                                        onSaved: {
+                                            onSaved()
+                                            dismiss()
+                                        }
+                                    )) {
                                         HStack {
                                             Image(systemName: "folder")
                                                 .font(.system(size: 16))
@@ -305,276 +296,217 @@ struct AddSMBSourceView: View {
                 }
             }
         }
+        .navigationTitle("Select Share")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
-    // MARK: - Step 3: Credentials & Test
-
-    private var credentialsView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-
-                // Source name
-                VStack(alignment: .leading, spacing: 8) {
-                    SettingsSectionLabel(title: "Name")
-                    SMBTextField(placeholder: "My NAS", text: $displayName)
-                }
-
-                // Credentials
-                VStack(alignment: .leading, spacing: 8) {
-                    SettingsSectionLabel(title: "Credentials (optional)")
-                    VStack(spacing: 1) {
-                        SMBTextField(placeholder: "Username (leave blank for guest)", text: $username)
-                        SMBSecureField(placeholder: "Password", text: $password)
-                    }
-                    Text("Leave blank for guest / anonymous access.")
-                        .font(.system(size: 12))
-                        .foregroundColor(.sTextMuted)
-                        .padding(.top, 2)
-                }
-
-                // Root path
-                VStack(alignment: .leading, spacing: 8) {
-                    SettingsSectionLabel(title: "Music Folder (optional)")
-                    SMBTextField(placeholder: "/Music or / for all", text: $rootPath)
-                    Text("Limit scanning to a specific subfolder on the share.")
-                        .font(.system(size: 12))
-                        .foregroundColor(.sTextMuted)
-                        .padding(.top, 2)
-                }
-
-                // Test result
-                if let result = testResult {
-                    HStack(spacing: 10) {
-                        Image(systemName: result == .success ? "checkmark.circle.fill" : "xmark.circle.fill")
-                            .foregroundColor(result == .success ? Color(hex: "#4CAF50") : .red)
-                        Text(result == .success ? "Connection successful" : testErrorMessage(result))
-                            .font(.system(size: 14))
-                            .foregroundColor(result == .success ? Color(hex: "#4CAF50") : .red)
-                    }
-                    .padding(12)
-                    .background(Color.sSurface)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-
-                // Buttons
-                VStack(spacing: 8) {
-                    Button {
-                        testConnection()
-                    } label: {
-                        HStack {
-                            if isTesting {
-                                ProgressView()
-                                    .scaleEffect(0.8)
-                                    .tint(.white)
-                            }
-                            Text(isTesting ? "Testing…" : "Test Connection")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundColor(.white)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 13)
-                        .background(Color.sSurface)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(Color.sAccent, lineWidth: 1)
-                        )
-                    }
-                    .disabled(isTesting)
-
-                    Button {
-                        saveSource()
-                    } label: {
-                        Text("Save")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 13)
-                            .background(canSave ? Color.sAccent : Color.sAccent.opacity(0.4))
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-                    .disabled(!canSave)
-                }
-            }
-            .padding(16)
-            .padding(.top, 8)
-        }
+    private var resolvedDevice: SMBDevice {
+        device.id == "manual"
+            ? SMBDevice(id: "manual", name: manualHost, host: manualHost, port: 445)
+            : device
     }
 
-    // MARK: - Helpers
+    private func loadShares(asGuest: Bool) {
+        let host = device.id == "manual" ? manualHost : device.host
+        let cleanHost = host.hasSuffix(".") ? String(host.dropLast()) : host
+        guard !cleanHost.isEmpty, let url = URL(string: "smb://\(cleanHost)") else { return }
 
-    private var stepTitle: String {
-        switch step {
-        case .discover: return "Add Network Share"
-        case .shares: return "Select Share"
-        case .credentials: return "Configure Source"
-        }
-    }
-
-    private var canSave: Bool {
-        !displayName.isEmpty && !selectedShare.isEmpty && selectedDevice != nil
-    }
-
-    private func testErrorMessage(_ result: TestResult) -> String {
-        if case .failure(let msg) = result { return msg }
-        return "Unknown error"
-    }
-
-    // MARK: - Bonjour Discovery
-
-    private func startDiscovery() {
-        isDiscovering = true
-        discoveredDevices = []
-
-        let params = NWParameters()
-        let b = NWBrowser(for: .bonjourWithTXTRecord(type: "_smb._tcp", domain: "local."), using: params)
-
-        b.browseResultsChangedHandler = { _, changes in
-            DispatchQueue.main.async {
-                for change in changes {
-                    switch change {
-                    case .added(let result):
-                        if case .service(let name, _, let domain, _) = result.endpoint {
-                            let host = "\(name).\(domain)"
-                            let device = SMBDevice(id: name, name: name, host: host, port: 445)
-                            if !self.discoveredDevices.contains(where: { $0.id == device.id }) {
-                                self.discoveredDevices.append(device)
-                            }
-                        }
-                    case .removed(let result):
-                        if case .service(let name, _, _, _) = result.endpoint {
-                            self.discoveredDevices.removeAll { $0.id == name }
-                        }
-                    default: break
-                    }
-                }
-            }
-        }
-
-        b.stateUpdateHandler = { state in
-            DispatchQueue.main.async {
-                if case .failed = state { self.isDiscovering = false }
-                if case .ready = state { /* keep spinning */ }
-            }
-        }
-
-        b.start(queue: .global(qos: .userInitiated))
-        self.browser = b
-    }
-
-    private func stopDiscovery() {
-        browser?.cancel()
-        browser = nil
-        isDiscovering = false
-    }
-
-    private func selectDevice(_ device: SMBDevice) {
-        selectedDevice = device
-        shares = []
-        sharesError = nil
-        step = .shares
-    }
-
-    // MARK: - Load Shares
-
-    private func loadShares(device: SMBDevice) {
-        let cleanHost = device.host.hasSuffix(".") ? String(device.host.dropLast()) : device.host
-        guard let url = URL(string: "smb://\(cleanHost)") else { return }
-        isLoadingShares = true
-        sharesError = nil
+        isLoading = true
+        error = nil
         shares = []
 
-        let user = username.isEmpty ? "guest" : username
-        let credential = URLCredential(user: user,
-                                       password: password,
-                                       persistence: .forSession)
+        let user = asGuest ? "guest" : (username.isEmpty ? "guest" : username)
+        let pass = asGuest ? "" : password
+        let credential = URLCredential(user: user, password: pass, persistence: .forSession)
 
         guard let smb = SMB2Manager(url: url, credential: credential) else {
-            DispatchQueue.main.async {
-                self.isLoadingShares = false
-                self.sharesError = "Could not create SMB client for \(cleanHost)"
-            }
+            isLoading = false
+            error = "Could not create SMB client"
             return
         }
 
         Task {
             do {
-                let rawShares = try await smb.listShares(enumerateHidden: false)
-                let filtered = rawShares
-                    .map { $0.name }
-                    .filter { !$0.hasPrefix("$") && !$0.isEmpty }
-                print("SORRIVA SMB: Found shares: \(filtered)")
+                let raw = try await smb.listShares(enumerateHidden: false)
+                let filtered = raw.map { $0.name }.filter { !$0.hasPrefix("$") && !$0.isEmpty }
+                print("SORRIVA SMB: Shares: \(filtered)")
                 await MainActor.run {
                     self.shares = filtered
-                    self.isLoadingShares = false
+                    self.isLoading = false
                 }
             } catch {
-                let errMsg = "Could not list shares: \(error.localizedDescription) [\(error)]"
-                print("SORRIVA SMB: \(errMsg)")
+                print("SORRIVA SMB: listShares error: \(error)")
                 await MainActor.run {
-                    self.sharesError = errMsg
-                    self.isLoadingShares = false
+                    self.error = "Could not list shares: \(error.localizedDescription)"
+                    self.isLoading = false
                 }
             }
         }
     }
+}
 
-    // MARK: - Test Connection
+// MARK: - SMBConfigureSourceView
+// Step 3 — Name, root path, test, save
+
+struct SMBConfigureSourceView: View {
+    let device: SMBDevice
+    let share: String
+    let username: String
+    let password: String
+    let onSaved: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var displayName: String
+    @State private var rootPath = "/"
+    @State private var isTesting = false
+    @State private var testResult: TestResult? = nil
+
+    enum TestResult: Equatable { case success, failure(String) }
+
+    init(device: SMBDevice, share: String, username: String, password: String, onSaved: @escaping () -> Void) {
+        self.device = device
+        self.share = share
+        self.username = username
+        self.password = password
+        self.onSaved = onSaved
+        _displayName = State(initialValue: device.name)
+    }
+
+    var body: some View {
+        ZStack {
+            Color.sGradientBottom.ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        SettingsSectionLabel(title: "Name")
+                        TextField("My NAS", text: $displayName)
+                            .font(.system(size: 15))
+                            .foregroundColor(.sTextPrimary)
+                            .padding(12)
+                            .background(Color.sSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .autocorrectionDisabled()
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        SettingsSectionLabel(title: "Music Folder (optional)")
+                        TextField("/Music or / for all", text: $rootPath)
+                            .font(.system(size: 15))
+                            .foregroundColor(.sTextPrimary)
+                            .padding(12)
+                            .background(Color.sSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                        Text("Limit scanning to a specific subfolder on the share.")
+                            .font(.system(size: 12))
+                            .foregroundColor(.sTextMuted)
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        SettingsSectionLabel(title: "Connection")
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("\(device.host)/\(share)", systemImage: "externaldrive.connected.to.line.below")
+                            Label(username.isEmpty ? "Guest access" : username, systemImage: "person")
+                        }
+                        .font(.system(size: 13))
+                        .foregroundColor(.sTextMuted)
+                        .padding(12)
+                        .background(Color.sSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+
+                    if let result = testResult {
+                        HStack(spacing: 10) {
+                            Image(systemName: result == .success ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundColor(result == .success ? Color(hex: "#4CAF50") : .red)
+                            Text(result == .success ? "Connection successful" : errorMessage(result))
+                                .font(.system(size: 14))
+                                .foregroundColor(result == .success ? Color(hex: "#4CAF50") : .red)
+                        }
+                        .padding(12)
+                        .background(Color.sSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+
+                    VStack(spacing: 8) {
+                        Button { testConnection() } label: {
+                            HStack {
+                                if isTesting { ProgressView().scaleEffect(0.8).tint(.sTextSecondary) }
+                                Text(isTesting ? "Testing…" : "Test Connection")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(.sTextSecondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 13)
+                            .background(Color.sSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.sAccent, lineWidth: 1))
+                        }
+                        .disabled(isTesting)
+
+                        Button { saveSource() } label: {
+                            Text("Save")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 13)
+                                .background(displayName.isEmpty ? Color.sAccent.opacity(0.4) : Color.sAccent)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                        .disabled(displayName.isEmpty)
+                    }
+                }
+                .padding(16)
+                .padding(.top, 8)
+            }
+        }
+        .navigationTitle("Configure Source")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func errorMessage(_ result: TestResult) -> String {
+        if case .failure(let m) = result { return m }
+        return "Unknown error"
+    }
 
     private func testConnection() {
-        print("SORRIVA SMB: testConnection called — share='\(selectedShare)' host='\(selectedDevice?.host ?? "nil")' user='\(username)'")
-        guard let device = selectedDevice else { return }
         let cleanHost = device.host.hasSuffix(".") ? String(device.host.dropLast()) : device.host
         guard let url = URL(string: "smb://\(cleanHost)") else { return }
-
         isTesting = true
         testResult = nil
-
         let user = username.isEmpty ? "guest" : username
-        let credential = URLCredential(user: user,
-                                       password: password,
-                                       persistence: .forSession)
-
+        let credential = URLCredential(user: user, password: password, persistence: .forSession)
         guard let smb = SMB2Manager(url: url, credential: credential) else {
             testResult = .failure("Could not create SMB client")
             isTesting = false
             return
         }
-
         Task {
             do {
-                print("SORRIVA SMB: Testing connection to \(cleanHost)/\(selectedShare) path:\(rootPath)")
-                try await smb.connectShare(name: selectedShare)
-                print("SORRIVA SMB: Connected to share")
+                try await smb.connectShare(name: share)
                 _ = try await smb.contentsOfDirectory(atPath: rootPath.isEmpty ? "/" : rootPath)
-                print("SORRIVA SMB: Directory listing succeeded")
                 try? await smb.disconnectShare()
-                await MainActor.run {
-                    self.testResult = .success
-                    self.isTesting = false
-                }
+                await MainActor.run { self.testResult = .success; self.isTesting = false }
             } catch {
-                print("SORRIVA SMB: Test connection failed: \(error)")
-                await MainActor.run {
-                    self.testResult = .failure(error.localizedDescription)
-                    self.isTesting = false
-                }
+                print("SORRIVA SMB: Test failed: \(error)")
+                await MainActor.run { self.testResult = .failure(error.localizedDescription); self.isTesting = false }
             }
         }
     }
 
-    // MARK: - Save
-
     private func saveSource() {
-        guard let device = selectedDevice else { return }
-        let now = Int(Date().timeIntervalSince1970)
         let cleanHost = device.host.hasSuffix(".") ? String(device.host.dropLast()) : device.host
+        let now = Int(Date().timeIntervalSince1970)
         let source = LibrarySource(
             id: UUID().uuidString,
             type: "smb",
-            displayName: displayName.isEmpty ? device.name : displayName,
+            displayName: displayName,
             host: cleanHost,
-            share: selectedShare,
+            share: share,
             rootPath: rootPath.isEmpty ? "/" : rootPath,
             username: username.isEmpty ? nil : username,
             password: password.isEmpty ? nil : password,
@@ -586,23 +518,14 @@ struct AddSMBSourceView: View {
         )
         try? SorrivaDatabase.shared.upsertLibrarySource(source)
         onSaved()
+        dismiss()
     }
 }
 
-// MARK: - SMBDevice
-
-struct SMBDevice: Identifiable {
-    let id: String
-    var name: String
-    var host: String
-    let port: Int
-}
-
-// MARK: - SMBDeviceRow
+// MARK: - Shared UI Components
 
 struct SMBDeviceRow: View {
     let device: SMBDevice
-
     var body: some View {
         HStack(spacing: 12) {
             ZStack {
@@ -633,66 +556,27 @@ struct SMBDeviceRow: View {
     }
 }
 
-// MARK: - ManualSMBEntryRow
-
 struct ManualSMBEntryRow: View {
-    let onTap: () -> Void
-
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.sAccent.opacity(0.15))
-                        .frame(width: 36, height: 36)
-                    Image(systemName: "plus")
-                        .font(.system(size: 16))
-                        .foregroundColor(.sAccent)
-                }
-                Text("Enter address manually")
-                    .font(.system(size: 14))
-                    .foregroundColor(.sTextPrimary)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13))
-                    .foregroundColor(.sTextMuted)
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.sAccent.opacity(0.15))
+                    .frame(width: 36, height: 36)
+                Image(systemName: "plus")
+                    .font(.system(size: 16))
+                    .foregroundColor(.sAccent)
             }
-            .padding(12)
-            .background(Color.sSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            Text("Enter address manually")
+                .font(.system(size: 14))
+                .foregroundColor(.sTextPrimary)
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13))
+                .foregroundColor(.sTextMuted)
         }
-        .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Text Field helpers
-
-struct SMBTextField: View {
-    let placeholder: String
-    @Binding var text: String
-
-    var body: some View {
-        TextField(placeholder, text: $text)
-            .font(.system(size: 15))
-            .foregroundColor(.sTextPrimary)
-            .padding(12)
-            .background(Color.sSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .autocorrectionDisabled()
-            .textInputAutocapitalization(.never)
-    }
-}
-
-struct SMBSecureField: View {
-    let placeholder: String
-    @Binding var text: String
-
-    var body: some View {
-        SecureField(placeholder, text: $text)
-            .font(.system(size: 15))
-            .foregroundColor(.sTextPrimary)
-            .padding(12)
-            .background(Color.sSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+        .padding(12)
+        .background(Color.sSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }

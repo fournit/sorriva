@@ -56,9 +56,13 @@ struct LocalLibraryView: View {
 
                         VStack(spacing: 8) {
                             // SMB / NAS
-                            Button {
-                                showAddSMB = true
-                            } label: {
+                            NavigationLink(
+                                destination: AddSMBSourceView(onSaved: {
+                                    loadSources()
+                                    showAddSMB = false
+                                }),
+                                isActive: $showAddSMB
+                            ) {
                                 AvailableServiceRow(
                                     icon: "externaldrive.connected.to.line.below",
                                     iconColor: .sBrass,
@@ -86,12 +90,6 @@ struct LocalLibraryView: View {
         .navigationTitle("Local Library")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { loadSources() }
-        .sheet(isPresented: $showAddSMB, onDismiss: { loadSources() }) {
-            AddSMBSourceView(onSaved: {
-                showAddSMB = false
-                loadSources()
-            })
-        }
     }
 
     private func loadSources() {
