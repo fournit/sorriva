@@ -177,61 +177,100 @@ struct AddSMBSourceView: View {
                                 get: { selectedDevice?.host ?? "" },
                                 set: { selectedDevice?.host = $0 }
                             ))
-                            Button {
-                                if let d = selectedDevice, !d.host.isEmpty {
-                                    loadShares(device: d)
-                                }
-                            } label: {
-                                Text("Find Shares")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundColor(.white)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 13)
-                                    .background(Color.sAccent)
-                                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                            }
-                            .disabled(selectedDevice?.host.isEmpty ?? true)
                         }
                         .padding(.horizontal, 16)
                         .padding(.bottom, 16)
                     }
 
-                    // Shares list
+                    // Credentials
                     VStack(alignment: .leading, spacing: 8) {
-                        SettingsSectionLabel(title: "Shares")
+                        SettingsSectionLabel(title: "Credentials")
+                        VStack(spacing: 1) {
+                            TextField("Username", text: $username)
+                                .font(.system(size: 15))
+                                .foregroundColor(.sTextPrimary)
+                                .padding(12)
+                                .background(Color.sSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
+                                .textContentType(.username)
+                            SecureField("Password", text: $password)
+                                .font(.system(size: 15))
+                                .foregroundColor(.sTextPrimary)
+                                .padding(12)
+                                .background(Color.sSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .textContentType(.password)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
 
-                        if isLoadingShares {
-                            HStack {
-                                ProgressView()
-                                    .scaleEffect(0.8)
-                                    .tint(.sTextSecondary)
-                                Text("Loading shares…")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(.sTextMuted)
-                            }
-                            .padding(.vertical, 12)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                        } else if let err = sharesError {
-                            VStack(spacing: 8) {
-                                Text(err)
-                                    .font(.system(size: 13))
-                                    .foregroundColor(.sTextMuted)
-                                    .multilineTextAlignment(.center)
-                                Button("Try Again") {
-                                    if let d = selectedDevice { loadShares(device: d) }
-                                }
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(.sAccent)
-                            }
-                            .padding(.vertical, 12)
-                            .frame(maxWidth: .infinity)
-                        } else if shares.isEmpty && device.id != "manual" {
-                            Text("No shares found. Try entering credentials first.")
+                    // Connect buttons
+                    VStack(spacing: 8) {
+                        Button {
+                            if let d = selectedDevice { loadShares(device: d) }
+                        } label: {
+                            Text(isLoadingShares ? "Connecting…" : "Connect")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 13)
+                                .background(Color.sAccent)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                        .disabled(isLoadingShares || (device.id == "manual" && (selectedDevice?.host.isEmpty ?? true)))
+
+                        Button {
+                            username = ""
+                            password = ""
+                            if let d = selectedDevice { loadShares(device: d) }
+                        } label: {
+                            Text("Connect as Guest")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.sTextSecondary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 13)
+                                .background(Color.sSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                        .disabled(isLoadingShares)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 16)
+
+                    // Shares list
+                    if isLoadingShares {
+                        HStack {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                                .tint(.sTextSecondary)
+                            Text("Loading shares…")
+                                .font(.system(size: 14))
+                                .foregroundColor(.sTextMuted)
+                        }
+                        .padding(.vertical, 12)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.horizontal, 16)
+                    } else if let err = sharesError {
+                        VStack(spacing: 8) {
+                            Text(err)
                                 .font(.system(size: 13))
                                 .foregroundColor(.sTextMuted)
-                                .padding(.vertical, 12)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                        } else {
+                                .multilineTextAlignment(.center)
+                            Button("Try Again") {
+                                if let d = selectedDevice { loadShares(device: d) }
+                            }
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.sAccent)
+                        }
+                        .padding(.vertical, 12)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 16)
+                    } else if !shares.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            SettingsSectionLabel(title: "Shares")
                             VStack(spacing: 8) {
                                 ForEach(shares, id: \.self) { share in
                                     Button {
@@ -260,15 +299,10 @@ struct AddSMBSourceView: View {
                                 }
                             }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 48)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 48)
                 }
-            }
-        }
-        .onAppear {
-            if let device = selectedDevice, device.id != "manual" {
-                loadShares(device: device)
             }
         }
     }
@@ -444,38 +478,41 @@ struct AddSMBSourceView: View {
     // MARK: - Load Shares
 
     private func loadShares(device: SMBDevice) {
-        guard let url = URL(string: "smb://\(device.host)") else { return }
+        let cleanHost = device.host.hasSuffix(".") ? String(device.host.dropLast()) : device.host
+        guard let url = URL(string: "smb://\(cleanHost)") else { return }
         isLoadingShares = true
         sharesError = nil
         shares = []
 
-        let credential = URLCredential(user: username.isEmpty ? "guest" : username,
+        let user = username.isEmpty ? "guest" : username
+        let credential = URLCredential(user: user,
                                        password: password,
-                                       persistence: .none)
+                                       persistence: .forSession)
 
         guard let smb = SMB2Manager(url: url, credential: credential) else {
             DispatchQueue.main.async {
                 self.isLoadingShares = false
-                self.sharesError = "Could not connect to \(device.host)"
+                self.sharesError = "Could not create SMB client for \(cleanHost)"
             }
             return
         }
 
         Task {
             do {
-                try await smb.connectShare(name: "IPC$")
                 let rawShares = try await smb.listShares(enumerateHidden: false)
-                try await smb.disconnectShare()
                 let filtered = rawShares
                     .map { $0.name }
                     .filter { !$0.hasPrefix("$") && !$0.isEmpty }
+                print("SORRIVA SMB: Found shares: \(filtered)")
                 await MainActor.run {
                     self.shares = filtered
                     self.isLoadingShares = false
                 }
             } catch {
+                let errMsg = "Could not list shares: \(error.localizedDescription) [\(error)]"
+                print("SORRIVA SMB: \(errMsg)")
                 await MainActor.run {
-                    self.sharesError = "Could not list shares: \(error.localizedDescription)"
+                    self.sharesError = errMsg
                     self.isLoadingShares = false
                 }
             }
@@ -485,15 +522,18 @@ struct AddSMBSourceView: View {
     // MARK: - Test Connection
 
     private func testConnection() {
-        guard let device = selectedDevice,
-              let url = URL(string: "smb://\(device.host)") else { return }
+        print("SORRIVA SMB: testConnection called — share='\(selectedShare)' host='\(selectedDevice?.host ?? "nil")' user='\(username)'")
+        guard let device = selectedDevice else { return }
+        let cleanHost = device.host.hasSuffix(".") ? String(device.host.dropLast()) : device.host
+        guard let url = URL(string: "smb://\(cleanHost)") else { return }
 
         isTesting = true
         testResult = nil
 
-        let credential = URLCredential(user: username.isEmpty ? "guest" : username,
+        let user = username.isEmpty ? "guest" : username
+        let credential = URLCredential(user: user,
                                        password: password,
-                                       persistence: .none)
+                                       persistence: .forSession)
 
         guard let smb = SMB2Manager(url: url, credential: credential) else {
             testResult = .failure("Could not create SMB client")
@@ -503,14 +543,18 @@ struct AddSMBSourceView: View {
 
         Task {
             do {
+                print("SORRIVA SMB: Testing connection to \(cleanHost)/\(selectedShare) path:\(rootPath)")
                 try await smb.connectShare(name: selectedShare)
+                print("SORRIVA SMB: Connected to share")
                 _ = try await smb.contentsOfDirectory(atPath: rootPath.isEmpty ? "/" : rootPath)
-                try await smb.disconnectShare()
+                print("SORRIVA SMB: Directory listing succeeded")
+                try? await smb.disconnectShare()
                 await MainActor.run {
                     self.testResult = .success
                     self.isTesting = false
                 }
             } catch {
+                print("SORRIVA SMB: Test connection failed: \(error)")
                 await MainActor.run {
                     self.testResult = .failure(error.localizedDescription)
                     self.isTesting = false
@@ -524,11 +568,12 @@ struct AddSMBSourceView: View {
     private func saveSource() {
         guard let device = selectedDevice else { return }
         let now = Int(Date().timeIntervalSince1970)
+        let cleanHost = device.host.hasSuffix(".") ? String(device.host.dropLast()) : device.host
         let source = LibrarySource(
             id: UUID().uuidString,
             type: "smb",
             displayName: displayName.isEmpty ? device.name : displayName,
-            host: device.host,
+            host: cleanHost,
             share: selectedShare,
             rootPath: rootPath.isEmpty ? "/" : rootPath,
             username: username.isEmpty ? nil : username,

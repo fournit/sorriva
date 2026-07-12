@@ -11,6 +11,7 @@
         <string>_musp._tcp</string>
         <string>_musz._tcp</string>
         <string>_mush._tcp</string>
+        <string>_smb._tcp</string>
     </array>
     <key>NSAppTransportSecurity</key>
     <dict>
