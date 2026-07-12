@@ -947,6 +947,27 @@ final class SorrivaDatabase {
         }
     }
 
+
+    // MARK: - Local Library operations
+
+    func upsertLibrarySource(_ source: LibrarySource) throws {
+        try dbQueue.write { db in try source.save(db) }
+    }
+
+    func allLibrarySources() throws -> [LibrarySource] {
+        try dbQueue.read { db in
+            try LibrarySource
+                .order(LibrarySource.Columns.displayName)
+                .fetchAll(db)
+        }
+    }
+
+    func deleteLibrarySource(id: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM library_sources WHERE id = ?", arguments: [id])
+        }
+    }
+
     // MARK: - Model fetch from device description
 
     static func fetchModelName(host: String) async -> String? {

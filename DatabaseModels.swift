@@ -209,3 +209,35 @@ struct GenreSourceXref: Codable, FetchableRecord, PersistableRecord {
         static let sourceGenreName = Column(CodingKeys.sourceGenreName)
     }
 }
+
+// MARK: - LibrarySource
+
+struct LibrarySource: Codable, FetchableRecord, PersistableRecord, Identifiable {
+    var id: String
+    var type: String            // "smb" | "files"
+    var displayName: String
+    var host: String
+    var share: String
+    var rootPath: String
+    var username: String?
+    var password: String?
+    var lastScanned: Int?
+    var trackCount: Int
+    var scanState: String       // "idle" | "scanning" | "error"
+    var createdAt: Int
+    var updatedAt: Int
+
+    static let databaseTableName = "library_sources"
+
+    enum Columns {
+        static let id          = Column(CodingKeys.id)
+        static let type        = Column(CodingKeys.type)
+        static let displayName = Column(CodingKeys.displayName)
+        static let host        = Column(CodingKeys.host)
+        static let share       = Column(CodingKeys.share)
+        static let rootPath    = Column(CodingKeys.rootPath)
+        static let trackCount  = Column(CodingKeys.trackCount)
+        static let scanState   = Column(CodingKeys.scanState)
+        static let lastScanned = Column(CodingKeys.lastScanned)
+    }
+}

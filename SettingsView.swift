@@ -48,14 +48,16 @@ struct SettingsView: View {
                             }
                             .buttonStyle(.plain)
 
-                            // Local Library — temporarily stubbed
-                            SettingsMenuRow(
-                                icon: "externaldrive.connected.to.line.below",
-                                iconColor: .sBrass,
-                                title: "Local Library",
-                                subtitle: "NAS and network share music",
-                                isStub: true
-                            )
+                            // Local Library
+                            NavigationLink(destination: LocalLibraryView()) {
+                                SettingsMenuRow(
+                                    icon: "externaldrive.connected.to.line.below",
+                                    iconColor: .sBrass,
+                                    title: "Local Library",
+                                    subtitle: "NAS and network share music"
+                                )
+                            }
+                            .buttonStyle(.plain)
 
                             // Zones (stub)
                             SettingsMenuRow(
