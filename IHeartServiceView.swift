@@ -10,6 +10,10 @@ struct IHeartServiceView: View {
     @State private var stations: [Station] = []
     @State private var actionStation: Station? = nil
     @State private var zonePickerStation: RadioStation? = nil
+    @State private var removeBlockedZones: [String] = []
+    @State private var removeBlockedStation: String = ""
+    @State private var removeBlockedLogoURL: String = ""
+    @State private var showRemoveBlockedSheet = false
 
     @ObservedObject var discovery: ZoneDiscoveryService
     let onPlayStation: (RadioStation, SonosZone) -> Void
@@ -114,14 +118,34 @@ struct IHeartServiceView: View {
             loadStations()
         }
         // Action sheet — long press on station card
+        .sheet(isPresented: $showRemoveBlockedSheet) {
+            StationBlockedSheet(
+                stationName: removeBlockedStation,
+                logoURL: removeBlockedLogoURL,
+                zones: removeBlockedZones,
+                onDismiss: { showRemoveBlockedSheet = false }
+            )
+            .presentationDetents([.height(280)])
+            .presentationDragIndicator(.visible)
+        }
         .sheet(item: $actionStation) { station in
             SavedStationActionSheet(
                 station: station,
                 onRemove: {
                     actionStation = nil
-                    try? SorrivaDatabase.shared.removeStation(id: station.id)
-                    withAnimation { stations.removeAll { $0.id == station.id } }
-                    NotificationCenter.default.post(name: .stationsDidUpdate, object: nil)
+                    let playingZones = discovery.zones
+                        .filter { $0.stationName == station.name && $0.isPlaying }
+                        .map { $0.name }
+                    if playingZones.isEmpty {
+                        try? SorrivaDatabase.shared.removeStation(id: station.id)
+                        withAnimation { stations.removeAll { $0.id == station.id } }
+                        NotificationCenter.default.post(name: .stationsDidUpdate, object: nil)
+                    } else {
+                        removeBlockedStation = station.name
+                        removeBlockedZones = playingZones
+                        removeBlockedLogoURL = station.logoURL ?? ""
+                        showRemoveBlockedSheet = true
+                    }
                 },
                 onFavorite: {
                     actionStation = nil
@@ -326,5 +350,103 @@ struct SavedStationActionSheet: View {
 
             Spacer(minLength: 0)
         }
+    }
+}
+
+// MARK: - StationBlockedSheet
+
+struct StationBlockedSheet: View {
+    let stationName: String
+    let logoURL: String
+    let zones: [String]
+    let onDismiss: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.sCard.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // Station identity row
+                HStack(spacing: 12) {
+                    Group {
+                        if let url = URL(string: logoURL), !logoURL.isEmpty {
+                            AsyncImage(url: url) { img in
+                                img.resizable().scaledToFill()
+                            } placeholder: {
+                                Color.sGradientMid
+                            }
+                        } else {
+                            Color.sGradientMid
+                        }
+                    }
+                    .frame(width: 48, height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(stationName)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.sTextPrimary)
+                            .lineLimit(1)
+                        Text("iHeartRADIO")
+                            .font(.system(size: 12))
+                            .foregroundColor(.sTextMuted)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 24)
+
+                Divider()
+                    .background(Color.sSeparator)
+                    .padding(.vertical, 16)
+                    .padding(.horizontal, 20)
+
+                // Playing status row
+                HStack(alignment: .top, spacing: 10) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.sAccent.opacity(0.15))
+                            .frame(width: 32, height: 32)
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 13))
+                            .foregroundColor(.sAccent)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Currently playing")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.sTextPrimary)
+
+                        Text(blockedMessage)
+                            .font(.system(size: 13))
+                            .foregroundColor(.sTextMuted)
+                            .lineSpacing(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+
+                Spacer()
+
+                // Got it button
+                Button(action: onDismiss) {
+                    Text("Got it")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 13)
+                        .background(Color.sAccent)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 32)
+            }
+        }
+    }
+
+    private var blockedMessage: String {
+        let formatted = zones.formatted(.list(type: .and))
+        return "This station is playing in \(formatted). Stop playback before removing it from your library."
     }
 }

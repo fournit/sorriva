@@ -29,6 +29,7 @@
 		80325AFE3003C8F200308486 /* IHeartServiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AFB3003C8F200308486 /* IHeartServiceView.swift */; };
 		80325AFF3003C8F200308486 /* IHeartStationBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AFC3003C8F200308486 /* IHeartStationBrowserView.swift */; };
 		80325B003003C8F200308486 /* SomaFMServiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AFD3003C8F200308486 /* SomaFMServiceView.swift */; };
+		80325B023003D51000308486 /* LocalLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325B013003D51000308486 /* LocalLibraryView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -54,6 +55,7 @@
 		80325AFB3003C8F200308486 /* IHeartServiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IHeartServiceView.swift; sourceTree = "<group>"; };
 		80325AFC3003C8F200308486 /* IHeartStationBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IHeartStationBrowserView.swift; sourceTree = "<group>"; };
 		80325AFD3003C8F200308486 /* SomaFMServiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SomaFMServiceView.swift; sourceTree = "<group>"; };
+		80325B013003D51000308486 /* LocalLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalLibraryView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -92,6 +94,7 @@
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
+				80325B013003D51000308486 /* LocalLibraryView.swift */,
 				80325AFB3003C8F200308486 /* IHeartServiceView.swift */,
 				80325AFC3003C8F200308486 /* IHeartStationBrowserView.swift */,
 				80325AFD3003C8F200308486 /* SomaFMServiceView.swift */,
@@ -228,6 +231,7 @@
 				80325ACB3000860000308486 /* NowPlayingView.swift in Sources */,
 				80325ABA2FFEE5DC00308486 /* SettingsView.swift in Sources */,
 				80325ACD3000948400308486 /* VolumeControlView.swift in Sources */,
+				80325B023003D51000308486 /* LocalLibraryView.swift in Sources */,
 				80325ABB2FFEE5DC00308486 /* SorrivaApp.swift in Sources */,
 				80325ABC2FFEE5DC00308486 /* ContentView.swift in Sources */,
 				80325AC62FFF38A500308486 /* SonosDevice.swift in Sources */,

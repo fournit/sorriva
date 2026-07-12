@@ -17,15 +17,26 @@ final class SorrivaDatabase {
             .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let dbURL = appSupport.appendingPathComponent("sorriva.sqlite")
 
-        dbQueue = try! DatabaseQueue(path: dbURL.path)
-        try! migrate()
-
+        var queue = try! DatabaseQueue(path: dbURL.path)
+        var migrationSucceeded = false
+        do {
+            try Self.runMigrations(on: queue)
+            migrationSucceeded = true
+        } catch {
+            print("SORRIVA DB: Migration failed (\(error)) — wiping DB and retrying")
+        }
+        if !migrationSucceeded {
+            try? FileManager.default.removeItem(at: dbURL)
+            queue = try! DatabaseQueue(path: dbURL.path)
+            try! Self.runMigrations(on: queue)
+        }
+        dbQueue = queue
         print("SORRIVA DB: Initialized at \(dbURL.path)")
     }
 
     // MARK: - Migrations
 
-    private func migrate() throws {
+    private static func runMigrations(on dbQueue: DatabaseQueue) throws {
         var migrator = DatabaseMigrator()
 
         // v1 — initial schema
@@ -406,6 +417,120 @@ final class SorrivaDatabase {
             print("SORRIVA DB: v5 decades + public radio genres added")
         }
 
+        // v6 — local library music graph
+        migrator.registerMigration("v6_local_library") { db in
+
+            // Library sources — SMB shares, local, USB-C
+            try db.create(table: "library_sources", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()
+                t.column("type", .text).notNull()
+                t.column("displayName", .text).notNull()
+                t.column("host", .text).notNull().defaults(to: "")
+                t.column("share", .text).notNull().defaults(to: "")
+                t.column("rootPath", .text).notNull().defaults(to: "/")
+                t.column("username", .text)
+                t.column("password", .text)
+                t.column("lastScanned", .integer)
+                t.column("trackCount", .integer).notNull().defaults(to: 0)
+                t.column("scanState", .text).notNull().defaults(to: "idle")
+                t.column("createdAt", .integer).notNull()
+                t.column("updatedAt", .integer).notNull()
+            }
+
+            // Artists
+            try db.create(table: "artists", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()
+                t.column("name", .text).notNull()
+                t.column("sortName", .text).notNull()
+                t.column("imageURL", .text)
+                t.column("albumCount", .integer).notNull().defaults(to: 0)
+                t.column("trackCount", .integer).notNull().defaults(to: 0)
+                t.column("createdAt", .integer).notNull()
+                t.column("updatedAt", .integer).notNull()
+            }
+            try db.create(index: "idx_artists_sortName", on: "artists",
+                         columns: ["sortName"], ifNotExists: true)
+            try db.create(index: "idx_artists_name", on: "artists",
+                         columns: ["name"], ifNotExists: true)
+
+            // Albums
+            try db.create(table: "albums", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()
+                t.column("title", .text).notNull()
+                t.column("sortTitle", .text).notNull()
+                t.column("primaryArtistId", .text).notNull()
+                    .references("artists", onDelete: .cascade)
+                t.column("artistName", .text).notNull()
+                t.column("year", .integer)
+                t.column("genre", .text)
+                t.column("artPath", .text)
+                t.column("trackCount", .integer).notNull().defaults(to: 0)
+                t.column("sourceId", .text).notNull()
+                    .references("library_sources", onDelete: .cascade)
+                t.column("folderPath", .text).notNull()
+                t.column("createdAt", .integer).notNull()
+                t.column("updatedAt", .integer).notNull()
+            }
+            try db.create(index: "idx_albums_sortTitle", on: "albums",
+                         columns: ["sortTitle"], ifNotExists: true)
+            try db.create(index: "idx_albums_primaryArtistId", on: "albums",
+                         columns: ["primaryArtistId"], ifNotExists: true)
+
+            // Tracks
+            try db.create(table: "tracks", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()
+                t.column("title", .text).notNull()
+                t.column("albumId", .text).notNull()
+                    .references("albums", onDelete: .cascade)
+                t.column("albumTitle", .text).notNull()
+                t.column("primaryArtistId", .text).notNull()
+                    .references("artists", onDelete: .cascade)
+                t.column("artistName", .text).notNull()
+                t.column("trackNumber", .integer)
+                t.column("discNumber", .integer)
+                t.column("year", .integer)
+                t.column("genre", .text)
+                t.column("duration", .double)
+                t.column("fileFormat", .text).notNull()
+                t.column("filePath", .text).notNull().unique()
+                t.column("fileSize", .integer)
+                t.column("bitrate", .integer)
+                t.column("sampleRate", .integer)
+                t.column("sourceId", .text).notNull()
+                    .references("library_sources", onDelete: .cascade)
+                t.column("createdAt", .integer).notNull()
+                t.column("updatedAt", .integer).notNull()
+            }
+            try db.create(index: "idx_tracks_albumId", on: "tracks",
+                         columns: ["albumId"], ifNotExists: true)
+            try db.create(index: "idx_tracks_primaryArtistId", on: "tracks",
+                         columns: ["primaryArtistId"], ifNotExists: true)
+            try db.create(index: "idx_tracks_filePath", on: "tracks",
+                         columns: ["filePath"], ifNotExists: true)
+
+            // Artist-Album many-to-many
+            try db.create(table: "artist_albums", ifNotExists: true) { t in
+                t.column("artistId", .text).notNull()
+                    .references("artists", onDelete: .cascade)
+                t.column("albumId", .text).notNull()
+                    .references("albums", onDelete: .cascade)
+                t.column("role", .text).notNull().defaults(to: "primary")
+                t.primaryKey(["artistId", "albumId"])
+            }
+
+            // Track-Artist many-to-many
+            try db.create(table: "track_artists", ifNotExists: true) { t in
+                t.column("trackId", .text).notNull()
+                    .references("tracks", onDelete: .cascade)
+                t.column("artistId", .text).notNull()
+                    .references("artists", onDelete: .cascade)
+                t.column("role", .text).notNull().defaults(to: "primary")
+                t.primaryKey(["trackId", "artistId"])
+            }
+
+            print("SORRIVA DB: v6 local library schema created")
+        }
+
         try migrator.migrate(dbQueue)
         print("SORRIVA DB: Migrations complete")
     }
@@ -690,6 +815,18 @@ final class SorrivaDatabase {
                 WHERE (g.id = ? OR g.parentId = ?)
                 AND s.source = ?
             """, arguments: [genreId, genreId, source])
+        }
+    }
+
+    /// Returns names of zones currently playing this station (via zone_state).
+    func zonesPlayingStation(id: Int) throws -> [String] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT d.name FROM zone_state zs
+                JOIN devices d ON d.id = zs.deviceId
+                WHERE zs.stationId = ?
+            """, arguments: [id])
+            return rows.map { $0["name"] as String }
         }
     }
 
