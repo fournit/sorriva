@@ -1,15 +1,6 @@
 {
-  "originHash" : "f1934491e06f280156943444c19ac90ff7087305cfd7624f3d0a5b4f135d014d",
+  "originHash" : "0afbf62bd8e950b08a24dc2cf5ede14214af15967b0c3a9296da9f3afb73f9f9",
   "pins" : [
-    {
-      "identity" : "amsmb2",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/amosavian/AMSMB2",
-      "state" : {
-        "revision" : "1726aaaf7adf63d7d1d2a0c5d1b0e635028215c0",
-        "version" : "4.0.3"
-      }
-    },
     {
       "identity" : "grdb.swift",
       "kind" : "remoteSourceControl",
@@ -17,6 +8,15 @@
       "state" : {
         "branch" : "master",
         "revision" : "b83108d10f42680d78f23fe4d4d80fc88dab3212"
+      }
+    },
+    {
+      "identity" : "smbclient",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/kishikawakatsumi/SMBClient",
+      "state" : {
+        "revision" : "e636c2b2458930770932a36d311ec9d478575b90",
+        "version" : "0.3.1"
       }
     }
   ],

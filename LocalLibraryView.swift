@@ -51,10 +51,13 @@ struct LocalLibraryView: View {
                         SettingsSectionLabel(title: grouped.isEmpty ? "Available" : "Add Another")
                         VStack(spacing: 8) {
                             NavigationLink(
-                                destination: AddSMBSourceView(onSaved: {
-                                    loadSources()
-                                    showAddSMB = false
-                                }),
+                                destination: AddSMBSourceView(
+                                    onSaved: {
+                                        loadSources()
+                                        showAddSMB = false
+                                    },
+                                    existingHosts: Set(grouped.map { $0.host })
+                                ),
                                 isActive: $showAddSMB
                             ) {
                                 AvailableServiceRow(

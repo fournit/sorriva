@@ -31,8 +31,7 @@
 		80325B003003C8F200308486 /* SomaFMServiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AFD3003C8F200308486 /* SomaFMServiceView.swift */; };
 		80325B023003D51000308486 /* LocalLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325B013003D51000308486 /* LocalLibraryView.swift */; };
 		80325B1930043EE300308486 /* AddSMBSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325B1830043EE300308486 /* AddSMBSourceView.swift */; };
-		80325B1C30043FCD00308486 /* AMSMB2 in Frameworks */ = {isa = PBXBuildFile; productRef = 80325B1B30043FCD00308486 /* AMSMB2 */; };
-		80325B1D3004402100308486 /* AMSMB2 in Embed Frameworks */ = {isa = PBXBuildFile; productRef = 80325B1B30043FCD00308486 /* AMSMB2 */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		805A16B730047FE600AF3100 /* SMBClient in Frameworks */ = {isa = PBXBuildFile; productRef = 805A16B630047FE600AF3100 /* SMBClient */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -42,7 +41,6 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				80325B1D3004402100308486 /* AMSMB2 in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -102,7 +100,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				80325B1C30043FCD00308486 /* AMSMB2 in Frameworks */,
+				805A16B730047FE600AF3100 /* SMBClient in Frameworks */,
 				80325AD83001436B00308486 /* GRDB in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -179,7 +177,7 @@
 			name = Sorriva;
 			packageProductDependencies = (
 				80325AD73001436B00308486 /* GRDB */,
-				80325B1B30043FCD00308486 /* AMSMB2 */,
+				805A16B630047FE600AF3100 /* SMBClient */,
 			);
 			productName = Sorriva;
 			productReference = 80325AA02FFED8DE00308486 /* Sorriva.app */;
@@ -211,7 +209,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				80325AD63001436B00308486 /* XCRemoteSwiftPackageReference "GRDB" */,
-				80325B1A30043FCD00308486 /* XCRemoteSwiftPackageReference "AMSMB2" */,
+				805A16B530047FE600AF3100 /* XCRemoteSwiftPackageReference "SMBClient" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 80325AA12FFED8DE00308486 /* Products */;
@@ -488,12 +486,12 @@
 				kind = branch;
 			};
 		};
-		80325B1A30043FCD00308486 /* XCRemoteSwiftPackageReference "AMSMB2" */ = {
+		805A16B530047FE600AF3100 /* XCRemoteSwiftPackageReference "SMBClient" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/amosavian/AMSMB2";
+			repositoryURL = "https://github.com/kishikawakatsumi/SMBClient";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 4.0.3;
+				minimumVersion = 0.3.1;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -504,10 +502,10 @@
 			package = 80325AD63001436B00308486 /* XCRemoteSwiftPackageReference "GRDB" */;
 			productName = GRDB;
 		};
-		80325B1B30043FCD00308486 /* AMSMB2 */ = {
+		805A16B630047FE600AF3100 /* SMBClient */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 80325B1A30043FCD00308486 /* XCRemoteSwiftPackageReference "AMSMB2" */;
-			productName = AMSMB2;
+			package = 805A16B530047FE600AF3100 /* XCRemoteSwiftPackageReference "SMBClient" */;
+			productName = SMBClient;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

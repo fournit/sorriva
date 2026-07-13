@@ -1,13 +1,13 @@
 import SwiftUI
 import Network
-import AMSMB2
+import SMBClient
 
 // MARK: - SMBDevice
 
 struct SMBDevice: Identifiable {
     let id: String
     var name: String
-    var host: String
+    var host: String       // resolvable hostname — used for SMB connection
     let port: Int
 }
 
@@ -16,6 +16,7 @@ struct SMBDevice: Identifiable {
 
 struct AddSMBSourceView: View {
     let onSaved: () -> Void
+    var existingHosts: Set<String> = []
 
     @Environment(\.dismiss) private var dismiss
     @State private var discoveredDevices: [SMBDevice] = []
@@ -81,7 +82,6 @@ struct AddSMBSourceView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { startDiscovery() }
         .onDisappear { stopDiscovery() }
-
     }
 
     private func startDiscovery() {
@@ -95,7 +95,20 @@ struct AddSMBSourceView: View {
                     switch change {
                     case .added(let result):
                         if case .service(let name, _, let domain, _) = result.endpoint {
-                            let host = "\(name).\(domain)"
+                            let rawDomain = domain.hasSuffix(".") ? String(domain.dropLast()) : domain
+                            // Derive resolvable local hostname — macOS sanitizes computer names:
+                            // strips apostrophes, replaces spaces with hyphens.
+                            // "Tom's MacBook Pro" → "Toms-MacBook-Pro.local"
+                            let sanitized = name
+                                .replacingOccurrences(of: "'", with: "")
+                                .replacingOccurrences(of: "\u{2019}", with: "")
+                                .replacingOccurrences(of: " ", with: "-")
+                            let host = "\(sanitized).\(rawDomain)"
+                            print("SORRIVA SMB: Discovered '\(name)' host=\(host)")
+                            guard !self.existingHosts.contains(host) else {
+                                print("SORRIVA SMB: Skipping '\(name)' — already connected")
+                                continue
+                            }
                             let device = SMBDevice(id: name, name: name, host: host, port: 445)
                             if !self.discoveredDevices.contains(where: { $0.id == device.id }) {
                                 self.discoveredDevices.append(device)
@@ -251,17 +264,29 @@ struct SMBSharePickerView: View {
                                 .background(Color.sSurface)
                                 .clipShape(RoundedRectangle(cornerRadius: 10))
                         }
-                        .disabled(isLoading)
+                        .disabled(false)
                     }
                     .padding(.horizontal, 16)
                     .padding(.bottom, 16)
 
+                    // Mac setup note
+                    Text("Connecting to a Mac? Enable Windows File Sharing in System Settings → Sharing → File Sharing → Options for your account.")
+                        .font(.system(size: 12))
+                        .foregroundColor(.sTextSecondary)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 16)
+
                     if let err = error {
-                        Text(err)
-                            .font(.system(size: 13))
-                            .foregroundColor(.red.opacity(0.8))
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 12)
+                        HStack(alignment: .top, spacing: 4) {
+                            Text("*")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(.red)
+                            Text(err)
+                                .font(.system(size: 13))
+                                .foregroundColor(.white)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 12)
                     }
 
                     // Shares
@@ -320,7 +345,7 @@ struct SMBSharePickerView: View {
     private func loadShares(asGuest: Bool) {
         let host = device.id == "manual" ? manualHost : device.host
         let cleanHost = host.hasSuffix(".") ? String(host.dropLast()) : host
-        guard !cleanHost.isEmpty, let url = URL(string: "smb://\(cleanHost)") else { return }
+        guard !cleanHost.isEmpty else { return }
 
         isLoading = true
         error = nil
@@ -328,27 +353,28 @@ struct SMBSharePickerView: View {
 
         let user = asGuest ? "guest" : (username.isEmpty ? "guest" : username)
         let pass = asGuest ? "" : password
-        let credential = URLCredential(user: user, password: pass, persistence: .forSession)
 
-        guard let smb = SMB2Manager(url: url, credential: credential) else {
-            isLoading = false
-            error = "Could not create SMB client"
-            return
-        }
+        print("SORRIVA SMB: loadShares — host='\(cleanHost)' user='\(user)' asGuest=\(asGuest)")
 
         Task {
             do {
-                let raw = try await smb.listShares(enumerateHidden: false)
-                let filtered = raw.map { $0.name }.filter { !$0.hasPrefix("$") && !$0.isEmpty }
+                let client = SMBClient(host: cleanHost)
+                try await client.login(username: user, password: pass)
+                let raw = try await client.listShares()
+                let filtered = raw.map { $0.name }.filter { !$0.contains("$") && !$0.isEmpty }
                 print("SORRIVA SMB: Shares: \(filtered)")
+                try? await client.logoff()
                 await MainActor.run {
                     self.shares = filtered
                     self.isLoading = false
                 }
             } catch {
                 print("SORRIVA SMB: listShares error: \(error)")
+                let message = asGuest
+                    ? "Guest access is not supported on Macs. Enter your macOS username and password."
+                    : "Could not list shares: \(error.localizedDescription)"
                 await MainActor.run {
-                    self.error = "Could not list shares: \(error.localizedDescription)"
+                    self.error = message
                     self.isLoading = false
                 }
             }
@@ -486,21 +512,19 @@ struct SMBConfigureSourceView: View {
 
     private func testConnection() {
         let cleanHost = device.host.hasSuffix(".") ? String(device.host.dropLast()) : device.host
-        guard let url = URL(string: "smb://\(cleanHost)") else { return }
+        guard !cleanHost.isEmpty else { return }
         isTesting = true
         testResult = nil
         let user = username.isEmpty ? "guest" : username
-        let credential = URLCredential(user: user, password: password, persistence: .forSession)
-        guard let smb = SMB2Manager(url: url, credential: credential) else {
-            testResult = .failure("Could not create SMB client")
-            isTesting = false
-            return
-        }
+        print("SORRIVA SMB: testConnection — host='\(cleanHost)' share='\(share)'")
         Task {
             do {
-                try await smb.connectShare(name: share)
-                _ = try await smb.contentsOfDirectory(atPath: rootPath.isEmpty ? "/" : rootPath)
-                try? await smb.disconnectShare()
+                let client = SMBClient(host: cleanHost)
+                try await client.login(username: user, password: password)
+                try await client.connectShare(share)
+                _ = try await client.listDirectory(path: rootPath.isEmpty ? "" : rootPath)
+                try? await client.disconnectShare()
+                try? await client.logoff()
                 await MainActor.run { self.testResult = .success; self.isTesting = false }
             } catch {
                 print("SORRIVA SMB: Test failed: \(error)")
