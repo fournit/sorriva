@@ -19,6 +19,7 @@ final class ScanCoordinator: ObservableObject {
 
     @Published var activeScanSourceId: String? = nil
     @Published var progress: ScanProgress? = nil
+    @Published var lastReport: ScanReport? = nil
 
     // MARK: - Private
 
@@ -79,7 +80,11 @@ final class ScanCoordinator: ObservableObject {
         do {
             try await scanner.scan(source: source) { [weak self] scanProgress in
                 Task { @MainActor [weak self] in
-                    self?.progress = scanProgress
+                    if scanProgress.phase == .complete {
+                        self?.lastReport = scanProgress.report
+                    } else {
+                        self?.progress = scanProgress
+                    }
                 }
             }
             print("SCAN: Completed — \(source.displayName)")

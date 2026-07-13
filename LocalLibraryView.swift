@@ -52,12 +52,8 @@ struct LocalLibraryView: View {
                         VStack(spacing: 8) {
                             NavigationLink(
                                 destination: AddSMBSourceView(
-                                    onSaved: { savedSource in
+                                    onSaved: { _ in
                                         loadSources()
-                                        showAddSMB = false
-                                        if let source = savedSource {
-                                            ScanCoordinator.shared.scanNewSource(source)
-                                        }
                                     },
                                     existingHosts: Set(grouped.map { $0.host })
                                 ),
@@ -89,6 +85,9 @@ struct LocalLibraryView: View {
         .navigationTitle("Local Library")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { loadSources() }
+        .onReceive(NotificationCenter.default.publisher(for: .libraryDidUpdate)) { _ in
+            loadSources()
+        }
     }
 
     private func loadSources() {
@@ -170,6 +169,7 @@ struct SMBServerDetailView: View {
     @State private var showServerActionSheet = false
     @State private var removeShareSource: LibrarySource? = nil
     @State private var showRemoveShareConfirm = false
+    @State private var showScanReport = false
 
     var body: some View {
         ZStack {
@@ -243,6 +243,9 @@ struct SMBServerDetailView: View {
         .navigationTitle(serverName)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { loadSources() }
+        .onReceive(NotificationCenter.default.publisher(for: .libraryDidUpdate)) { _ in
+            loadSources()
+        }
         // Hidden NavigationLinks for server actions
         .background(
             Group {
@@ -298,13 +301,24 @@ struct SMBServerDetailView: View {
                 onScan: {
                     ScanCoordinator.shared.scanSource(source)
                 },
+                onViewReport: {
+                    showScanReport = true
+                },
                 onRemove: {
                     removeShareSource = source
                     showRemoveShareConfirm = true
                 }
             )
-            .presentationDetents([.height(260)])
+            .presentationDetents([.height(310)])
             .presentationDragIndicator(.visible)
+        }
+        // Scan report sheet
+        .sheet(isPresented: $showScanReport) {
+            if let report = ScanCoordinator.shared.lastReport {
+                ScanReportSheet(report: report)
+                    .presentationDetents([.medium])
+                    .presentationDragIndicator(.visible)
+            }
         }
         // Remove share confirm
         .alert("Remove \(removeShareSource?.share ?? "Share")?", isPresented: $showRemoveShareConfirm) {
@@ -332,8 +346,12 @@ struct SMBServerDetailView: View {
 // MARK: - ShareDetailCard
 
 struct ShareDetailCard: View {
-    let source: LibrarySource
+    @State private var source: LibrarySource
     @ObservedObject private var coordinator = ScanCoordinator.shared
+
+    init(source: LibrarySource) {
+        _source = State(initialValue: source)
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -380,6 +398,9 @@ struct ShareDetailCard: View {
         .padding(12)
         .background(Color.sSurface)
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .onReceive(NotificationCenter.default.publisher(for: .libraryDidUpdate)) { _ in
+            reloadSource()
+        }
     }
 
     private var isScanning: Bool {
@@ -391,6 +412,13 @@ struct ShareDetailCard: View {
         case .statting:   return "Listing files…"
         case .scanning:   return "Scanning \(p.filesScanned) / \(p.filesFound)"
         case .finalizing: return "Finalizing…"
+        case .complete:   return "Scan complete"
+        }
+    }
+
+    private func reloadSource() {
+        if let fresh = try? SorrivaDatabase.shared.allLibrarySources().first(where: { $0.id == source.id }) {
+            source = fresh
         }
     }
 
@@ -408,8 +436,10 @@ struct ShareDetailCard: View {
 struct ShareActionSheet: View {
     let source: LibrarySource
     let onScan: () -> Void
+    let onViewReport: () -> Void
     let onRemove: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var coordinator = ScanCoordinator.shared
 
     var body: some View {
         ZStack {
@@ -449,6 +479,25 @@ struct ShareActionSheet: View {
                     .foregroundColor(.sTextPrimary)
                     .padding(.vertical, 14)
                     .padding(.horizontal, 20)
+                }
+
+                if coordinator.lastReport?.sourceId == source.id {
+                    Divider().background(Color.sSeparator).padding(.horizontal, 20)
+
+                    Button {
+                        dismiss()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { onViewReport() }
+                    } label: {
+                        HStack {
+                            Image(systemName: "doc.text")
+                            Text("View Scan Report")
+                                .font(.system(size: 15, weight: .medium))
+                            Spacer()
+                        }
+                        .foregroundColor(.sTextPrimary)
+                        .padding(.vertical, 14)
+                        .padding(.horizontal, 20)
+                    }
                 }
 
                 Divider().background(Color.sSeparator).padding(.horizontal, 20)
@@ -623,6 +672,90 @@ struct ServerActionSheet: View {
                 .padding(.top, 4)
 
                 Spacer()
+            }
+        }
+    }
+}
+
+// MARK: - ScanReportSheet
+
+struct ScanReportSheet: View {
+    let report: ScanReport
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            Color.sCard.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // Header
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Scan Report")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.sTextPrimary)
+                        Text(report.sourceName)
+                            .font(.system(size: 13))
+                            .foregroundColor(.sTextMuted)
+                    }
+                    Spacer()
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(.sTextMuted)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 24)
+                .padding(.bottom, 20)
+
+                Divider().background(Color.sSeparator)
+
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ReportRow(label: "Files found", value: "\(report.totalFiles)")
+                        ReportRow(label: "Tracks indexed", value: "\(report.tracksIndexed)")
+                        ReportRow(label: "Albums", value: "\(report.albumsFound)")
+                        ReportRow(label: "Artists", value: "\(report.artistsFound)")
+                        ReportRow(label: "Completed", value: completedText, isLast: true)
+                    }
+                    .padding(.top, 8)
+                    .padding(.bottom, 32)
+                }
+            }
+        }
+    }
+
+    private var completedText: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter.string(from: report.completedAt)
+    }
+}
+
+struct ReportRow: View {
+    let label: String
+    let value: String
+    var valueColor: Color = .sTextSecondary
+    var isLast: Bool = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(label)
+                    .font(.system(size: 14))
+                    .foregroundColor(.sTextMuted)
+                Spacer()
+                Text(value)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(valueColor)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+
+            if !isLast {
+                Divider().background(Color.sSeparator).padding(.horizontal, 20)
             }
         }
     }
