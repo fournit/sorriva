@@ -70,11 +70,11 @@ struct LocalLibraryView: View {
                             .buttonStyle(.plain)
 
                             AvailableServiceRow(
-                                icon: "folder",
-                                iconColor: Color(hex: "#4CAF50"),
-                                name: "Local Files",
-                                description: "iPhone storage, USB-C drive, or iCloud Drive"
-                            )
+                                    icon: "folder",
+                                    iconColor: Color(hex: "#4CAF50"),
+                                    name: "Local Files",
+                                    description: "iPhone storage, USB-C drive, or iCloud Drive"
+                                )
                             .opacity(0.45)
                         }
                     }

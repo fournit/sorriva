@@ -32,6 +32,7 @@
 		80325B023003D51000308486 /* LocalLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325B013003D51000308486 /* LocalLibraryView.swift */; };
 		80325B1930043EE300308486 /* AddSMBSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325B1830043EE300308486 /* AddSMBSourceView.swift */; };
 		805A16B730047FE600AF3100 /* SMBClient in Frameworks */ = {isa = PBXBuildFile; productRef = 805A16B630047FE600AF3100 /* SMBClient */; };
+		805A16BD3004886100AF3100 /* LocalFilesPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16BC3004886100AF3100 /* LocalFilesPickerView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -72,6 +73,7 @@
 		80325AFD3003C8F200308486 /* SomaFMServiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SomaFMServiceView.swift; sourceTree = "<group>"; };
 		80325B013003D51000308486 /* LocalLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalLibraryView.swift; sourceTree = "<group>"; };
 		80325B1830043EE300308486 /* AddSMBSourceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddSMBSourceView.swift; sourceTree = "<group>"; };
+		805A16BC3004886100AF3100 /* LocalFilesPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalFilesPickerView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -111,6 +113,7 @@
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
+				805A16BC3004886100AF3100 /* LocalFilesPickerView.swift */,
 				80325B1830043EE300308486 /* AddSMBSourceView.swift */,
 				80325B013003D51000308486 /* LocalLibraryView.swift */,
 				80325AFB3003C8F200308486 /* IHeartServiceView.swift */,
@@ -240,6 +243,7 @@
 				80325AD53000B03500308486 /* SplashView.swift in Sources */,
 				80325AE2300147C200308486 /* DatabaseModels.swift in Sources */,
 				80325AE3300147C200308486 /* SorrivaDatabase.swift in Sources */,
+				805A16BD3004886100AF3100 /* LocalFilesPickerView.swift in Sources */,
 				80325AD13000AC1800308486 /* EQSheet.swift in Sources */,
 				80325AB62FFEE5DC00308486 /* DiscoverView.swift in Sources */,
 				80325AB72FFEE5DC00308486 /* LibraryView.swift in Sources */,
