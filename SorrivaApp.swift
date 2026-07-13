@@ -4,6 +4,7 @@ import GRDB
 @main
 struct SorrivaApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         // Initialize database on first launch — creates SQLite file and runs migrations
@@ -14,6 +15,11 @@ struct SorrivaApp: App {
         WindowGroup {
             SplashView()
                 .preferredColorScheme(.dark)
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active {
+                ScanCoordinator.shared.checkForChanges()
+            }
         }
     }
 }

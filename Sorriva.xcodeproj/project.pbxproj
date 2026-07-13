@@ -33,6 +33,8 @@
 		80325B1930043EE300308486 /* AddSMBSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325B1830043EE300308486 /* AddSMBSourceView.swift */; };
 		805A16B730047FE600AF3100 /* SMBClient in Frameworks */ = {isa = PBXBuildFile; productRef = 805A16B630047FE600AF3100 /* SMBClient */; };
 		805A16BD3004886100AF3100 /* LocalFilesPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16BC3004886100AF3100 /* LocalFilesPickerView.swift */; };
+		805A16BF3005292E00AF3100 /* SMBScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16BE3005292E00AF3100 /* SMBScanner.swift */; };
+		805A16C130052B0B00AF3100 /* ScanCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16C030052B0B00AF3100 /* ScanCoordinator.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -74,6 +76,8 @@
 		80325B013003D51000308486 /* LocalLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalLibraryView.swift; sourceTree = "<group>"; };
 		80325B1830043EE300308486 /* AddSMBSourceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddSMBSourceView.swift; sourceTree = "<group>"; };
 		805A16BC3004886100AF3100 /* LocalFilesPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalFilesPickerView.swift; sourceTree = "<group>"; };
+		805A16BE3005292E00AF3100 /* SMBScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMBScanner.swift; sourceTree = "<group>"; };
+		805A16C030052B0B00AF3100 /* ScanCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanCoordinator.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -113,6 +117,8 @@
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
+				805A16BE3005292E00AF3100 /* SMBScanner.swift */,
+				805A16C030052B0B00AF3100 /* ScanCoordinator.swift */,
 				805A16BC3004886100AF3100 /* LocalFilesPickerView.swift */,
 				80325B1830043EE300308486 /* AddSMBSourceView.swift */,
 				80325B013003D51000308486 /* LocalLibraryView.swift */,
@@ -254,11 +260,13 @@
 				80325AFF3003C8F200308486 /* IHeartStationBrowserView.swift in Sources */,
 				80325B1930043EE300308486 /* AddSMBSourceView.swift in Sources */,
 				80325B003003C8F200308486 /* SomaFMServiceView.swift in Sources */,
+				805A16BF3005292E00AF3100 /* SMBScanner.swift in Sources */,
 				80325ACB3000860000308486 /* NowPlayingView.swift in Sources */,
 				80325ABA2FFEE5DC00308486 /* SettingsView.swift in Sources */,
 				80325ACD3000948400308486 /* VolumeControlView.swift in Sources */,
 				80325B023003D51000308486 /* LocalLibraryView.swift in Sources */,
 				80325ABB2FFEE5DC00308486 /* SorrivaApp.swift in Sources */,
+				805A16C130052B0B00AF3100 /* ScanCoordinator.swift in Sources */,
 				80325ABC2FFEE5DC00308486 /* ContentView.swift in Sources */,
 				80325AC62FFF38A500308486 /* SonosDevice.swift in Sources */,
 				80325AC72FFF38A500308486 /* ZoneDiscoveryService.swift in Sources */,

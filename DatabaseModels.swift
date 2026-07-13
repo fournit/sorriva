@@ -223,21 +223,185 @@ struct LibrarySource: Codable, FetchableRecord, PersistableRecord, Identifiable 
     var password: String?
     var lastScanned: Int?
     var trackCount: Int
-    var scanState: String       // "idle" | "scanning" | "error"
+    var scanState: String           // "idle" | "scanning" | "error"
+    var lastScanFileCount: Int?     // audio file count at last successful scan — change detection
+    var lastScanTotalBytes: Int?    // aggregate file size at last successful scan — change detection
     var createdAt: Int
     var updatedAt: Int
 
     static let databaseTableName = "library_sources"
 
     enum Columns {
-        static let id          = Column(CodingKeys.id)
-        static let type        = Column(CodingKeys.type)
-        static let displayName = Column(CodingKeys.displayName)
-        static let host        = Column(CodingKeys.host)
-        static let share       = Column(CodingKeys.share)
-        static let rootPath    = Column(CodingKeys.rootPath)
-        static let trackCount  = Column(CodingKeys.trackCount)
-        static let scanState   = Column(CodingKeys.scanState)
-        static let lastScanned = Column(CodingKeys.lastScanned)
+        static let id                 = Column(CodingKeys.id)
+        static let type               = Column(CodingKeys.type)
+        static let displayName        = Column(CodingKeys.displayName)
+        static let host               = Column(CodingKeys.host)
+        static let share              = Column(CodingKeys.share)
+        static let rootPath           = Column(CodingKeys.rootPath)
+        static let trackCount         = Column(CodingKeys.trackCount)
+        static let scanState          = Column(CodingKeys.scanState)
+        static let lastScanned        = Column(CodingKeys.lastScanned)
+        static let lastScanFileCount  = Column(CodingKeys.lastScanFileCount)
+        static let lastScanTotalBytes = Column(CodingKeys.lastScanTotalBytes)
+    }
+}
+
+// MARK: - Artist
+// One row per unique artist in the local library.
+// sortName strips leading "The ", "A ", etc. for correct alphabetical sort.
+// albumCount and trackCount are denormalized counters — updated after each scan.
+
+struct Artist: Codable, FetchableRecord, PersistableRecord, Identifiable {
+    static let databaseTableName = "artists"
+
+    var id: String          // UUID string — Sorriva-generated
+    var name: String        // Display name e.g. "The Beatles"
+    var sortName: String    // Sort name e.g. "Beatles, The"
+    var imageURL: String?   // null until fMetadataEnrichment pass
+    var albumCount: Int     // denormalized — updated after scan
+    var trackCount: Int     // denormalized — updated after scan
+    var createdAt: Int
+    var updatedAt: Int
+
+    enum Columns {
+        static let id         = Column(CodingKeys.id)
+        static let name       = Column(CodingKeys.name)
+        static let sortName   = Column(CodingKeys.sortName)
+        static let imageURL   = Column(CodingKeys.imageURL)
+        static let albumCount = Column(CodingKeys.albumCount)
+        static let trackCount = Column(CodingKeys.trackCount)
+        static let createdAt  = Column(CodingKeys.createdAt)
+        static let updatedAt  = Column(CodingKeys.updatedAt)
+    }
+}
+
+// MARK: - Album
+// One row per unique album. Has one primary artist, but may have others via artist_albums.
+// artPath is a local filesystem path to cached artwork — null until enrichment pass.
+// sortTitle strips leading "The ", "A ", etc. for correct alphabetical sort.
+
+struct Album: Codable, FetchableRecord, PersistableRecord, Identifiable {
+    static let databaseTableName = "albums"
+
+    var id: String              // UUID string — Sorriva-generated
+    var title: String           // Display title e.g. "Kind of Blue"
+    var sortTitle: String       // Sort title e.g. "Kind of Blue" (stripped of leading articles)
+    var primaryArtistId: String // FK → artists.id
+    var artistName: String      // Denormalized — primary artist display name
+    var year: Int?              // Parsed from tag — null if not present
+    var genre: String?          // Parsed from tag — null if not present
+    var artPath: String?        // Local path to cached artwork — null until enrichment pass
+    var trackCount: Int         // Denormalized — updated after scan
+    var sourceId: String        // FK → library_sources.id
+    var folderPath: String      // SMB path to album folder — used for artwork discovery
+    var createdAt: Int
+    var updatedAt: Int
+
+    enum Columns {
+        static let id              = Column(CodingKeys.id)
+        static let title           = Column(CodingKeys.title)
+        static let sortTitle       = Column(CodingKeys.sortTitle)
+        static let primaryArtistId = Column(CodingKeys.primaryArtistId)
+        static let artistName      = Column(CodingKeys.artistName)
+        static let year            = Column(CodingKeys.year)
+        static let genre           = Column(CodingKeys.genre)
+        static let artPath         = Column(CodingKeys.artPath)
+        static let trackCount      = Column(CodingKeys.trackCount)
+        static let sourceId        = Column(CodingKeys.sourceId)
+        static let folderPath      = Column(CodingKeys.folderPath)
+        static let createdAt       = Column(CodingKeys.createdAt)
+        static let updatedAt       = Column(CodingKeys.updatedAt)
+    }
+}
+
+// MARK: - Track
+// One row per audio file. Belongs to one Album and one LibrarySource.
+// filePath is the full SMB path — unique per track.
+// duration is in seconds (Double) matching AVFoundation convention.
+// bitrate is in kbps, sampleRate in Hz.
+
+struct Track: Codable, FetchableRecord, PersistableRecord, Identifiable {
+    static let databaseTableName = "tracks"
+
+    var id: String              // UUID string — Sorriva-generated
+    var title: String
+    var albumId: String         // FK → albums.id
+    var albumTitle: String      // Denormalized — album display title
+    var primaryArtistId: String // FK → artists.id
+    var artistName: String      // Denormalized — primary artist display name
+    var trackNumber: Int?       // Parsed from tag or leading digits in filename
+    var discNumber: Int?        // Parsed from tag — null if single-disc or not tagged
+    var year: Int?              // Parsed from tag — null if not present
+    var genre: String?          // Parsed from tag — null if not present
+    var duration: Double?       // Seconds — parsed from tag header
+    var fileFormat: String      // Lowercase extension: "flac" | "mp3" | "m4a" | "wav" | "aiff"
+    var filePath: String        // Full SMB path — unique constraint in DB
+    var fileSize: Int?          // Bytes
+    var bitrate: Int?           // kbps — parsed from tag header
+    var sampleRate: Int?        // Hz — parsed from tag header
+    var sourceId: String        // FK → library_sources.id
+    var createdAt: Int
+    var updatedAt: Int
+
+    enum Columns {
+        static let id              = Column(CodingKeys.id)
+        static let title           = Column(CodingKeys.title)
+        static let albumId         = Column(CodingKeys.albumId)
+        static let albumTitle      = Column(CodingKeys.albumTitle)
+        static let primaryArtistId = Column(CodingKeys.primaryArtistId)
+        static let artistName      = Column(CodingKeys.artistName)
+        static let trackNumber     = Column(CodingKeys.trackNumber)
+        static let discNumber      = Column(CodingKeys.discNumber)
+        static let year            = Column(CodingKeys.year)
+        static let genre           = Column(CodingKeys.genre)
+        static let duration        = Column(CodingKeys.duration)
+        static let fileFormat      = Column(CodingKeys.fileFormat)
+        static let filePath        = Column(CodingKeys.filePath)
+        static let fileSize        = Column(CodingKeys.fileSize)
+        static let bitrate         = Column(CodingKeys.bitrate)
+        static let sampleRate      = Column(CodingKeys.sampleRate)
+        static let sourceId        = Column(CodingKeys.sourceId)
+        static let createdAt       = Column(CodingKeys.createdAt)
+        static let updatedAt       = Column(CodingKeys.updatedAt)
+    }
+}
+
+// MARK: - ArtistAlbum
+// Many-to-many between artists and albums.
+// role: "primary" for the main artist, "featured" for collaborators.
+
+struct ArtistAlbum: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "artist_albums"
+
+    var artistId: String    // FK → artists.id
+    var albumId: String     // FK → albums.id
+    var role: String        // "primary" | "featured"
+
+    static let databasePrimaryKey = ["artistId", "albumId"]
+
+    enum Columns {
+        static let artistId = Column(CodingKeys.artistId)
+        static let albumId  = Column(CodingKeys.albumId)
+        static let role     = Column(CodingKeys.role)
+    }
+}
+
+// MARK: - TrackArtist
+// Many-to-many between tracks and artists.
+// role: "primary" for the main artist, "featured" for collaborators.
+
+struct TrackArtist: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "track_artists"
+
+    var trackId: String     // FK → tracks.id
+    var artistId: String    // FK → artists.id
+    var role: String        // "primary" | "featured"
+
+    static let databasePrimaryKey = ["trackId", "artistId"]
+
+    enum Columns {
+        static let trackId  = Column(CodingKeys.trackId)
+        static let artistId = Column(CodingKeys.artistId)
+        static let role     = Column(CodingKeys.role)
     }
 }

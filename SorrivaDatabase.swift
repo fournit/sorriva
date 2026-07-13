@@ -531,6 +531,15 @@ final class SorrivaDatabase {
             print("SORRIVA DB: v6 local library schema created")
         }
 
+        // v7 — add change-detection fingerprint columns to library_sources
+        migrator.registerMigration("v7_scan_fingerprint") { db in
+            try db.alter(table: "library_sources") { t in
+                t.add(column: "lastScanFileCount", .integer)
+                t.add(column: "lastScanTotalBytes", .integer)
+            }
+            print("SORRIVA DB: v7 scan fingerprint columns added")
+        }
+
         try migrator.migrate(dbQueue)
         print("SORRIVA DB: Migrations complete")
     }
@@ -1014,5 +1023,216 @@ final class SorrivaDatabase {
             }
         } catch {}
         return nil
+    }
+
+    // MARK: - Music graph operations
+
+    // MARK: Artist
+
+    /// Insert or update an artist record. Keyed on id.
+    func upsertArtist(_ artist: Artist) throws {
+        try dbQueue.write { db in try artist.save(db) }
+    }
+
+    /// Find an existing artist by exact name match, or return nil.
+    func artist(named name: String) throws -> Artist? {
+        try dbQueue.read { db in
+            try Artist
+                .filter(Artist.Columns.name == name)
+                .fetchOne(db)
+        }
+    }
+
+    func artist(id: String) throws -> Artist? {
+        try dbQueue.read { db in try Artist.fetchOne(db, key: id) }
+    }
+
+    /// All artists sorted by sortName — used for library browse.
+    func allArtists() throws -> [Artist] {
+        try dbQueue.read { db in
+            try Artist.order(Artist.Columns.sortName).fetchAll(db)
+        }
+    }
+
+    // MARK: Album
+
+    /// Insert or update an album record. Keyed on id.
+    func upsertAlbum(_ album: Album) throws {
+        try dbQueue.write { db in try album.save(db) }
+    }
+
+    /// Find an existing album by title + primaryArtistId, or return nil.
+    func album(title: String, artistId: String) throws -> Album? {
+        try dbQueue.read { db in
+            try Album
+                .filter(Album.Columns.title == title)
+                .filter(Album.Columns.primaryArtistId == artistId)
+                .fetchOne(db)
+        }
+    }
+
+    /// All albums for a given artist, sorted by year then title.
+    func albums(artistId: String) throws -> [Album] {
+        try dbQueue.read { db in
+            try Album
+                .filter(Album.Columns.primaryArtistId == artistId)
+                .order(Album.Columns.year, Album.Columns.sortTitle)
+                .fetchAll(db)
+        }
+    }
+
+    /// All albums for a given source, sorted by sortTitle.
+    func albums(sourceId: String) throws -> [Album] {
+        try dbQueue.read { db in
+            try Album
+                .filter(Album.Columns.sourceId == sourceId)
+                .order(Album.Columns.sortTitle)
+                .fetchAll(db)
+        }
+    }
+
+    // MARK: Track
+
+    /// Insert or update a track record. Keyed on id.
+    func upsertTrack(_ track: Track) throws {
+        try dbQueue.write { db in try track.save(db) }
+    }
+
+    /// Find an existing track by filePath — the unique natural key.
+    func track(filePath: String) throws -> Track? {
+        try dbQueue.read { db in
+            try Track
+                .filter(Track.Columns.filePath == filePath)
+                .fetchOne(db)
+        }
+    }
+
+    /// All tracks for a given album, sorted by discNumber then trackNumber.
+    func tracks(albumId: String) throws -> [Track] {
+        try dbQueue.read { db in
+            try Track
+                .filter(Track.Columns.albumId == albumId)
+                .order(Track.Columns.discNumber, Track.Columns.trackNumber)
+                .fetchAll(db)
+        }
+    }
+
+    /// Total track count for a given source.
+    func trackCount(sourceId: String) throws -> Int {
+        try dbQueue.read { db in
+            try Track
+                .filter(Track.Columns.sourceId == sourceId)
+                .fetchCount(db)
+        }
+    }
+
+    /// Delete all tracks (and cascade to nothing — tracks are leaves) for a source.
+    /// Albums and artists are cleaned up separately via deleteOrphanedAlbums/Artists.
+    func deleteTracks(sourceId: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "DELETE FROM tracks WHERE sourceId = ?",
+                arguments: [sourceId]
+            )
+        }
+    }
+
+    /// Delete albums that have no remaining tracks — called after deleteTracks.
+    func deleteOrphanedAlbums() throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                DELETE FROM albums
+                WHERE id NOT IN (SELECT DISTINCT albumId FROM tracks)
+            """)
+        }
+    }
+
+    /// Delete artists that have no remaining albums — called after deleteOrphanedAlbums.
+    func deleteOrphanedArtists() throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                DELETE FROM artists
+                WHERE id NOT IN (SELECT DISTINCT primaryArtistId FROM albums)
+            """)
+        }
+    }
+
+    // MARK: ArtistAlbum / TrackArtist junction
+
+    func upsertArtistAlbum(artistId: String, albumId: String, role: String = "primary") throws {
+        try dbQueue.write { db in
+            let rec = ArtistAlbum(artistId: artistId, albumId: albumId, role: role)
+            try rec.save(db)
+        }
+    }
+
+    func upsertTrackArtist(trackId: String, artistId: String, role: String = "primary") throws {
+        try dbQueue.write { db in
+            let rec = TrackArtist(trackId: trackId, artistId: artistId, role: role)
+            try rec.save(db)
+        }
+    }
+
+    // MARK: Scan state + fingerprint
+
+    /// Update scanState on a source — called by ScanCoordinator during active scan.
+    func updateScanState(sourceId: String, state: String) throws {
+        let now = Int(Date().timeIntervalSince1970)
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE library_sources
+                SET scanState = ?, updatedAt = ?
+                WHERE id = ?
+            """, arguments: [state, now, sourceId])
+        }
+    }
+
+    /// Update trackCount, lastScanned, and fingerprint on successful scan completion.
+    func updateScanComplete(sourceId: String, trackCount: Int,
+                            fileCount: Int, totalBytes: Int) throws {
+        let now = Int(Date().timeIntervalSince1970)
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE library_sources
+                SET scanState = 'idle',
+                    trackCount = ?,
+                    lastScanned = ?,
+                    lastScanFileCount = ?,
+                    lastScanTotalBytes = ?,
+                    updatedAt = ?
+                WHERE id = ?
+            """, arguments: [trackCount, now, fileCount, totalBytes, now, sourceId])
+        }
+    }
+
+    /// Update denormalized albumCount and trackCount on an artist after scan.
+    func updateArtistCounts(artistId: String) throws {
+        try dbQueue.write { db in
+            let albumCount = try Album
+                .filter(Album.Columns.primaryArtistId == artistId)
+                .fetchCount(db)
+            let trackCount = try Track
+                .filter(Track.Columns.primaryArtistId == artistId)
+                .fetchCount(db)
+            let now = Int(Date().timeIntervalSince1970)
+            try db.execute(sql: """
+                UPDATE artists
+                SET albumCount = ?, trackCount = ?, updatedAt = ?
+                WHERE id = ?
+            """, arguments: [albumCount, trackCount, now, artistId])
+        }
+    }
+
+    /// Update denormalized trackCount on an album after scan.
+    func updateAlbumTrackCount(albumId: String) throws {
+        try dbQueue.write { db in
+            let count = try Track
+                .filter(Track.Columns.albumId == albumId)
+                .fetchCount(db)
+            let now = Int(Date().timeIntervalSince1970)
+            try db.execute(sql: """
+                UPDATE albums SET trackCount = ?, updatedAt = ? WHERE id = ?
+            """, arguments: [count, now, albumId])
+        }
     }
 }
