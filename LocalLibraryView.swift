@@ -52,9 +52,12 @@ struct LocalLibraryView: View {
                         VStack(spacing: 8) {
                             NavigationLink(
                                 destination: AddSMBSourceView(
-                                    onSaved: {
+                                    onSaved: { savedSource in
                                         loadSources()
                                         showAddSMB = false
+                                        if let source = savedSource {
+                                            ScanCoordinator.shared.scanNewSource(source)
+                                        }
                                     },
                                     existingHosts: Set(grouped.map { $0.host })
                                 ),
@@ -248,7 +251,7 @@ struct SMBServerDetailView: View {
                         device: SMBDevice(id: host, name: serverName, host: host, port: 445),
                         prefillUsername: username,
                         prefillPassword: password,
-                        onSaved: { loadSources(); onChanged(); showAddShare = false }
+                        onSaved: { _ in loadSources(); onChanged(); showAddShare = false }
                     ),
                     isActive: $showAddShare
                 ) { EmptyView() }
@@ -290,11 +293,17 @@ struct SMBServerDetailView: View {
         }
         // Share action sheet
         .sheet(item: $actionSource) { source in
-            ShareActionSheet(source: source, onRemove: {
-                removeShareSource = source
-                showRemoveShareConfirm = true
-            })
-            .presentationDetents([.height(220)])
+            ShareActionSheet(
+                source: source,
+                onScan: {
+                    ScanCoordinator.shared.scanSource(source)
+                },
+                onRemove: {
+                    removeShareSource = source
+                    showRemoveShareConfirm = true
+                }
+            )
+            .presentationDetents([.height(260)])
             .presentationDragIndicator(.visible)
         }
         // Remove share confirm
@@ -324,6 +333,7 @@ struct SMBServerDetailView: View {
 
 struct ShareDetailCard: View {
     let source: LibrarySource
+    @ObservedObject private var coordinator = ScanCoordinator.shared
 
     var body: some View {
         HStack(spacing: 12) {
@@ -338,17 +348,26 @@ struct ShareDetailCard: View {
                     .foregroundColor(.sTextPrimary)
 
                 HStack(spacing: 6) {
-                    if source.trackCount > 0 {
-                        Text("\(source.trackCount) tracks")
+                    if isScanning, let p = coordinator.progress {
+                        // Live scan progress
+                        ProgressView()
+                            .scaleEffect(0.7)
+                        Text(scanProgressText(p))
                             .font(.system(size: 12))
-                            .foregroundColor(.sTextMuted)
-                        Text("·")
+                            .foregroundColor(.sBrass)
+                    } else {
+                        if source.trackCount > 0 {
+                            Text("\(source.trackCount) tracks")
+                                .font(.system(size: 12))
+                                .foregroundColor(.sTextMuted)
+                            Text("·")
+                                .font(.system(size: 12))
+                                .foregroundColor(.sTextMuted)
+                        }
+                        Text(lastScannedText)
                             .font(.system(size: 12))
                             .foregroundColor(.sTextMuted)
                     }
-                    Text(lastScannedText)
-                        .font(.system(size: 12))
-                        .foregroundColor(.sTextMuted)
                 }
             }
 
@@ -361,6 +380,18 @@ struct ShareDetailCard: View {
         .padding(12)
         .background(Color.sSurface)
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var isScanning: Bool {
+        coordinator.activeScanSourceId == source.id
+    }
+
+    private func scanProgressText(_ p: ScanProgress) -> String {
+        switch p.phase {
+        case .statting:   return "Listing files…"
+        case .scanning:   return "Scanning \(p.filesScanned) / \(p.filesFound)"
+        case .finalizing: return "Finalizing…"
+        }
     }
 
     private var lastScannedText: String {
@@ -376,6 +407,7 @@ struct ShareDetailCard: View {
 
 struct ShareActionSheet: View {
     let source: LibrarySource
+    let onScan: () -> Void
     let onRemove: () -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -404,19 +436,20 @@ struct ShareActionSheet: View {
 
                 Divider().background(Color.sSeparator).padding(.horizontal, 20)
 
-                // Scan Now — Phase 2
-                HStack {
-                    Image(systemName: "arrow.clockwise")
-                    Text("Scan Now")
-                        .font(.system(size: 15, weight: .medium))
-                    Spacer()
-                    Text("Phase 2")
-                        .font(.system(size: 12))
-                        .foregroundColor(.sTextMuted)
+                Button {
+                    dismiss()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { onScan() }
+                } label: {
+                    HStack {
+                        Image(systemName: "arrow.clockwise")
+                        Text("Scan Now")
+                            .font(.system(size: 15, weight: .medium))
+                        Spacer()
+                    }
+                    .foregroundColor(.sTextPrimary)
+                    .padding(.vertical, 14)
+                    .padding(.horizontal, 20)
                 }
-                .foregroundColor(.sTextPrimary.opacity(0.35))
-                .padding(.vertical, 14)
-                .padding(.horizontal, 20)
 
                 Divider().background(Color.sSeparator).padding(.horizontal, 20)
 

@@ -121,13 +121,14 @@ actor SMBScanner {
                 currentFile: filename
             ))
 
-            // Read first 64KB via FileReader partial read — no full file download.
-            let headerData: Data? = try? await {
+            // Read first 64KB via FileReader partial read with a 10s timeout.
+            // A stalled SMB read would hang the entire scan without this guard.
+            let headerData: Data? = await withTimeout(seconds: 10) {
                 let reader = client.fileReader(path: file.path)
                 let data = try await reader.read(offset: 0, length: 65536)
                 try await reader.close()
                 return data
-            }()
+            }
 
             // Parse metadata from header bytes
             var meta = ParsedMetadata()
@@ -480,7 +481,7 @@ actor SMBScanner {
 
     private func id3TextFrame(_ data: Data) -> String? {
         guard !data.isEmpty else { return nil }
-        let encoding = data[0]
+        let encoding = data.first ?? 0
         let textData = data.dropFirst()
         switch encoding {
         case 0:  return String(data: textData, encoding: .isoLatin1)?.trimmingCharacters(in: .controlCharacters)
@@ -539,6 +540,8 @@ actor SMBScanner {
     }
 
     private func parseVorbisBlock(block: Data, meta: inout ParsedMetadata) {
+        // Rebase to zero-indexed Data so subscripts are safe regardless of slice origin
+        let block = Data(block)
         var pos = 0
         guard pos + 4 <= block.count else { return }
 
@@ -677,6 +680,25 @@ actor SMBScanner {
     private func atomName(data: Data, offset: Int) -> String {
         guard offset + 8 <= data.count else { return "" }
         return String(bytes: data[(offset+4)..<(offset+8)], encoding: .isoLatin1) ?? ""
+    }
+
+    // MARK: - Timeout helper
+
+    /// Runs an async throwing closure with a timeout. Returns nil if it times out or throws.
+    private func withTimeout<T: Sendable>(seconds: Double, operation: @escaping @Sendable () async throws -> T) async -> T? {
+        await withTaskGroup(of: T?.self) { group in
+            group.addTask {
+                try? await operation()
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                return nil
+            }
+            // Return first result — either the operation or nil from timeout
+            let result = await group.next() ?? nil
+            group.cancelAll()
+            return result
+        }
     }
 
     // MARK: - ID3 genre table

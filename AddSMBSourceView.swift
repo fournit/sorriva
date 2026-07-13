@@ -15,7 +15,7 @@ struct SMBDevice: Identifiable {
 // Step 1 — Bonjour discovery + manual entry
 
 struct AddSMBSourceView: View {
-    let onSaved: () -> Void
+    let onSaved: (LibrarySource?) -> Void
     var existingHosts: Set<String> = []
 
     @Environment(\.dismiss) private var dismiss
@@ -139,7 +139,7 @@ struct AddSMBSourceView: View {
 
 struct SMBSharePickerView: View {
     var device: SMBDevice
-    let onSaved: () -> Void
+    let onSaved: (LibrarySource?) -> Void
     var prefillUsername: String = ""
     var prefillPassword: String = ""
 
@@ -149,7 +149,7 @@ struct SMBSharePickerView: View {
     @State private var password: String
     @State private var manualHost = ""
 
-    init(device: SMBDevice, prefillUsername: String = "", prefillPassword: String = "", onSaved: @escaping () -> Void) {
+    init(device: SMBDevice, prefillUsername: String = "", prefillPassword: String = "", onSaved: @escaping (LibrarySource?) -> Void) {
         self.device = device
         self.onSaved = onSaved
         self.prefillUsername = prefillUsername
@@ -300,8 +300,8 @@ struct SMBSharePickerView: View {
                                         share: share,
                                         username: username,
                                         password: password,
-                                        onSaved: {
-                                            onSaved()
+                                        onSaved: { source in
+                                            onSaved(source)
                                             dismiss()
                                         }
                                     )) {
@@ -390,7 +390,7 @@ struct SMBConfigureSourceView: View {
     let share: String
     let username: String
     let password: String
-    let onSaved: () -> Void
+    let onSaved: (LibrarySource?) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
@@ -401,7 +401,7 @@ struct SMBConfigureSourceView: View {
 
     enum TestResult: Equatable { case success, failure(String) }
 
-    init(device: SMBDevice, share: String, username: String, password: String, onSaved: @escaping () -> Void) {
+    init(device: SMBDevice, share: String, username: String, password: String, onSaved: @escaping (LibrarySource?) -> Void) {
         self.device = device
         self.share = share
         self.username = username
@@ -548,11 +548,13 @@ struct SMBConfigureSourceView: View {
             lastScanned: nil,
             trackCount: 0,
             scanState: "idle",
+            lastScanFileCount: nil,
+            lastScanTotalBytes: nil,
             createdAt: now,
             updatedAt: now
         )
         try? SorrivaDatabase.shared.upsertLibrarySource(source)
-        onSaved()
+        onSaved(source)
         dismiss()
     }
 }
