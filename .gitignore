@@ -4,3 +4,4 @@ deployments/
 data/*.db
 __pycache__/
 *.pyc
+sorriva.sqlite
