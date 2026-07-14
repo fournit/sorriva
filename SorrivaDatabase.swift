@@ -1103,6 +1103,14 @@ final class SorrivaDatabase {
     }
 
     /// Find an existing album by title + primaryArtistId, or return nil.
+    func album(folderPath: String) throws -> Album? {
+        try dbQueue.read { db in
+            try Album
+                .filter(Album.Columns.folderPath == folderPath)
+                .fetchOne(db)
+        }
+    }
+
     func album(title: String, artistId: String) throws -> Album? {
         try dbQueue.read { db in
             try Album

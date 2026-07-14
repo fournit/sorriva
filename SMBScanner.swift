@@ -402,12 +402,27 @@ actor SMBScanner {
         folderPath: String, sourceId: String,
         cache: inout [String: Album]
     ) throws -> Album {
-        let key = "\(artist.id)|\(title)"
-        if let cached = cache[key] { return cached }
-        if let existing = try SorrivaDatabase.shared.album(title: title, artistId: artist.id) {
-            cache[key] = existing
+        // Check in-memory cache by folderPath first — prevents splits from tag inconsistencies
+        let folderKey = "folder|\(folderPath)"
+        if let cached = cache[folderKey] { return cached }
+
+        // DB lookup by folderPath — authoritative deduplication key
+        if let existing = try SorrivaDatabase.shared.album(folderPath: folderPath) {
+            cache[folderKey] = existing
+            cache["\(artist.id)|\(existing.title)"] = existing
             return existing
         }
+
+        // Fallback: lookup by title + artist
+        let titleKey = "\(artist.id)|\(title)"
+        if let cached = cache[titleKey] { return cached }
+        if let existing = try SorrivaDatabase.shared.album(title: title, artistId: artist.id) {
+            cache[folderKey] = existing
+            cache[titleKey] = existing
+            return existing
+        }
+
+        // Create new album
         let now = Int(Date().timeIntervalSince1970)
         let album = Album(
             id: UUID().uuidString, title: title,
@@ -423,7 +438,8 @@ actor SMBScanner {
         try SorrivaDatabase.shared.upsertArtistAlbum(
             artistId: artist.id, albumId: album.id, role: "primary"
         )
-        cache[key] = album
+        cache[folderKey] = album
+        cache[titleKey] = album
         return album
     }
 
@@ -455,12 +471,24 @@ actor SMBScanner {
         var titleFromFilename = filenameWithoutExtension(filename)
         if m.trackNumber == nil {
             if let range = titleFromFilename.range(of: #"^(\d{1,3})[\s\.\-–_]+"#, options: .regularExpression) {
+                // Standard: "01 - Title" or "01. Title"
                 let numStr = String(titleFromFilename[range])
                     .trimmingCharacters(in: CharacterSet.decimalDigits.inverted)
                 m.trackNumber = Int(numStr)
                 titleFromFilename = String(titleFromFilename[range.upperBound...])
                     .trimmingCharacters(in: .whitespaces)
                 if titleFromFilename.isEmpty { titleFromFilename = filenameWithoutExtension(filename) }
+            } else {
+                // Try "Artist - Album - NN - Title" pattern
+                let parts = titleFromFilename.components(separatedBy: " - ")
+                if parts.count >= 4, let trackNum = Int(parts[parts.count - 2].trimmingCharacters(in: .whitespaces)) {
+                    m.trackNumber = trackNum
+                    titleFromFilename = parts[parts.count - 1].trimmingCharacters(in: .whitespaces)
+                } else if parts.count >= 2, let trackNum = Int(parts[parts.count - 2].trimmingCharacters(in: .whitespaces)) {
+                    // "Artist - NN - Title"
+                    m.trackNumber = trackNum
+                    titleFromFilename = parts[parts.count - 1].trimmingCharacters(in: .whitespaces)
+                }
             }
         }
         if m.title == nil { m.title = titleFromFilename }
