@@ -114,6 +114,9 @@ struct LibraryView: View {
         .onReceive(NotificationCenter.default.publisher(for: .libraryDidUpdate)) { _ in
             loadLibrary()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .stationsDidUpdate)) { _ in
+            loadFavorites()
+        }
         .fullScreenCover(isPresented: $showFavoritesGrid) {
             MediaGridView(
                 title: "Favorites",
@@ -900,6 +903,8 @@ struct LibraryArtistRow: View {
     let artists: [Artist]
     let onSeeAll: () -> Void
     @State private var selectedArtist: Artist? = nil
+    @State private var artistToRemove: Artist? = nil
+    @State private var showRemoveConfirm = false
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -925,11 +930,14 @@ struct LibraryArtistRow: View {
                     }
                     .buttonStyle(.plain)
                     .sorrivaContextMenu(
-                        title: artist.name,
-                        subtitle: "\(artist.albumCount) \(artist.albumCount == 1 ? "album" : "albums")",
-                        actions: SorrivaContextActions.artist(artist),
-                        sheetHeight: 230
-                    )
+                                    title: artist.name,
+                                    subtitle: "\(artist.albumCount) \(artist.albumCount == 1 ? "album" : "albums")",
+                                    actions: SorrivaContextActions.artist(artist) {
+                                        artistToRemove = artist
+                                        showRemoveConfirm = true
+                                    },
+                                    sheetHeight: 250
+                                )
                 }
             }
             .padding(.horizontal, 20)
@@ -939,6 +947,23 @@ struct LibraryArtistRow: View {
                 ArtistDetailView(artist: artist)
             }
             .navigationViewStyle(.stack)
+        }
+        .alert("Remove \"\(artistToRemove?.name ?? "")\"?",
+               isPresented: $showRemoveConfirm) {
+            Button("Remove", role: .destructive) {
+                if let artist = artistToRemove {
+                    try? SorrivaDatabase.shared.dbQueue.write { db in
+                        try db.execute(sql: "DELETE FROM tracks WHERE primaryArtistId = ?", arguments: [artist.id])
+                        try db.execute(sql: "DELETE FROM albums WHERE primaryArtistId = ?", arguments: [artist.id])
+                        try db.execute(sql: "DELETE FROM artists WHERE id = ?", arguments: [artist.id])
+                    }
+                    NotificationCenter.default.post(name: .libraryDidUpdate, object: nil)
+                }
+                artistToRemove = nil
+            }
+            Button("Cancel", role: .cancel) { artistToRemove = nil }
+        } message: {
+            Text("This removes the artist and all their albums and tracks from your Sorriva library. Original files are not affected.")
         }
     }
 }

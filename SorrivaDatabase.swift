@@ -697,6 +697,8 @@ final class SorrivaDatabase {
 
     func deleteStation(id: Int) throws {
         try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM station_genres WHERE stationId = ?", arguments: [id])
+            try db.execute(sql: "DELETE FROM zone_state WHERE stationId = ?", arguments: [id])
             try db.execute(sql: "DELETE FROM stations WHERE id = ?", arguments: [id])
         }
     }
@@ -880,6 +882,8 @@ final class SorrivaDatabase {
     /// Cascades to station_genres and zone_state via FK onDelete: .cascade.
     func removeStation(id: Int) throws {
         try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM station_genres WHERE stationId = ?", arguments: [id])
+            try db.execute(sql: "DELETE FROM zone_state WHERE stationId = ?", arguments: [id])
             try db.execute(sql: "DELETE FROM stations WHERE id = ?", arguments: [id])
             print("SORRIVA DB: Removed station \(id)")
         }

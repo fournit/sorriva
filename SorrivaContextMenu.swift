@@ -24,7 +24,8 @@ struct SorrivaContextAction {
 struct SorrivaContextMenuSheet: View {
     let title: String
     let subtitle: String?
-    let album: Album?        // optional — shows album art in header if provided
+    let album: Album?           // local library album art
+    let imageURL: String?       // remote image URL (radio station logo, etc.)
     let actions: [SorrivaContextAction]
     @Environment(\.dismiss) private var dismiss
 
@@ -32,8 +33,24 @@ struct SorrivaContextMenuSheet: View {
         VStack(spacing: 0) {
             // Header
             HStack(spacing: 14) {
+                // Art — local album art takes priority, then remote URL, then placeholder
                 if let album = album {
                     AlbumArtView(album: album, size: 56)
+                } else if let urlStr = imageURL, !urlStr.isEmpty, let url = URL(string: urlStr) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let img): img.resizable().scaledToFill()
+                        default: RoundedRectangle(cornerRadius: 8).fill(Color.sCard)
+                        }
+                    }
+                    .frame(width: 56, height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else {
+                    // Fallback — brass initial letter on dark card
+                    AlbumArtPlaceholder(
+                        letter: title.first.map(String.init) ?? "?",
+                        size: 56
+                    )
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
@@ -87,6 +104,7 @@ struct SorrivaContextMenuModifier: ViewModifier {
     let title: String
     let subtitle: String?
     let album: Album?
+    let imageURL: String?
     let actions: [SorrivaContextAction]
     let sheetHeight: CGFloat
 
@@ -103,6 +121,7 @@ struct SorrivaContextMenuModifier: ViewModifier {
                     title: title,
                     subtitle: subtitle,
                     album: album,
+                    imageURL: imageURL,
                     actions: actions
                 )
                 .presentationDetents([.height(sheetHeight)])
@@ -116,6 +135,7 @@ extension View {
         title: String,
         subtitle: String? = nil,
         album: Album? = nil,
+        imageURL: String? = nil,
         actions: [SorrivaContextAction],
         sheetHeight: CGFloat = 240
     ) -> some View {
@@ -123,6 +143,7 @@ extension View {
             title: title,
             subtitle: subtitle,
             album: album,
+            imageURL: imageURL,
             actions: actions,
             sheetHeight: sheetHeight
         ))
@@ -154,10 +175,12 @@ enum SorrivaContextActions {
         ]
     }
 
-    static func artist(_ artist: Artist) -> [SorrivaContextAction] {
+    static func artist(_ artist: Artist, onRemove: @escaping () -> Void = {}) -> [SorrivaContextAction] {
         [
             SorrivaContextAction(label: "Add to Favorites", icon: "heart") {},
-            SorrivaContextAction(label: "Play on...", icon: "hifispeaker.2") {}
+            SorrivaContextAction(label: "Play on...", icon: "hifispeaker.2") {},
+            SorrivaContextAction(label: "Remove from Library", icon: "trash",
+                                 role: .destructive, action: onRemove)
         ]
     }
 

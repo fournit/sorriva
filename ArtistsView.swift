@@ -6,6 +6,8 @@ import GRDB
 struct ArtistsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var artists: [Artist] = []
+    @State private var artistToRemove: Artist? = nil
+    @State private var showRemoveConfirm = false
 
     private let columns = [
         GridItem(.flexible(), spacing: 12),
@@ -69,8 +71,11 @@ struct ArtistsView: View {
                                 .sorrivaContextMenu(
                                     title: artist.name,
                                     subtitle: "\(artist.albumCount) \(artist.albumCount == 1 ? "album" : "albums")",
-                                    actions: SorrivaContextActions.artist(artist),
-                                    sheetHeight: 230
+                                    actions: SorrivaContextActions.artist(artist) {
+                                        artistToRemove = artist
+                                        showRemoveConfirm = true
+                                    },
+                                    sheetHeight: 250
                                 )
                             }
                         }
@@ -83,12 +88,35 @@ struct ArtistsView: View {
         }
         .navigationBarHidden(true)
         .onAppear { loadArtists() }
+        .alert("Remove \"\(artistToRemove?.name ?? "")\"?",
+               isPresented: $showRemoveConfirm) {
+            Button("Remove", role: .destructive) {
+                removeArtist(artistToRemove)
+                artistToRemove = nil
+            }
+            Button("Cancel", role: .cancel) { artistToRemove = nil }
+        } message: {
+            Text("This removes the artist and all their albums and tracks from your Sorriva library. Original files are not affected.")
+        }
         .navigationViewStyle(.stack)
         }
     }
 
     private func loadArtists() {
         artists = (try? SorrivaDatabase.shared.allArtists()) ?? []
+    }
+
+    private func removeArtist(_ artist: Artist?) {
+        guard let artist else { return }
+        try? SorrivaDatabase.shared.dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM tracks WHERE primaryArtistId = ?", arguments: [artist.id])
+            try db.execute(sql: "DELETE FROM albums WHERE primaryArtistId = ?", arguments: [artist.id])
+            try db.execute(sql: "DELETE FROM artists WHERE id = ?", arguments: [artist.id])
+        }
+        try? SorrivaDatabase.shared.deleteOrphanedAlbums()
+        try? SorrivaDatabase.shared.deleteOrphanedArtists()
+        NotificationCenter.default.post(name: .libraryDidUpdate, object: nil)
+        loadArtists()
     }
 }
 

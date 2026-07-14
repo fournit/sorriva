@@ -10,8 +10,9 @@ import SwiftUI
 struct SomaFMServiceView: View {
     @State private var stations: [Station] = []
     @State private var showBrowser = false
-    @State private var actionStation: Station? = nil
     @State private var zonePickerStation: RadioStation? = nil
+    @State private var stationToRemove: Station? = nil
+    @State private var showRemoveConfirm = false
 
     @ObservedObject var discovery: ZoneDiscoveryService
     let onPlayStation: (RadioStation, SonosZone) -> Void
@@ -74,9 +75,27 @@ struct SomaFMServiceView: View {
                         VStack(spacing: 8) {
                             ForEach(stations, id: \.id) { station in
                                 SavedStationCard(station: station)
-                                    .onLongPressGesture(minimumDuration: 0.4) {
-                                        actionStation = station
-                                    }
+                                    .sorrivaContextMenu(
+                                        title: station.name,
+                                        subtitle: "SomaFM",
+                                        imageURL: station.logoURL,
+                                        actions: SorrivaContextActions.radioStation(
+                                            isFavorite: station.isFavorite,
+                                            onFavorite: {
+                                                _ = try? SorrivaDatabase.shared.toggleFavorite(stationId: station.id)
+                                                NotificationCenter.default.post(name: .stationsDidUpdate, object: nil)
+                                                loadStations()
+                                            },
+                                            onPlayOn: {
+                                                zonePickerStation = RadioStation(from: station)
+                                            },
+                                            onRemove: {
+                                                stationToRemove = station
+                                                showRemoveConfirm = true
+                                            }
+                                        ),
+                                        sheetHeight: 310
+                                    )
                             }
                         }
                         .padding(.horizontal, 16)
@@ -115,30 +134,23 @@ struct SomaFMServiceView: View {
         .onReceive(NotificationCenter.default.publisher(for: .stationsDidUpdate)) { _ in
             loadStations()
         }
-        .sheet(item: $actionStation) { station in
-            SavedStationActionSheet(
-                station: station,
-                onRemove: {
-                    actionStation = nil
-                    try? SorrivaDatabase.shared.removeStation(id: station.id)
-                    withAnimation { stations.removeAll { $0.id == station.id } }
-                    NotificationCenter.default.post(name: .stationsDidUpdate, object: nil)
-                },
-                onFavorite: {
-                    actionStation = nil
-                    _ = try? SorrivaDatabase.shared.toggleFavorite(stationId: station.id)
-                    loadStations()
-                },
-                onPlayOn: {
-                    actionStation = nil
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        zonePickerStation = RadioStation(from: station)
+        .alert("Remove \"\(stationToRemove?.name ?? "")\"?",
+               isPresented: $showRemoveConfirm) {
+            Button("Remove", role: .destructive) {
+                if let station = stationToRemove {
+                    do {
+                        try SorrivaDatabase.shared.removeStation(id: station.id)
+                        withAnimation { stations.removeAll { $0.id == station.id } }
+                        NotificationCenter.default.post(name: .stationsDidUpdate, object: nil)
+                    } catch {
+                        print("SOMA: remove failed — \(error)")
                     }
                 }
-            )
-            .presentationDetents([.height(280)])
-            .presentationDragIndicator(.visible)
-            .presentationBackground(Color.sCard)
+                stationToRemove = nil
+            }
+            Button("Cancel", role: .cancel) { stationToRemove = nil }
+        } message: {
+            Text("This removes the station from your Sorriva library.")
         }
         .sheet(item: $zonePickerStation) { rs in
             ZonePickerSheet(station: rs, discovery: discovery) { zone in

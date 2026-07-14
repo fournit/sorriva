@@ -8,8 +8,9 @@ import SwiftUI
 
 struct IHeartServiceView: View {
     @State private var stations: [Station] = []
-    @State private var actionStation: Station? = nil
     @State private var zonePickerStation: RadioStation? = nil
+    @State private var stationToRemove: Station? = nil
+    @State private var showRemoveConfirm = false
     @State private var removeBlockedZones: [String] = []
     @State private var removeBlockedStation: String = ""
     @State private var removeBlockedLogoURL: String = ""
@@ -76,9 +77,37 @@ struct IHeartServiceView: View {
                         VStack(spacing: 8) {
                             ForEach(stations, id: \.id) { station in
                                 SavedStationCard(station: station)
-                                    .onLongPressGesture(minimumDuration: 0.4) {
-                                        actionStation = station
-                                    }
+                                    .sorrivaContextMenu(
+                                        title: station.name,
+                                        subtitle: "iHeartRADIO",
+                                        imageURL: station.logoURL,
+                                        actions: SorrivaContextActions.radioStation(
+                                            isFavorite: station.isFavorite,
+                                            onFavorite: {
+                                                _ = try? SorrivaDatabase.shared.toggleFavorite(stationId: station.id)
+                                                NotificationCenter.default.post(name: .stationsDidUpdate, object: nil)
+                                                loadStations()
+                                            },
+                                            onPlayOn: {
+                                                zonePickerStation = RadioStation(from: station)
+                                            },
+                                            onRemove: {
+                                                let playingZones = discovery.zones
+                                                    .filter { $0.stationName == station.name && $0.isPlaying }
+                                                    .map { $0.name }
+                                                if playingZones.isEmpty {
+                                                    stationToRemove = station
+                                                    showRemoveConfirm = true
+                                                } else {
+                                                    removeBlockedStation = station.name
+                                                    removeBlockedZones = playingZones
+                                                    removeBlockedLogoURL = station.logoURL ?? ""
+                                                    showRemoveBlockedSheet = true
+                                                }
+                                            }
+                                        ),
+                                        sheetHeight: 310
+                                    )
                             }
                         }
                         .padding(.horizontal, 16)
@@ -128,40 +157,23 @@ struct IHeartServiceView: View {
             .presentationDetents([.height(280)])
             .presentationDragIndicator(.visible)
         }
-        .sheet(item: $actionStation) { station in
-            SavedStationActionSheet(
-                station: station,
-                onRemove: {
-                    actionStation = nil
-                    let playingZones = discovery.zones
-                        .filter { $0.stationName == station.name && $0.isPlaying }
-                        .map { $0.name }
-                    if playingZones.isEmpty {
-                        try? SorrivaDatabase.shared.removeStation(id: station.id)
+        .alert("Remove \"\(stationToRemove?.name ?? "")\"?",
+               isPresented: $showRemoveConfirm) {
+            Button("Remove", role: .destructive) {
+                if let station = stationToRemove {
+                    do {
+                        try SorrivaDatabase.shared.removeStation(id: station.id)
                         withAnimation { stations.removeAll { $0.id == station.id } }
                         NotificationCenter.default.post(name: .stationsDidUpdate, object: nil)
-                    } else {
-                        removeBlockedStation = station.name
-                        removeBlockedZones = playingZones
-                        removeBlockedLogoURL = station.logoURL ?? ""
-                        showRemoveBlockedSheet = true
-                    }
-                },
-                onFavorite: {
-                    actionStation = nil
-                    _ = try? SorrivaDatabase.shared.toggleFavorite(stationId: station.id)
-                    loadStations()
-                },
-                onPlayOn: {
-                    actionStation = nil
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        zonePickerStation = RadioStation(from: station)
+                    } catch {
+                        print("IHEART: remove failed — \(error)")
                     }
                 }
-            )
-            .presentationDetents([.height(280)])
-            .presentationDragIndicator(.visible)
-            .presentationBackground(Color.sCard)
+                stationToRemove = nil
+            }
+            Button("Cancel", role: .cancel) { stationToRemove = nil }
+        } message: {
+            Text("This removes the station from your Sorriva library.")
         }
         // Zone picker
         .sheet(item: $zonePickerStation) { rs in
@@ -270,85 +282,6 @@ struct SavedStationCard: View {
                     CachedURLResponse(response: response, data: data), for: request)
                 await MainActor.run { cachedImage = img }
             }
-        }
-    }
-}
-
-// MARK: - SavedStationActionSheet
-// Bottom sheet on long press — Remove, Favorite toggle, Play on.
-
-struct SavedStationActionSheet: View {
-    let station: Station
-    let onRemove: () -> Void
-    let onFavorite: () -> Void
-    let onPlayOn: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack(spacing: 14) {
-                Group {
-                    if let logoURL = station.logoURL,
-                       !logoURL.isEmpty,
-                       let url = URL(string: logoURL) {
-                        AsyncImage(url: url) { phase in
-                            switch phase {
-                            case .success(let img): img.resizable().scaledToFill()
-                            default: RoundedRectangle(cornerRadius: 8).fill(Color.sCard)
-                            }
-                        }
-                    } else {
-                        RoundedRectangle(cornerRadius: 8).fill(Color.sCard)
-                    }
-                }
-                .frame(width: 48, height: 48)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(station.name)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.sTextPrimary)
-                    Text("iHeartRADIO")
-                        .font(.system(size: 12))
-                        .foregroundColor(.sTextMuted)
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 20)
-            .padding(.bottom, 14)
-
-            Divider().background(Color.sSeparator)
-
-            // Actions
-            VStack(spacing: 0) {
-                ActionRow(
-                    icon: station.isFavorite ? "heart.fill" : "heart",
-                    iconColor: station.isFavorite ? .sBrass : .sTextPrimary,
-                    title: station.isFavorite ? "Remove from Favorites" : "Add to Favorites",
-                    action: onFavorite
-                )
-
-                Divider().background(Color.sSeparator).padding(.leading, 56)
-
-                ActionRow(
-                    icon: "hifispeaker.2",
-                    iconColor: .sTextPrimary,
-                    title: "Play on...",
-                    action: onPlayOn
-                )
-
-                Divider().background(Color.sSeparator).padding(.leading, 56)
-
-                ActionRow(
-                    icon: "trash",
-                    iconColor: .red,
-                    title: "Remove from Library",
-                    action: onRemove
-                )
-            }
-
-            Spacer(minLength: 0)
         }
     }
 }
