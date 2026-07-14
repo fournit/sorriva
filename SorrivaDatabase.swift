@@ -540,6 +540,18 @@ final class SorrivaDatabase {
             print("SORRIVA DB: v7 scan fingerprint columns added")
         }
 
+        // v8 — artwork cache: rename artPath → artPathThumb, add artPathFull
+        // SQLite doesn't support column rename directly — rebuild albums table.
+        migrator.registerMigration("v8_artwork_columns") { db in
+            try db.alter(table: "albums") { t in
+                t.add(column: "artPathThumb", .text)
+                t.add(column: "artPathFull", .text)
+            }
+            // Copy existing artPath values into artPathThumb
+            try db.execute(sql: "UPDATE albums SET artPathThumb = artPath WHERE artPath IS NOT NULL")
+            print("SORRIVA DB: v8 artwork columns added")
+        }
+
         try migrator.migrate(dbQueue)
         print("SORRIVA DB: Migrations complete")
     }
@@ -1233,6 +1245,65 @@ final class SorrivaDatabase {
             try db.execute(sql: """
                 UPDATE albums SET trackCount = ?, updatedAt = ? WHERE id = ?
             """, arguments: [count, now, albumId])
+        }
+    }
+
+    // MARK: - Artwork cache
+
+    /// Update cached artwork paths on an album after download.
+    func updateAlbumArtwork(albumId: String, thumbPath: String?, fullPath: String?) throws {
+        let now = Int(Date().timeIntervalSince1970)
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE albums SET artPathThumb = ?, artPathFull = ?, updatedAt = ? WHERE id = ?
+            """, arguments: [thumbPath, fullPath, now, albumId])
+        }
+    }
+
+    /// All albums with no artwork yet — used by ArtworkCache to find work to do.
+    func albumsWithoutArtwork() throws -> [Album] {
+        try dbQueue.read { db in
+            try Album
+                .filter(Album.Columns.artPathThumb == nil)
+                .order(Album.Columns.sortTitle)
+                .fetchAll(db)
+        }
+    }
+
+    // MARK: - Library browse queries
+
+    /// All albums sorted by sortTitle — for Albums row and See All grid.
+    func allAlbums() throws -> [Album] {
+        try dbQueue.read { db in
+            try Album.order(Album.Columns.sortTitle).fetchAll(db)
+        }
+    }
+
+    /// All tracks sorted by title — for Tracks row and See All list.
+    func allTracks() throws -> [Track] {
+        try dbQueue.read { db in
+            try Track.order(Track.Columns.title).fetchAll(db)
+        }
+    }
+
+    /// All tracks sorted by artistName then title.
+    func allTracksByArtist() throws -> [Track] {
+        try dbQueue.read { db in
+            try Track.order(Track.Columns.artistName, Track.Columns.title).fetchAll(db)
+        }
+    }
+
+    /// All tracks sorted by albumTitle then trackNumber.
+    func allTracksByAlbum() throws -> [Track] {
+        try dbQueue.read { db in
+            try Track.order(Track.Columns.albumTitle, Track.Columns.trackNumber).fetchAll(db)
+        }
+    }
+
+    /// All tracks sorted by createdAt descending — most recently added first.
+    func allTracksByRecent() throws -> [Track] {
+        try dbQueue.read { db in
+            try Track.order(Track.Columns.createdAt.desc).fetchAll(db)
         }
     }
 }

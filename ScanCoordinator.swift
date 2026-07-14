@@ -100,6 +100,11 @@ final class ScanCoordinator: ObservableObject {
             activeScanSourceId = nil
             progress = nil
         }
+
+        // Fetch missing artwork in background — staggered, doesn't block UI
+        Task.detached {
+            await ArtworkCache.shared.fetchMissingArtwork()
+        }
     }
 
     /// Quick stat check — returns true if file count or total size changed since last scan.

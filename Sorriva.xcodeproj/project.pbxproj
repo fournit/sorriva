@@ -35,6 +35,11 @@
 		805A16BD3004886100AF3100 /* LocalFilesPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16BC3004886100AF3100 /* LocalFilesPickerView.swift */; };
 		805A16BF3005292E00AF3100 /* SMBScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16BE3005292E00AF3100 /* SMBScanner.swift */; };
 		805A16C130052B0B00AF3100 /* ScanCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16C030052B0B00AF3100 /* ScanCoordinator.swift */; };
+		805A16C33005AD5600AF3100 /* ArtworkCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16C23005AD5600AF3100 /* ArtworkCache.swift */; };
+		805A16C83005AEC600AF3100 /* ArtistsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16C63005AEC600AF3100 /* ArtistsView.swift */; };
+		805A16C93005AEC600AF3100 /* AlbumsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16C53005AEC600AF3100 /* AlbumsView.swift */; };
+		805A16CA3005AEC600AF3100 /* AlbumDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16C43005AEC600AF3100 /* AlbumDetailView.swift */; };
+		805A16CB3005AEC600AF3100 /* TracksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16C73005AEC600AF3100 /* TracksView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -78,6 +83,11 @@
 		805A16BC3004886100AF3100 /* LocalFilesPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalFilesPickerView.swift; sourceTree = "<group>"; };
 		805A16BE3005292E00AF3100 /* SMBScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMBScanner.swift; sourceTree = "<group>"; };
 		805A16C030052B0B00AF3100 /* ScanCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanCoordinator.swift; sourceTree = "<group>"; };
+		805A16C23005AD5600AF3100 /* ArtworkCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkCache.swift; sourceTree = "<group>"; };
+		805A16C43005AEC600AF3100 /* AlbumDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumDetailView.swift; sourceTree = "<group>"; };
+		805A16C53005AEC600AF3100 /* AlbumsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumsView.swift; sourceTree = "<group>"; };
+		805A16C63005AEC600AF3100 /* ArtistsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtistsView.swift; sourceTree = "<group>"; };
+		805A16C73005AEC600AF3100 /* TracksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TracksView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -117,6 +127,7 @@
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
+				805A16C23005AD5600AF3100 /* ArtworkCache.swift */,
 				805A16BE3005292E00AF3100 /* SMBScanner.swift */,
 				805A16C030052B0B00AF3100 /* ScanCoordinator.swift */,
 				805A16BC3004886100AF3100 /* LocalFilesPickerView.swift */,
@@ -131,6 +142,10 @@
 				80325AD23000B02B00308486 /* SorrivaWordmark.swift */,
 				80325AD03000AC1800308486 /* EQSheet.swift */,
 				80325ACE3000A29D00308486 /* RadioStationBrowser.swift */,
+				805A16C43005AEC600AF3100 /* AlbumDetailView.swift */,
+				805A16C53005AEC600AF3100 /* AlbumsView.swift */,
+				805A16C63005AEC600AF3100 /* ArtistsView.swift */,
+				805A16C73005AEC600AF3100 /* TracksView.swift */,
 				80325ACC3000948400308486 /* VolumeControlView.swift */,
 				80325ACA3000860000308486 /* NowPlayingView.swift */,
 				80325AC42FFF38A500308486 /* SonosDevice.swift */,
@@ -265,8 +280,13 @@
 				80325ABA2FFEE5DC00308486 /* SettingsView.swift in Sources */,
 				80325ACD3000948400308486 /* VolumeControlView.swift in Sources */,
 				80325B023003D51000308486 /* LocalLibraryView.swift in Sources */,
+				805A16C83005AEC600AF3100 /* ArtistsView.swift in Sources */,
+				805A16C93005AEC600AF3100 /* AlbumsView.swift in Sources */,
+				805A16CA3005AEC600AF3100 /* AlbumDetailView.swift in Sources */,
+				805A16CB3005AEC600AF3100 /* TracksView.swift in Sources */,
 				80325ABB2FFEE5DC00308486 /* SorrivaApp.swift in Sources */,
 				805A16C130052B0B00AF3100 /* ScanCoordinator.swift in Sources */,
+				805A16C33005AD5600AF3100 /* ArtworkCache.swift in Sources */,
 				80325ABC2FFEE5DC00308486 /* ContentView.swift in Sources */,
 				80325AC62FFF38A500308486 /* SonosDevice.swift in Sources */,
 				80325AC72FFF38A500308486 /* ZoneDiscoveryService.swift in Sources */,

@@ -1,4 +1,5 @@
 import SwiftUI
+import GRDB
 
 // MARK: - LibraryView
 // Row-based dashboard. Favorites and Radio rows share favoriteIDs state
@@ -15,6 +16,12 @@ struct LibraryView: View {
     @State private var loadedLogos: [Int: String] = [:]
     @State private var showFavoritesGrid = false
     @State private var showRadioGrid = false
+    @State private var showAlbums = false
+    @State private var showArtists = false
+    @State private var showTracks = false
+    @State private var albums: [Album] = []
+    @State private var artists: [Artist] = []
+    @State private var tracks: [Track] = []
 
     var body: some View {
         ScrollView {
@@ -58,12 +65,54 @@ struct LibraryView: View {
                     )
                 }
 
+                // Playlists — stub
+                LibraryRow(title: "Playlists", onSeeAll: {}) {
+                    HStack {
+                        Text("Create a playlist to get started")
+                            .font(.system(size: 13))
+                            .foregroundColor(.sTextMuted)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 12)
+                        Spacer()
+                    }
+                }
+
+                // Albums
+                if !albums.isEmpty {
+                    LibraryRow(title: "Albums", onSeeAll: { showAlbums = true }) {
+                        LibraryMediaRow(items: Array(albums.prefix(20).map {
+                            LibraryMediaItem(id: $0.id, title: $0.title, subtitle: $0.artistName, album: $0)
+                        }), onSeeAll: { showAlbums = true })
+                    }
+                }
+
+                // Artists
+                if !artists.isEmpty {
+                    LibraryRow(title: "Artists", onSeeAll: { showArtists = true }) {
+                        LibraryArtistRow(artists: Array(artists.prefix(20)),
+                                         onSeeAll: { showArtists = true })
+                    }
+                }
+
+                // Tracks
+                if !tracks.isEmpty {
+                    LibraryRow(title: "Tracks", onSeeAll: { showTracks = true }) {
+                        LibraryMediaRow(items: Array(tracks.prefix(20).map {
+                            LibraryMediaItem(id: $0.id, title: $0.title, subtitle: $0.artistName, track: $0)
+                        }), onSeeAll: { showTracks = true })
+                    }
+                }
+
                 Spacer().frame(height: 48)
             }
         }
         .background(Color.clear)
         .onAppear {
             loadFavorites()
+            loadLibrary()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .libraryDidUpdate)) { _ in
+            loadLibrary()
         }
         .fullScreenCover(isPresented: $showFavoritesGrid) {
             MediaGridView(
@@ -89,6 +138,15 @@ struct LibraryView: View {
                 onFavoriteToggled: { id, isFav in toggleFavorite(id: id, isFav: isFav) }
             )
         }
+        .fullScreenCover(isPresented: $showAlbums)  { AlbumsView() }
+        .fullScreenCover(isPresented: $showArtists) { ArtistsView() }
+        .fullScreenCover(isPresented: $showTracks)  { TracksView() }
+    }
+
+    private func loadLibrary() {
+        albums  = (try? SorrivaDatabase.shared.allAlbums()) ?? []
+        artists = (try? SorrivaDatabase.shared.allArtists()) ?? []
+        tracks  = (try? SorrivaDatabase.shared.allTracks()) ?? []
     }
 
     private func loadFavorites() {
@@ -694,5 +752,166 @@ struct GenreFilterChip: View {
                 .clipShape(Capsule())
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - LibraryMediaItem
+
+struct LibraryMediaItem: Identifiable {
+    let id: String
+    let title: String
+    let subtitle: String
+    var album: Album? = nil
+    var track: Track? = nil
+}
+
+// MARK: - LibraryMediaRow
+
+struct LibraryMediaRow: View {
+    let items: [LibraryMediaItem]
+    let onSeeAll: () -> Void
+    @State private var contextItem: LibraryMediaItem? = nil
+    @State private var showRemoveConfirm = false
+    @State private var selectedAlbum: Album? = nil
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(items) { item in
+                    Button {
+                        if let album = item.album {
+                            selectedAlbum = album
+                        }
+                    } label: {
+                        LibraryMediaCard(item: item)
+                    }
+                    .buttonStyle(.plain)
+                    .onLongPressGesture { contextItem = item }
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+        .confirmationDialog(
+            contextItem?.title ?? "",
+            isPresented: Binding(get: { contextItem != nil }, set: { if !$0 { contextItem = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Add to Favorites") { contextItem = nil }
+            Button("Play on...") { contextItem = nil }
+            Button("Remove from Library", role: .destructive) { showRemoveConfirm = true }
+            Button("Cancel", role: .cancel) { contextItem = nil }
+        }
+        .alert("Remove \"\(contextItem?.title ?? "")\"?", isPresented: $showRemoveConfirm) {
+            Button("Remove", role: .destructive) { removeItem(contextItem); contextItem = nil }
+            Button("Cancel", role: .cancel) { contextItem = nil }
+        } message: {
+            Text("This removes it from your Sorriva library. The original file is not affected.")
+        }
+        .sheet(item: $selectedAlbum) { album in
+            NavigationView {
+                AlbumDetailView(album: album)
+            }
+            .navigationViewStyle(.stack)
+        }
+    }
+
+    private func removeItem(_ item: LibraryMediaItem?) {
+        guard let item else { return }
+        if let album = item.album {
+            try? SorrivaDatabase.shared.deleteTracks(sourceId: album.sourceId)
+            try? SorrivaDatabase.shared.deleteOrphanedAlbums()
+            try? SorrivaDatabase.shared.deleteOrphanedArtists()
+        } else if let track = item.track {
+            try? SorrivaDatabase.shared.dbQueue.write { db in
+                try db.execute(sql: "DELETE FROM tracks WHERE id = ?", arguments: [track.id])
+            }
+        }
+        NotificationCenter.default.post(name: .libraryDidUpdate, object: nil)
+    }
+}
+
+// MARK: - LibraryMediaCard
+
+struct LibraryMediaCard: View {
+    let item: LibraryMediaItem
+    private let size: CGFloat = 90
+
+    var body: some View {
+        VStack(alignment: .center, spacing: 6) {
+            if let album = item.album {
+                AlbumArtView(album: album, size: size)
+            } else {
+                AlbumArtPlaceholder(
+                    letter: item.title.first.map(String.init) ?? "?",
+                    size: size
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            Text(item.title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.sTextPrimary)
+                .lineLimit(1)
+                .frame(width: size)
+            Text(item.subtitle)
+                .font(.system(size: 10))
+                .foregroundColor(.sTextMuted)
+                .lineLimit(1)
+                .frame(width: size)
+        }
+        .frame(width: size)
+    }
+}
+
+// MARK: - LibraryArtistRow
+
+struct LibraryArtistRow: View {
+    let artists: [Artist]
+    let onSeeAll: () -> Void
+    @State private var contextArtist: Artist? = nil
+    @State private var selectedArtist: Artist? = nil
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(artists) { artist in
+                    Button {
+                        selectedArtist = artist
+                    } label: {
+                        VStack(spacing: 6) {
+                            ArtistAvatarView(artist: artist, size: 90)
+                            Text(artist.name)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.sTextPrimary)
+                                .lineLimit(1)
+                                .frame(width: 90)
+                            Text("\(artist.albumCount) \(artist.albumCount == 1 ? "album" : "albums")")
+                                .font(.system(size: 10))
+                                .foregroundColor(.sTextMuted)
+                                .lineLimit(1)
+                                .frame(width: 90)
+                        }
+                        .frame(width: 90)
+                    }
+                    .buttonStyle(.plain)
+                    .onLongPressGesture { contextArtist = artist }
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+        .confirmationDialog(
+            contextArtist?.name ?? "",
+            isPresented: Binding(get: { contextArtist != nil }, set: { if !$0 { contextArtist = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Add to Favorites") { contextArtist = nil }
+            Button("Play on...") { contextArtist = nil }
+            Button("Cancel", role: .cancel) { contextArtist = nil }
+        }
+        .sheet(item: $selectedArtist) { artist in
+            NavigationView {
+                ArtistDetailView(artist: artist)
+            }
+            .navigationViewStyle(.stack)
+        }
     }
 }

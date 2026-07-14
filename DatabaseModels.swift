@@ -277,7 +277,7 @@ struct Artist: Codable, FetchableRecord, PersistableRecord, Identifiable {
 
 // MARK: - Album
 // One row per unique album. Has one primary artist, but may have others via artist_albums.
-// artPath is a local filesystem path to cached artwork — null until enrichment pass.
+// artPathThumb/artPathFull are local filesystem paths to cached artwork — null until enrichment pass.
 // sortTitle strips leading "The ", "A ", etc. for correct alphabetical sort.
 
 struct Album: Codable, FetchableRecord, PersistableRecord, Identifiable {
@@ -290,7 +290,8 @@ struct Album: Codable, FetchableRecord, PersistableRecord, Identifiable {
     var artistName: String      // Denormalized — primary artist display name
     var year: Int?              // Parsed from tag — null if not present
     var genre: String?          // Parsed from tag — null if not present
-    var artPath: String?        // Local path to cached artwork — null until enrichment pass
+    var artPathThumb: String?   // Local path to 300px cached artwork — null until enrichment pass
+    var artPathFull: String?    // Local path to 600px cached artwork — null until enrichment pass
     var trackCount: Int         // Denormalized — updated after scan
     var sourceId: String        // FK → library_sources.id
     var folderPath: String      // SMB path to album folder — used for artwork discovery
@@ -305,7 +306,8 @@ struct Album: Codable, FetchableRecord, PersistableRecord, Identifiable {
         static let artistName      = Column(CodingKeys.artistName)
         static let year            = Column(CodingKeys.year)
         static let genre           = Column(CodingKeys.genre)
-        static let artPath         = Column(CodingKeys.artPath)
+        static let artPathThumb    = Column(CodingKeys.artPathThumb)
+        static let artPathFull     = Column(CodingKeys.artPathFull)
         static let trackCount      = Column(CodingKeys.trackCount)
         static let sourceId        = Column(CodingKeys.sourceId)
         static let folderPath      = Column(CodingKeys.folderPath)
