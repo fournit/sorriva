@@ -212,7 +212,7 @@ struct GenreSourceXref: Codable, FetchableRecord, PersistableRecord {
 
 // MARK: - LibrarySource
 
-struct LibrarySource: Codable, FetchableRecord, PersistableRecord, Identifiable {
+struct LibrarySource: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable {
     var id: String
     var type: String            // "smb" | "files"
     var displayName: String
@@ -405,5 +405,31 @@ struct TrackArtist: Codable, FetchableRecord, PersistableRecord {
         static let trackId  = Column(CodingKeys.trackId)
         static let artistId = Column(CodingKeys.artistId)
         static let role     = Column(CodingKeys.role)
+    }
+}
+
+// MARK: - FolderStat
+// Per-folder scan fingerprint — used for incremental rescan detection.
+// One row per scanned folder per source. Updated after each successful scan.
+// On app foreground, statShare compares current dir stats against these rows
+// and only rescans folders where fileCount or totalBytes changed.
+
+struct FolderStat: Codable, FetchableRecord, PersistableRecord, Identifiable {
+    static let databaseTableName = "folder_stats"
+
+    var id: String          // UUID string — Sorriva-generated
+    var sourceId: String    // FK → library_sources.id
+    var folderPath: String  // SMB path of the folder e.g. "/Music II/Depeche Mode/Remixes 81-04"
+    var fileCount: Int      // Audio file count at last successful scan
+    var totalBytes: Int     // Aggregate file size at last successful scan
+    var scannedAt: Int      // Unix timestamp of last successful scan
+
+    enum Columns {
+        static let id         = Column(CodingKeys.id)
+        static let sourceId   = Column(CodingKeys.sourceId)
+        static let folderPath = Column(CodingKeys.folderPath)
+        static let fileCount  = Column(CodingKeys.fileCount)
+        static let totalBytes = Column(CodingKeys.totalBytes)
+        static let scannedAt  = Column(CodingKeys.scannedAt)
     }
 }

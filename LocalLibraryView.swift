@@ -6,6 +6,8 @@ import GRDB
 struct LocalLibraryView: View {
     @State private var grouped: [(host: String, sources: [LibrarySource])] = []
     @State private var showAddSMB = false
+    @State private var savedHost: String = ""
+    @State private var showSavedServer = false
 
     var body: some View {
         ZStack {
@@ -52,8 +54,15 @@ struct LocalLibraryView: View {
                         VStack(spacing: 8) {
                             NavigationLink(
                                 destination: AddSMBSourceView(
-                                    onSaved: { _ in
+                                    onSaved: { source in
                                         loadSources()
+                                        if let source = source {
+                                            savedHost = source.host
+                                            withAnimation(.none) { showAddSMB = false }
+                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                                withAnimation(.none) { showSavedServer = true }
+                                            }
+                                        }
                                     },
                                     existingHosts: Set(grouped.map { $0.host })
                                 ),
@@ -88,6 +97,15 @@ struct LocalLibraryView: View {
         .onReceive(NotificationCenter.default.publisher(for: .libraryDidUpdate)) { _ in
             loadSources()
         }
+        .background(
+            NavigationLink(
+                destination: SMBServerDetailView(
+                    host: savedHost,
+                    onChanged: { loadSources() }
+                ),
+                isActive: $showSavedServer
+            ) { EmptyView() }
+        )
     }
 
     private func loadSources() {
@@ -170,6 +188,8 @@ struct SMBServerDetailView: View {
     @State private var removeShareSource: LibrarySource? = nil
     @State private var showRemoveShareConfirm = false
     @State private var showScanReport = false
+    @State private var showScanConfirm = false
+    @ObservedObject private var coordinator = ScanCoordinator.shared
 
     var body: some View {
         ZStack {
@@ -242,7 +262,13 @@ struct SMBServerDetailView: View {
         }
         .navigationTitle(serverName)
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { loadSources() }
+        .onAppear {
+            loadSources()
+            // Show scan confirmation if a scan was queued during navigation
+            if coordinator.pendingFullScanSource != nil {
+                showScanConfirm = true
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .libraryDidUpdate)) { _ in
             loadSources()
         }
@@ -299,7 +325,10 @@ struct SMBServerDetailView: View {
             ShareActionSheet(
                 source: source,
                 onScan: {
-                    ScanCoordinator.shared.scanSource(source)
+                    ScanCoordinator.shared.pendingFullScanSource = source
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        showScanConfirm = true
+                    }
                 },
                 onViewReport: {
                     showScanReport = true
@@ -320,7 +349,38 @@ struct SMBServerDetailView: View {
                     .presentationDragIndicator(.visible)
             }
         }
-        // Remove share confirm
+        // Scan confirmation alert
+        .alert("Scan Music Library?", isPresented: $showScanConfirm) {
+            Button("Start Scan") {
+                if let source = coordinator.pendingFullScanSource {
+                    coordinator.confirmAndScanSource(source)
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                coordinator.pendingFullScanSource = nil
+            }
+        } message: {
+            Text("Sorriva will read tags from every audio file on this share. On large libraries this can take several hours.\n\nDuring the scan, auto-lock will be disabled to keep the screen on. It will be re-enabled automatically when the scan completes.\n\nKeep Sorriva in the foreground — backgrounding the app will pause the scan.")
+        }
+        // Interrupted scan alert
+        .alert("Scan Incomplete", isPresented: Binding(
+            get: { coordinator.interruptedScanSource != nil },
+            set: { if !$0 { coordinator.interruptedScanSource = nil } }
+        )) {
+            Button("Restart Scan") {
+                if let source = coordinator.interruptedScanSource {
+                    coordinator.confirmAndScanSource(source)
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                coordinator.interruptedScanSource = nil
+            }
+        } message: {
+            Text("The previous scan of \(coordinator.interruptedScanSource?.displayName ?? "this share") did not complete. Would you like to restart it?")
+        }
+        .onChange(of: coordinator.pendingFullScanSource) { source in
+            if source != nil { showScanConfirm = true }
+        }        // Remove share confirm
         .alert("Remove \(removeShareSource?.share ?? "Share")?", isPresented: $showRemoveShareConfirm) {
             Button("Remove Share", role: .destructive) {
                 if let s = removeShareSource {

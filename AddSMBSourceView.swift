@@ -386,7 +386,6 @@ struct SMBSharePickerView: View {
 
 // MARK: - SMBFolderBrowserView
 // Step 3 — Browse folders on the share and select the music folder.
-// Sits between share selection and configure screen.
 
 struct SMBFolderBrowserView: View {
     let device: SMBDevice
@@ -400,25 +399,18 @@ struct SMBFolderBrowserView: View {
     @State private var isLoading = false
     @State private var error: String? = nil
 
-    private var displayPath: String {
-        currentPath == "/" ? "/" : currentPath
-    }
-
     var body: some View {
         ZStack {
             Color.sGradientBottom.ignoresSafeArea()
-
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-
-                    // Current path + select button
                     VStack(alignment: .leading, spacing: 8) {
                         SettingsSectionLabel(title: "Current Folder")
                         HStack(spacing: 12) {
                             Image(systemName: "folder.fill")
                                 .font(.system(size: 16))
                                 .foregroundColor(.sBrass)
-                            Text(displayPath)
+                            Text(currentPath)
                                 .font(.system(size: 14))
                                 .foregroundColor(.sTextPrimary)
                                 .lineLimit(2)
@@ -450,35 +442,20 @@ struct SMBFolderBrowserView: View {
                     .padding(.top, 24)
                     .padding(.bottom, 24)
 
-                    // Subfolders
                     if isLoading {
-                        HStack {
-                            Spacer()
-                            ProgressView()
-                                .tint(.sTextSecondary)
-                                .padding(.vertical, 32)
-                            Spacer()
-                        }
+                        HStack { Spacer(); ProgressView().tint(.sTextSecondary).padding(.vertical, 32); Spacer() }
                     } else if let err = error {
-                        Text(err)
-                            .font(.system(size: 13))
-                            .foregroundColor(.sTextMuted)
-                            .padding(.horizontal, 16)
+                        Text(err).font(.system(size: 13)).foregroundColor(.sTextMuted).padding(.horizontal, 16)
                     } else if !folders.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             SettingsSectionLabel(title: "Subfolders")
                             VStack(spacing: 8) {
                                 ForEach(folders, id: \.self) { folder in
-                                    let childPath = currentPath == "/"
-                                        ? "/\(folder)"
-                                        : "\(currentPath)/\(folder)"
+                                    let childPath = currentPath == "/" ? "/\(folder)" : "\(currentPath)/\(folder)"
                                     NavigationLink(destination: SMBFolderBrowserView(
-                                        device: device,
-                                        share: share,
-                                        username: username,
-                                        password: password,
-                                        currentPath: childPath,
-                                        onSaved: onSaved
+                                        device: device, share: share,
+                                        username: username, password: password,
+                                        currentPath: childPath, onSaved: onSaved
                                     )) {
                                         HStack {
                                             Image(systemName: "folder")
@@ -503,11 +480,6 @@ struct SMBFolderBrowserView: View {
                         }
                         .padding(.horizontal, 16)
                         .padding(.bottom, 48)
-                    } else {
-                        Text("No subfolders")
-                            .font(.system(size: 13))
-                            .foregroundColor(.sTextMuted)
-                            .padding(.horizontal, 16)
                     }
                 }
             }
@@ -532,10 +504,7 @@ struct SMBFolderBrowserView: View {
                     .sorted()
                 try? await client.disconnectShare()
                 try? await client.logoff()
-                await MainActor.run {
-                    self.folders = dirs
-                    self.isLoading = false
-                }
+                await MainActor.run { self.folders = dirs; self.isLoading = false }
             } catch {
                 await MainActor.run {
                     self.error = "Could not load folders: \(error.localizedDescription)"
@@ -562,12 +531,11 @@ struct SMBConfigureSourceView: View {
     @State private var rootPath: String
     @State private var isTesting = false
     @State private var testResult: TestResult? = nil
-    @State private var savedHost: String = ""
-    @State private var showServerDetail = false
 
     enum TestResult: Equatable { case success, failure(String) }
 
-    init(device: SMBDevice, share: String, username: String, password: String, prefillRootPath: String = "/", onSaved: @escaping (LibrarySource?) -> Void) {
+    init(device: SMBDevice, share: String, username: String, password: String,
+         prefillRootPath: String = "/", onSaved: @escaping (LibrarySource?) -> Void) {
         self.device = device
         self.share = share
         self.username = username
@@ -670,15 +638,6 @@ struct SMBConfigureSourceView: View {
         }
         .navigationTitle("Configure Source")
         .navigationBarTitleDisplayMode(.inline)
-        .background(
-            NavigationLink(
-                destination: SMBServerDetailView(
-                    host: savedHost,
-                    onChanged: {}
-                ),
-                isActive: $showServerDetail
-            ) { EmptyView() }
-        )
     }
 
     private func errorMessage(_ result: TestResult) -> String {
@@ -732,8 +691,7 @@ struct SMBConfigureSourceView: View {
         try? SorrivaDatabase.shared.upsertLibrarySource(source)
         ScanCoordinator.shared.scanNewSource(source)
         onSaved(source)
-        savedHost = source.host
-        showServerDetail = true
+        dismiss()
     }
 }
 

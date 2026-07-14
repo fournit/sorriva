@@ -9,6 +9,15 @@ struct SorrivaApp: App {
     init() {
         // Initialize database on first launch — creates SQLite file and runs migrations
         _ = SorrivaDatabase.shared
+        // Reset any sources stuck in "scanning" state from a previous interrupted session
+        resetStaleScanStates()
+    }
+
+    private func resetStaleScanStates() {
+        let sources = (try? SorrivaDatabase.shared.allLibrarySources()) ?? []
+        for source in sources where source.scanState == "scanning" {
+            try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "error")
+        }
     }
 
     var body: some Scene {

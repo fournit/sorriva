@@ -1,14 +1,9 @@
 import Foundation
 import SwiftUI
 import Combine
+import UIKit
 
 // MARK: - ScanCoordinator
-// App-level singleton. Owns all scan lifecycle:
-//   • Triggers immediate scan when a new source is saved
-//   • Checks for changes on app foreground, rescans changed sources
-//   • Publishes live progress so any view can observe status
-//
-// Never call SMBScanner directly from views — always go through ScanCoordinator.
 
 @MainActor
 final class ScanCoordinator: ObservableObject {
@@ -20,6 +15,8 @@ final class ScanCoordinator: ObservableObject {
     @Published var activeScanSourceId: String? = nil
     @Published var progress: ScanProgress? = nil
     @Published var lastReport: ScanReport? = nil
+    @Published var pendingFullScanSource: LibrarySource? = nil
+    @Published var interruptedScanSource: LibrarySource? = nil  // set when incomplete scan detected
 
     // MARK: - Private
 
@@ -30,61 +27,79 @@ final class ScanCoordinator: ObservableObject {
 
     // MARK: - Public API
 
-    /// Called when a new share is saved. Starts a scan immediately.
+    /// Called when a new share is saved — queues confirmation alert.
     func scanNewSource(_ source: LibrarySource) {
-        startScan(source: source)
+        pendingFullScanSource = source
     }
 
-    /// Called when the app foregrounds. Stats all sources and rescans any that changed.
+    /// Called from confirmation alert — user confirmed full scan.
+    func confirmAndScanSource(_ source: LibrarySource) {
+        pendingFullScanSource = nil
+        interruptedScanSource = nil
+        startFullScan(source: source)
+    }
+
+    /// Manual "Scan Now" from ShareActionSheet — queues confirmation.
+    func scanSource(_ source: LibrarySource) {
+        pendingFullScanSource = source
+    }
+
+    /// Called when app foregrounds.
+    /// Skips never-scanned sources (require confirmation).
+    /// Detects interrupted scans and surfaces restart option.
+    /// Runs incremental rescan for changed folders on completed sources.
     func checkForChanges() {
         Task {
             let sources = (try? SorrivaDatabase.shared.allLibrarySources()) ?? []
             for source in sources {
-                // Skip sources already being scanned
                 guard source.scanState != "scanning" else { continue }
                 guard source.type == "smb" else { continue }
 
-                let changed = await hasChanged(source: source)
-                if changed {
-                    print("SCAN: \(source.displayName) changed — queuing rescan")
-                    startScan(source: source)
-                    // One scan at a time — wait for it to finish before checking next
+                if source.lastScanned == nil && source.scanState == "error" {
+                    // Interrupted scan — surface restart option
+                    interruptedScanSource = source
+                    continue
+                }
+
+                guard source.lastScanned != nil else { continue }
+
+                let changedFolders = await findChangedFolders(source: source)
+                if !changedFolders.isEmpty {
+                    print("SCAN: \(changedFolders.count) changed folder(s) in \(source.displayName)")
+                    startIncrementalScan(source: source, folders: changedFolders)
                     await scanTask?.value
                 }
             }
         }
     }
 
-    /// Manual scan trigger — called from "Scan Now" in ShareActionSheet.
-    func scanSource(_ source: LibrarySource) {
-        startScan(source: source)
+    // MARK: - Private scan starters
+
+    private func startFullScan(source: LibrarySource) {
+        if activeScanSourceId == source.id { scanTask?.cancel() }
+        scanTask = Task { await runScan(source: source, folders: nil) }
     }
 
-    // MARK: - Private
-
-    private func startScan(source: LibrarySource) {
-        // Cancel any in-flight scan for the same source
-        if activeScanSourceId == source.id {
-            scanTask?.cancel()
-        }
-
-        scanTask = Task {
-            await runScan(source: source)
-        }
+    private func startIncrementalScan(source: LibrarySource, folders: [String]) {
+        if activeScanSourceId == source.id { scanTask?.cancel() }
+        scanTask = Task { await runScan(source: source, folders: folders) }
     }
 
-    private func runScan(source: LibrarySource) async {
+    private func runScan(source: LibrarySource, folders: [String]?) async {
         activeScanSourceId = source.id
         try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "scanning")
 
+        // Prevent screen lock during scan
+        UIApplication.shared.isIdleTimerDisabled = true
+
         do {
-            try await scanner.scan(source: source) { [weak self] scanProgress in
-                Task { @MainActor [weak self] in
-                    if scanProgress.phase == .complete {
-                        self?.lastReport = scanProgress.report
-                    } else {
-                        self?.progress = scanProgress
-                    }
+            if let folders = folders {
+                try await scanner.scanChangedFolders(source: source, folderPaths: folders) { [weak self] p in
+                    Task { @MainActor [weak self] in self?.handleProgress(p) }
+                }
+            } else {
+                try await scanner.scan(source: source) { [weak self] p in
+                    Task { @MainActor [weak self] in self?.handleProgress(p) }
                 }
             }
             print("SCAN: Completed — \(source.displayName)")
@@ -93,7 +108,9 @@ final class ScanCoordinator: ObservableObject {
             try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "error")
         }
 
-        // Post notification so LocalLibraryView reloads track counts
+        // Restore screen lock
+        UIApplication.shared.isIdleTimerDisabled = false
+
         NotificationCenter.default.post(name: .libraryDidUpdate, object: nil)
 
         if activeScanSourceId == source.id {
@@ -101,26 +118,39 @@ final class ScanCoordinator: ObservableObject {
             progress = nil
         }
 
-        // Fetch missing artwork in background — staggered, doesn't block UI
-        Task.detached {
-            await ArtworkCache.shared.fetchMissingArtwork()
+        Task.detached { await ArtworkCache.shared.fetchMissingArtwork() }
+    }
+
+    private func handleProgress(_ p: ScanProgress) {
+        if p.phase == .complete {
+            lastReport = p.report
+        } else {
+            progress = p
         }
     }
 
-    /// Quick stat check — returns true if file count or total size changed since last scan.
-    private func hasChanged(source: LibrarySource) async -> Bool {
-        // Never scanned — always needs a scan
-        guard let lastCount = source.lastScanFileCount,
-              let lastBytes = source.lastScanTotalBytes else {
-            return true
-        }
+    // MARK: - Incremental change detection
 
+    private func findChangedFolders(source: LibrarySource) async -> [String] {
         do {
-            let current = try await scanner.statShare(source: source)
-            return current.fileCount != lastCount || current.totalBytes != lastBytes
+            let currentStats = try await scanner.statFolders(source: source)
+            let storedStats  = try SorrivaDatabase.shared.folderStats(sourceId: source.id)
+            let storedMap    = Dictionary(uniqueKeysWithValues: storedStats.map { ($0.folderPath, $0) })
+
+            var changed: [String] = []
+            for current in currentStats {
+                if let stored = storedMap[current.folderPath] {
+                    if current.fileCount != stored.fileCount || current.totalBytes != stored.totalBytes {
+                        changed.append(current.folderPath)
+                    }
+                } else {
+                    changed.append(current.folderPath)
+                }
+            }
+            return changed
         } catch {
-            print("SCAN: Stat failed for \(source.displayName): \(error)")
-            return false  // Don't force a rescan on network error
+            print("SCAN: stat failed for \(source.displayName): \(error)")
+            return []
         }
     }
 }

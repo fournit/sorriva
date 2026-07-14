@@ -552,6 +552,25 @@ final class SorrivaDatabase {
             print("SORRIVA DB: v8 artwork columns added")
         }
 
+        // v9 — per-folder scan fingerprints for incremental rescan detection
+        migrator.registerMigration("v9_folder_stats") { db in
+            try db.create(table: "folder_stats", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()
+                t.column("sourceId", .text).notNull()
+                    .references("library_sources", onDelete: .cascade)
+                t.column("folderPath", .text).notNull()
+                t.column("fileCount", .integer).notNull()
+                t.column("totalBytes", .integer).notNull()
+                t.column("scannedAt", .integer).notNull()
+            }
+            try db.create(index: "folder_stats_by_source",
+                         on: "folder_stats", columns: ["sourceId"], ifNotExists: true)
+            try db.create(index: "folder_stats_unique_path",
+                         on: "folder_stats", columns: ["sourceId", "folderPath"],
+                         unique: true, ifNotExists: true)
+            print("SORRIVA DB: v9 folder_stats table created")
+        }
+
         try migrator.migrate(dbQueue)
         print("SORRIVA DB: Migrations complete")
     }
@@ -1304,6 +1323,67 @@ final class SorrivaDatabase {
     func allTracksByRecent() throws -> [Track] {
         try dbQueue.read { db in
             try Track.order(Track.Columns.createdAt.desc).fetchAll(db)
+        }
+    }
+
+    // MARK: - FolderStat operations
+
+    /// Upsert a folder stat record after a successful folder scan.
+    func upsertFolderStat(sourceId: String, folderPath: String,
+                          fileCount: Int, totalBytes: Int) throws {
+        let now = Int(Date().timeIntervalSince1970)
+        try dbQueue.write { db in
+            // Check if exists
+            let existing = try FolderStat
+                .filter(FolderStat.Columns.sourceId == sourceId)
+                .filter(FolderStat.Columns.folderPath == folderPath)
+                .fetchOne(db)
+            if var stat = existing {
+                stat.fileCount  = fileCount
+                stat.totalBytes = totalBytes
+                stat.scannedAt  = now
+                try stat.save(db)
+            } else {
+                let stat = FolderStat(
+                    id: UUID().uuidString,
+                    sourceId: sourceId,
+                    folderPath: folderPath,
+                    fileCount: fileCount,
+                    totalBytes: totalBytes,
+                    scannedAt: now
+                )
+                try stat.save(db)
+            }
+        }
+    }
+
+    /// All folder stats for a source — used by statShare for change detection.
+    func folderStats(sourceId: String) throws -> [FolderStat] {
+        try dbQueue.read { db in
+            try FolderStat
+                .filter(FolderStat.Columns.sourceId == sourceId)
+                .fetchAll(db)
+        }
+    }
+
+    /// Delete all folder stats for a source — called on full rescan.
+    func deleteFolderStats(sourceId: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM folder_stats WHERE sourceId = ?",
+                          arguments: [sourceId])
+        }
+    }
+
+    /// Delete folder stats for specific folders — called after targeted rescan.
+    func deleteFolderStats(sourceId: String, folderPaths: [String]) throws {
+        guard !folderPaths.isEmpty else { return }
+        try dbQueue.write { db in
+            for path in folderPaths {
+                try db.execute(
+                    sql: "DELETE FROM folder_stats WHERE sourceId = ? AND folderPath = ?",
+                    arguments: [sourceId, path]
+                )
+            }
         }
     }
 }
