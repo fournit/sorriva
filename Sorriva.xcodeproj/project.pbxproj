@@ -40,6 +40,7 @@
 		805A16C93005AEC600AF3100 /* AlbumsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16C53005AEC600AF3100 /* AlbumsView.swift */; };
 		805A16CA3005AEC600AF3100 /* AlbumDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16C43005AEC600AF3100 /* AlbumDetailView.swift */; };
 		805A16CB3005AEC600AF3100 /* TracksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16C73005AEC600AF3100 /* TracksView.swift */; };
+		805A16CD3005DC1600AF3100 /* SorrivaContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16CC3005DC1600AF3100 /* SorrivaContextMenu.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -88,6 +89,7 @@
 		805A16C53005AEC600AF3100 /* AlbumsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumsView.swift; sourceTree = "<group>"; };
 		805A16C63005AEC600AF3100 /* ArtistsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtistsView.swift; sourceTree = "<group>"; };
 		805A16C73005AEC600AF3100 /* TracksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TracksView.swift; sourceTree = "<group>"; };
+		805A16CC3005DC1600AF3100 /* SorrivaContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SorrivaContextMenu.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -127,6 +129,7 @@
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
+				805A16CC3005DC1600AF3100 /* SorrivaContextMenu.swift */,
 				805A16C23005AD5600AF3100 /* ArtworkCache.swift */,
 				805A16BE3005292E00AF3100 /* SMBScanner.swift */,
 				805A16C030052B0B00AF3100 /* ScanCoordinator.swift */,
@@ -279,6 +282,7 @@
 				80325ACB3000860000308486 /* NowPlayingView.swift in Sources */,
 				80325ABA2FFEE5DC00308486 /* SettingsView.swift in Sources */,
 				80325ACD3000948400308486 /* VolumeControlView.swift in Sources */,
+				805A16CD3005DC1600AF3100 /* SorrivaContextMenu.swift in Sources */,
 				80325B023003D51000308486 /* LocalLibraryView.swift in Sources */,
 				805A16C83005AEC600AF3100 /* ArtistsView.swift in Sources */,
 				805A16C93005AEC600AF3100 /* AlbumsView.swift in Sources */,

@@ -6,7 +6,6 @@ import GRDB
 struct ArtistsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var artists: [Artist] = []
-    @State private var contextArtist: Artist? = nil
 
     private let columns = [
         GridItem(.flexible(), spacing: 12),
@@ -67,7 +66,12 @@ struct ArtistsView: View {
                                     }
                                 }
                                 .buttonStyle(.plain)
-                                .onLongPressGesture { contextArtist = artist }
+                                .sorrivaContextMenu(
+                                    title: artist.name,
+                                    subtitle: "\(artist.albumCount) \(artist.albumCount == 1 ? "album" : "albums")",
+                                    actions: SorrivaContextActions.artist(artist),
+                                    sheetHeight: 230
+                                )
                             }
                         }
                         .padding(.horizontal, 16)
@@ -79,15 +83,6 @@ struct ArtistsView: View {
         }
         .navigationBarHidden(true)
         .onAppear { loadArtists() }
-        .confirmationDialog(
-            contextArtist?.name ?? "",
-            isPresented: Binding(get: { contextArtist != nil }, set: { if !$0 { contextArtist = nil } }),
-            titleVisibility: .visible
-        ) {
-            Button("Add to Favorites") { contextArtist = nil }
-            Button("Play on...") { contextArtist = nil }
-            Button("Cancel", role: .cancel) { contextArtist = nil }
-        }
         .navigationViewStyle(.stack)
         }
     }

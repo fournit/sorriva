@@ -7,7 +7,7 @@ struct TracksView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var tracks: [Track] = []
     @State private var sortMode: TrackSortMode = .title
-    @State private var contextTrack: Track? = nil
+    @State private var trackToRemove: Track? = nil
     @State private var showRemoveConfirm = false
 
     enum TrackSortMode: String, CaseIterable {
@@ -79,9 +79,15 @@ struct TracksView: View {
                         LazyVStack(spacing: 8) {
                             ForEach(sortedTracks) { track in
                                 TrackCard(track: track, showAlbum: true)
-                                    .onLongPressGesture {
-                                        contextTrack = track
-                                    }
+                                    .sorrivaContextMenu(
+                                        title: track.title,
+                                        subtitle: "\(track.artistName) · \(track.albumTitle)",
+                                        actions: SorrivaContextActions.track(track) {
+                                            trackToRemove = track
+                                            showRemoveConfirm = true
+                                        },
+                                        sheetHeight: 260
+                                    )
                             }
                         }
                         .padding(.horizontal, 16)
@@ -96,28 +102,13 @@ struct TracksView: View {
             loadTracks()
         }
         .navigationBarHidden(true)
-        .confirmationDialog(
-            contextTrack?.title ?? "",
-            isPresented: Binding(
-                get: { contextTrack != nil },
-                set: { if !$0 { contextTrack = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("Add to Favorites") { contextTrack = nil }
-            Button("Play on...") { contextTrack = nil }
-            Button("Remove from Library", role: .destructive) {
-                showRemoveConfirm = true
-            }
-            Button("Cancel", role: .cancel) { contextTrack = nil }
-        }
-        .alert("Remove \"\(contextTrack?.title ?? "")\"?",
+        .alert("Remove \"\(trackToRemove?.title ?? "")\"?",
                isPresented: $showRemoveConfirm) {
             Button("Remove", role: .destructive) {
-                removeTrack(contextTrack)
-                contextTrack = nil
+                removeTrack(trackToRemove)
+                trackToRemove = nil
             }
-            Button("Cancel", role: .cancel) { contextTrack = nil }
+            Button("Cancel", role: .cancel) { trackToRemove = nil }
         } message: {
             Text("This removes the track from your Sorriva library. The original file is not affected.")
         }

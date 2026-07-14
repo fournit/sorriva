@@ -7,7 +7,7 @@ struct AlbumDetailView: View {
     let album: Album
     @Environment(\.dismiss) private var dismiss
     @State private var tracks: [Track] = []
-    @State private var contextTrack: Track? = nil
+    @State private var trackToRemove: Track? = nil
     @State private var showRemoveConfirm = false
 
     var body: some View {
@@ -64,9 +64,16 @@ struct AlbumDetailView: View {
                     VStack(spacing: 8) {
                         ForEach(tracks) { track in
                             TrackCard(track: track, showAlbum: false)
-                                .onLongPressGesture {
-                                    contextTrack = track
-                                }
+                                .sorrivaContextMenu(
+                                    title: track.title,
+                                    subtitle: album.artistName,
+                                    album: album,
+                                    actions: SorrivaContextActions.track(track, album: album) {
+                                        trackToRemove = track
+                                        showRemoveConfirm = true
+                                    },
+                                    sheetHeight: 300
+                                )
                         }
                     }
                     .padding(.horizontal, 16)
@@ -76,28 +83,13 @@ struct AlbumDetailView: View {
         }
         .onAppear { loadTracks() }
         .navigationBarHidden(true)
-        .confirmationDialog(
-            contextTrack?.title ?? "",
-            isPresented: Binding(
-                get: { contextTrack != nil },
-                set: { if !$0 { contextTrack = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("Add to Favorites") { contextTrack = nil }
-            Button("Play on...") { contextTrack = nil }
-            Button("Remove from Library", role: .destructive) {
-                showRemoveConfirm = true
-            }
-            Button("Cancel", role: .cancel) { contextTrack = nil }
-        }
-        .alert("Remove \"\(contextTrack?.title ?? "")\"?",
+        .alert("Remove \"\(trackToRemove?.title ?? "")\"?",
                isPresented: $showRemoveConfirm) {
             Button("Remove", role: .destructive) {
-                removeTrack(contextTrack)
-                contextTrack = nil
+                removeTrack(trackToRemove)
+                trackToRemove = nil
             }
-            Button("Cancel", role: .cancel) { contextTrack = nil }
+            Button("Cancel", role: .cancel) { trackToRemove = nil }
         } message: {
             Text("This removes the track from your Sorriva library. The original file is not affected.")
         }
@@ -113,8 +105,7 @@ struct AlbumDetailView: View {
             try db.execute(sql: "DELETE FROM tracks WHERE id = ?", arguments: [track.id])
         }
         loadTracks()
-    }
-}
+    }}
 
 // MARK: - TrackCard
 // Card row for a single track. Used in AlbumDetailView and TracksView.

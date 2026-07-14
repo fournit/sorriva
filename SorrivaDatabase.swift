@@ -695,6 +695,12 @@ final class SorrivaDatabase {
         }
     }
 
+    func deleteStation(id: Int) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM stations WHERE id = ?", arguments: [id])
+        }
+    }
+
     func favoriteStations() throws -> [Station] {
         try dbQueue.read { db in
             try Station.filter(Station.Columns.isFavorite == true).fetchAll(db)

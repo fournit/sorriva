@@ -363,6 +363,7 @@ struct MediaCard: View {
     @State private var zonePickerStation: RadioStation? = nil
     @State private var localFavorite: Bool = false
     @State private var showActionSheet = false
+    @State private var showRemoveStation = false
 
     private var displayName: String { radioStation?.name ?? station?.name ?? "" }
     private var displayID: Int { radioStation?.id ?? station?.id ?? 0 }
@@ -429,12 +430,29 @@ struct MediaCard: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                             zonePickerStation = rs
                         }
+                    },
+                    onRemove: {
+                        showActionSheet = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            showRemoveStation = true
+                        }
                     }
                 )
-                .presentationDetents([.height(300)])
+                .presentationDetents([.height(340)])
                 .presentationDragIndicator(.visible)
                 .presentationBackground(Color.sCard)
             }
+        }
+        .alert("Remove \"\(displayName)\"?", isPresented: $showRemoveStation) {
+            Button("Remove", role: .destructive) {
+                Task {
+                    try? SorrivaDatabase.shared.deleteStation(id: displayID)
+                    NotificationCenter.default.post(name: .stationsDidUpdate, object: nil)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the station from your Sorriva library.")
         }
         .sheet(item: $zonePickerStation) { rs in
             ZonePickerSheet(
@@ -504,6 +522,7 @@ struct StationActionSheet: View {
     let isFavorite: Bool
     let onFavorite: () -> Void
     let onPlayOn: () -> Void
+    let onRemove: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -554,6 +573,15 @@ struct StationActionSheet: View {
                     iconColor: .sTextPrimary,
                     title: "Play on...",
                     action: onPlayOn
+                )
+
+                Divider().background(Color.sSeparator).padding(.leading, 56)
+
+                ActionRow(
+                    icon: "trash",
+                    iconColor: .red,
+                    title: "Remove from Library",
+                    action: onRemove
                 )
             }
 
@@ -770,7 +798,7 @@ struct LibraryMediaItem: Identifiable {
 struct LibraryMediaRow: View {
     let items: [LibraryMediaItem]
     let onSeeAll: () -> Void
-    @State private var contextItem: LibraryMediaItem? = nil
+    @State private var itemToRemove: LibraryMediaItem? = nil
     @State private var showRemoveConfirm = false
     @State private var selectedAlbum: Album? = nil
 
@@ -786,24 +814,28 @@ struct LibraryMediaRow: View {
                         LibraryMediaCard(item: item)
                     }
                     .buttonStyle(.plain)
-                    .onLongPressGesture { contextItem = item }
+                    .sorrivaContextMenu(
+                        title: item.title,
+                        subtitle: item.subtitle,
+                        album: item.album,
+                        actions: item.album != nil
+                            ? SorrivaContextActions.album(item.album!) {
+                                itemToRemove = item
+                                showRemoveConfirm = true
+                              }
+                            : SorrivaContextActions.track(item.track!) {
+                                itemToRemove = item
+                                showRemoveConfirm = true
+                              },
+                        sheetHeight: item.album != nil ? 280 : 260
+                    )
                 }
             }
             .padding(.horizontal, 20)
         }
-        .confirmationDialog(
-            contextItem?.title ?? "",
-            isPresented: Binding(get: { contextItem != nil }, set: { if !$0 { contextItem = nil } }),
-            titleVisibility: .visible
-        ) {
-            Button("Add to Favorites") { contextItem = nil }
-            Button("Play on...") { contextItem = nil }
-            Button("Remove from Library", role: .destructive) { showRemoveConfirm = true }
-            Button("Cancel", role: .cancel) { contextItem = nil }
-        }
-        .alert("Remove \"\(contextItem?.title ?? "")\"?", isPresented: $showRemoveConfirm) {
-            Button("Remove", role: .destructive) { removeItem(contextItem); contextItem = nil }
-            Button("Cancel", role: .cancel) { contextItem = nil }
+        .alert("Remove \"\(itemToRemove?.title ?? "")\"?", isPresented: $showRemoveConfirm) {
+            Button("Remove", role: .destructive) { removeItem(itemToRemove); itemToRemove = nil }
+            Button("Cancel", role: .cancel) { itemToRemove = nil }
         } message: {
             Text("This removes it from your Sorriva library. The original file is not affected.")
         }
@@ -867,7 +899,6 @@ struct LibraryMediaCard: View {
 struct LibraryArtistRow: View {
     let artists: [Artist]
     let onSeeAll: () -> Void
-    @State private var contextArtist: Artist? = nil
     @State private var selectedArtist: Artist? = nil
 
     var body: some View {
@@ -893,19 +924,15 @@ struct LibraryArtistRow: View {
                         .frame(width: 90)
                     }
                     .buttonStyle(.plain)
-                    .onLongPressGesture { contextArtist = artist }
+                    .sorrivaContextMenu(
+                        title: artist.name,
+                        subtitle: "\(artist.albumCount) \(artist.albumCount == 1 ? "album" : "albums")",
+                        actions: SorrivaContextActions.artist(artist),
+                        sheetHeight: 230
+                    )
                 }
             }
             .padding(.horizontal, 20)
-        }
-        .confirmationDialog(
-            contextArtist?.name ?? "",
-            isPresented: Binding(get: { contextArtist != nil }, set: { if !$0 { contextArtist = nil } }),
-            titleVisibility: .visible
-        ) {
-            Button("Add to Favorites") { contextArtist = nil }
-            Button("Play on...") { contextArtist = nil }
-            Button("Cancel", role: .cancel) { contextArtist = nil }
         }
         .sheet(item: $selectedArtist) { artist in
             NavigationView {

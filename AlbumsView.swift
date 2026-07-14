@@ -9,7 +9,7 @@ struct AlbumsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var albums: [Album] = []
     @State private var sortMode: AlbumSortMode = .title
-    @State private var contextAlbum: Album? = nil
+    @State private var albumToRemove: Album? = nil
     @State private var showRemoveConfirm = false
 
     private let columns = [
@@ -89,7 +89,16 @@ struct AlbumsView: View {
                                     AlbumGridCard(album: album)
                                 }
                                 .buttonStyle(.plain)
-                                .onLongPressGesture { contextAlbum = album }
+                                .sorrivaContextMenu(
+                                    title: album.title,
+                                    subtitle: album.artistName,
+                                    album: album,
+                                    actions: SorrivaContextActions.album(album) {
+                                        albumToRemove = album
+                                        showRemoveConfirm = true
+                                    },
+                                    sheetHeight: 280
+                                )
                             }
                         }
                         .padding(.horizontal, 16)
@@ -102,19 +111,9 @@ struct AlbumsView: View {
         .navigationBarHidden(true)
         .onAppear { loadAlbums() }
         .onReceive(NotificationCenter.default.publisher(for: .libraryDidUpdate)) { _ in loadAlbums() }
-        .confirmationDialog(
-            contextAlbum?.title ?? "",
-            isPresented: Binding(get: { contextAlbum != nil }, set: { if !$0 { contextAlbum = nil } }),
-            titleVisibility: .visible
-        ) {
-            Button("Add to Favorites") { contextAlbum = nil }
-            Button("Play on...") { contextAlbum = nil }
-            Button("Remove from Library", role: .destructive) { showRemoveConfirm = true }
-            Button("Cancel", role: .cancel) { contextAlbum = nil }
-        }
-        .alert("Remove \"\(contextAlbum?.title ?? "")\"?", isPresented: $showRemoveConfirm) {
-            Button("Remove", role: .destructive) { removeAlbum(contextAlbum); contextAlbum = nil }
-            Button("Cancel", role: .cancel) { contextAlbum = nil }
+        .alert("Remove \"\(albumToRemove?.title ?? "")\"?", isPresented: $showRemoveConfirm) {
+            Button("Remove", role: .destructive) { removeAlbum(albumToRemove); albumToRemove = nil }
+            Button("Cancel", role: .cancel) { albumToRemove = nil }
         } message: {
             Text("This removes the album from your Sorriva library. Original files are not affected.")
         }
