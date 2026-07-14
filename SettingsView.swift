@@ -9,6 +9,7 @@ struct SettingsView: View {
     @ObservedObject var discovery: ZoneDiscoveryService
     let onPlayStation: (RadioStation, SonosZone) -> Void
     let onNavigateToZone: (String) -> Void
+    @State private var showClearLibraryConfirm = false
 
     var body: some View {
             ZStack {
@@ -59,6 +60,17 @@ struct SettingsView: View {
                             }
                             .buttonStyle(.plain)
 
+                            // Clear Local Library
+                            Button { showClearLibraryConfirm = true } label: {
+                                SettingsMenuRow(
+                                    icon: "trash",
+                                    iconColor: .red,
+                                    title: "Clear Local Library",
+                                    subtitle: "Remove all indexed tracks, albums and artists"
+                                )
+                            }
+                            .buttonStyle(.plain)
+
                             // Zones (stub)
                             SettingsMenuRow(
                                 icon: "hifispeaker.2",
@@ -93,6 +105,15 @@ struct SettingsView: View {
                     .padding(.bottom, 48)
                 }
             }
+        .alert("Clear Local Library?", isPresented: $showClearLibraryConfirm) {
+            Button("Clear", role: .destructive) {
+                try? SorrivaDatabase.shared.clearLocalLibrary()
+                NotificationCenter.default.post(name: .libraryDidUpdate, object: nil)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes all indexed tracks, albums, artists and scan history. Your actual music files are not affected. You will need to rescan to rebuild the library.")
+        }
     }
 
     private var appVersion: String {

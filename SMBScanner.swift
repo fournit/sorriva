@@ -112,6 +112,10 @@ actor SMBScanner {
         progressHandler: @Sendable @escaping (ScanProgress) -> Void
     ) async throws {
 
+        let scanStart = Date()
+        let scanLabel = folderPaths == nil ? "full scan" : "incremental scan"
+        print("SCAN: START \(scanLabel) — \(source.displayName) at \(formatTime(scanStart))")
+
         // Phase 1: directory walk
         progressHandler(ScanProgress(
             sourceId: source.id, sourceName: source.displayName,
@@ -141,32 +145,31 @@ actor SMBScanner {
         let totalFiles = allFiles.count
         let totalBytes = allFiles.reduce(0) { $0 + $1.size }
 
-        // Phase 2: open dedicated read connection at negotiated maxReadSize
-        // Must be separate from walk connection — session state is exhausted after directory walk
-        let readClient = SMBClient(host: source.host)
-        try await readClient.login(username: source.username ?? "", password: source.password ?? "")
-        defer { Task { try? await readClient.logoff() } }
-        try await readClient.connectShare(source.share)
-        defer { Task { try? await readClient.disconnectShare() } }
+        print("SCAN: using per-file SMBClient connections at 64KB")
 
-        let readSize = readClient.session.maxReadSize
-        print("SCAN: maxReadSize = \(readSize) bytes (\(readSize / 1024 / 1024)MB)")
-
-        // For incremental scans, delete existing tracks for these folders only
+        // For incremental scans, delete existing tracks for changed folders only.
+        // For full scans, do NOT delete — use upsert with filePath as idempotency key.
+        // This allows interrupted scans to resume without losing already-indexed data.
         if let paths = folderPaths {
             for folder in paths {
                 try await deleteTracksInFolder(folder: folder, sourceId: source.id)
             }
-        } else {
-            // Full scan — clear everything
-            try SorrivaDatabase.shared.deleteTracks(sourceId: source.id)
-            try SorrivaDatabase.shared.deleteFolderStats(sourceId: source.id)
         }
 
         var scanned = 0
         var skipped = 0
         var artistCache: [String: Artist] = [:]
         var albumCache:  [String: Album]  = [:]
+
+        // Pre-compute folder groups so we can write FolderStat as each folder completes
+        let folderGroups = Dictionary(grouping: allFiles) { ($0.path as NSString).deletingLastPathComponent }
+        var completedInFolder: [String: Int] = [:]
+
+        // Option B: persistent connection recycled every 50 files
+        var readClient = SMBClient(host: source.host)
+        try await readClient.login(username: source.username ?? "", password: source.password ?? "")
+        try await readClient.connectShare(source.share)
+        var filesReadOnConnection = 0
 
         for file in allFiles {
             let filename = (file.path as NSString).lastPathComponent
@@ -178,26 +181,105 @@ actor SMBScanner {
                 filesScanned: scanned, currentFile: filename
             ))
 
-            // Read tags — skip WAV/AIFF (rarely have usable embedded tags)
+            // ── OPTION A: Per-file fresh connection + 100ms throttle (INACTIVE) ─────────
+            // var meta = ParsedMetadata()
+            // var tagSource = "path"
+            // let readStart = Date()
+            // if ext != "wav" && ext != "aif" && ext != "aiff" {
+            //     print("SCAN: [\(scanned + 1)/\(totalFiles)] reading \(filename)")
+            //     let headerData = await readFileWithFreshConnection(
+            //         host: source.host, share: source.share,
+            //         username: source.username ?? "", password: source.password ?? "",
+            //         path: file.path, fileSize: file.size
+            //     )
+            //     let elapsed = String(format: "%.2fs", Date().timeIntervalSince(readStart))
+            //     if let data = headerData {
+            //         let parsed = parseTagData(data: data, ext: ext)
+            //         if parsed.title != nil || parsed.artist != nil || parsed.album != nil {
+            //             meta = parsed; tagSource = "tags"
+            //         }
+            //         print("SCAN: [\(scanned + 1)/\(totalFiles)] \(elapsed) src=\(tagSource) — \(filename)")
+            //     } else {
+            //         skipped += 1
+            //         print("SCAN: [\(scanned + 1)/\(totalFiles)] \(elapsed) FAILED — \(filename)")
+            //     }
+            //     try? await Task.sleep(nanoseconds: 100_000_000) // 100ms throttle
+            // } else {
+            //     print("SCAN: [\(scanned + 1)/\(totalFiles)] skip-read (wav/aiff) — \(filename)")
+            // }
+            // ── END OPTION A ──────────────────────────────────────────────────────────
+
+            // ── OPTION B: Persistent connection, recycle every 50 files (ACTIVE) ─────
             var meta = ParsedMetadata()
+            var tagSource = "path"
+            let readStart = Date()
             if ext != "wav" && ext != "aif" && ext != "aiff" {
-                if let headerData = await readHeader(session: readClient.session,
-                                                     path: file.path,
-                                                     readSize: readSize) {
-                    switch ext {
-                    case "mp3":
-                        meta = parseID3v2(data: headerData)
-                    case "flac":
-                        meta = parseVorbisComment(data: headerData)
-                    case "m4a", "aac", "alac":
-                        meta = parseMP4Atoms(data: headerData)
-                    default:
-                        break
+                print("SCAN: [\(scanned + 1)/\(totalFiles)] reading \(filename)")
+                let readLength = UInt32(min(65536, file.size))
+                let headerData: Data? = await withCheckedContinuation { continuation in
+                    let semaphore = DispatchSemaphore(value: 0)
+                    var result: Data? = nil
+                    Task.detached {
+                        let reader = readClient.fileReader(path: file.path)
+                        if let data = try? await reader.read(offset: 0, length: readLength) {
+                            try? await reader.close()
+                            result = data
+                        }
+                        semaphore.signal()
                     }
+                    DispatchQueue.global(qos: .utility).async {
+                        if semaphore.wait(timeout: .now() + 15) == .timedOut {
+                            print("SCAN: TIMEOUT 15s — \(file.path)")
+                        }
+                        continuation.resume(returning: result)
+                    }
+                }
+                if let data = headerData {
+                    let parsed = parseTagData(data: data, ext: ext)
+                    if parsed.title != nil || parsed.artist != nil || parsed.album != nil {
+                        meta = parsed
+                        tagSource = "tags"
+                    }
+                    let elapsed = String(format: "%.2fs", Date().timeIntervalSince(readStart))
+                    print("SCAN: [\(scanned + 1)/\(totalFiles)] \(elapsed) src=\(tagSource) — \(filename)")
                 } else {
                     skipped += 1
+                    let elapsed = String(format: "%.2fs", Date().timeIntervalSince(readStart))
+                    print("SCAN: [\(scanned + 1)/\(totalFiles)] \(elapsed) FAILED — \(filename)")
                 }
+                filesReadOnConnection += 1
+                if filesReadOnConnection >= 50 {
+                    print("SCAN: recycling connection after 50 reads")
+                    try? await readClient.disconnectShare()
+                    try? await readClient.logoff()
+                    let newClient = SMBClient(host: source.host)
+                    let recycled = await withCheckedContinuation { continuation in
+                        let semaphore = DispatchSemaphore(value: 0)
+                        var success = false
+                        Task.detached {
+                            do {
+                                try await newClient.login(username: source.username ?? "", password: source.password ?? "")
+                                try await newClient.connectShare(source.share)
+                                success = true
+                            } catch {
+                                print("SCAN: recycle connect error: \(error.localizedDescription)")
+                            }
+                            semaphore.signal()
+                        }
+                        DispatchQueue.global(qos: .utility).async {
+                            if semaphore.wait(timeout: .now() + 15) == .timedOut {
+                                print("SCAN: recycle timed out — keeping existing connection")
+                            }
+                            continuation.resume(returning: success)
+                        }
+                    }
+                    if recycled { readClient = newClient }
+                    filesReadOnConnection = 0
+                }
+            } else {
+                print("SCAN: [\(scanned + 1)/\(totalFiles)] skip-read (wav/aiff) — \(filename)")
             }
+            // ── END OPTION B ──────────────────────────────────────────────────────────
 
             // Fill missing fields from path structure
             meta = fillFromPath(meta: meta, filePath: file.path, rootPath: root)
@@ -235,11 +317,30 @@ actor SMBScanner {
                 updatedAt: now
             )
 
-            if (try? SorrivaDatabase.shared.track(filePath: file.path)) == nil {
-                try? SorrivaDatabase.shared.upsertTrack(track)
-                try? SorrivaDatabase.shared.upsertTrackArtist(
-                    trackId: track.id, artistId: artist.id, role: "primary"
+            // Always upsert — filePath is the idempotency key.
+            // If track already exists from a previous scan, this updates it in place.
+            try? SorrivaDatabase.shared.upsertTrack(track)
+            try? SorrivaDatabase.shared.upsertTrackArtist(
+                trackId: track.id, artistId: artist.id, role: "primary"
+            )
+
+            // Write FolderStat immediately when all files in a folder are processed.
+            // This enables resume — completed folders won't rescan on next foreground check.
+            completedInFolder[folderPath, default: 0] += 1
+            if let folderFiles = folderGroups[folderPath],
+               completedInFolder[folderPath] == folderFiles.count {
+                let folderBytes = folderFiles.reduce(0) { $0 + $1.size }
+                try? SorrivaDatabase.shared.upsertFolderStat(
+                    sourceId: source.id,
+                    folderPath: folderPath,
+                    fileCount: folderFiles.count,
+                    totalBytes: folderBytes
                 )
+                print("SCAN: folder done (\(folderFiles.count) tracks) — \(folderPath)")
+                // Notify UI progressively — library updates as each folder completes
+                await MainActor.run {
+                    NotificationCenter.default.post(name: .libraryDidUpdate, object: nil)
+                }
             }
             scanned += 1
         }
@@ -261,18 +362,9 @@ actor SMBScanner {
             try? SorrivaDatabase.shared.updateAlbumTrackCount(albumId: album.id)
         }
 
-        // Update folder stats for scanned folders
-        let scannedFolders = Dictionary(grouping: allFiles) { file in
-            (file.path as NSString).deletingLastPathComponent
-        }
-        for (folder, files) in scannedFolders {
-            let count = files.count
-            let bytes = files.reduce(0) { $0 + $1.size }
-            try? SorrivaDatabase.shared.upsertFolderStat(
-                sourceId: source.id, folderPath: folder,
-                fileCount: count, totalBytes: bytes
-            )
-        }
+        // Clean up Option B persistent connection
+        try? await readClient.disconnectShare()
+        try? await readClient.logoff()
 
         let finalTrackCount = try SorrivaDatabase.shared.trackCount(sourceId: source.id)
         try SorrivaDatabase.shared.updateScanComplete(
@@ -281,6 +373,9 @@ actor SMBScanner {
         )
 
         let finalAlbumCount = try SorrivaDatabase.shared.albums(sourceId: source.id).count
+        let scanEnd = Date()
+        let duration = String(format: "%.1fs", scanEnd.timeIntervalSince(scanStart))
+        print("SCAN: END \(source.displayName) at \(formatTime(scanEnd)) — \(duration) total, \(finalTrackCount) tracks, \(skipped) skipped")
         let report = ScanReport(
             sourceId: source.id,
             sourceName: source.displayName,
@@ -299,6 +394,15 @@ actor SMBScanner {
     }
 
     // MARK: - Directory walk
+
+    /// Public wrapper for use by ScanCoordinator during change detection.
+    func collectAudioFilesPublic(
+        client: SMBClient,
+        path: String,
+        results: inout [(path: String, size: Int)]
+    ) async throws {
+        try await collectAudioFiles(client: client, path: path, results: &results)
+    }
 
     private func collectAudioFiles(
         client: SMBClient,
@@ -509,6 +613,63 @@ actor SMBScanner {
         }
 
         return m
+    }
+
+    // MARK: - Per-file fresh connection read
+
+    private func formatTime(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f.string(from: date)
+    }
+
+    /// Open a fresh SMBClient per file, read first 64KB, close.
+    /// A stall on any single file never affects subsequent files.
+    /// Returns nil if connect or read times out.
+    private func readFileWithFreshConnection(
+        host: String, share: String,
+        username: String, password: String,
+        path: String, fileSize: Int
+    ) async -> Data? {
+        return await withCheckedContinuation { continuation in
+            let semaphore = DispatchSemaphore(value: 0)
+            var result: Data? = nil
+
+            Task.detached {
+                do {
+                    let client = SMBClient(host: host)
+                    try await client.login(username: username.isEmpty ? "guest" : username, password: password)
+                    try await client.connectShare(share)
+                    let reader = client.fileReader(path: path)
+                    let readLength = UInt32(min(65536, fileSize))
+                    let data = try await reader.read(offset: 0, length: readLength)
+                    try? await reader.close()
+                    try? await client.disconnectShare()
+                    try? await client.logoff()
+                    result = data
+                } catch {
+                    print("SCAN: read error — \((path as NSString).lastPathComponent): \(error.localizedDescription)")
+                }
+                semaphore.signal()
+            }
+
+            DispatchQueue.global(qos: .utility).async {
+                if semaphore.wait(timeout: .now() + 15) == .timedOut {
+                    print("SCAN: TIMEOUT 15s — \(path)")
+                }
+                continuation.resume(returning: result)
+            }
+        }
+    }
+
+    /// Parse tag metadata from raw file header bytes.
+    private func parseTagData(data: Data, ext: String) -> ParsedMetadata {
+        switch ext {
+        case "mp3":  return parseID3v2(data: data)
+        case "flac": return parseVorbisComment(data: data)
+        case "m4a", "aac", "alac": return parseMP4Atoms(data: data)
+        default: return ParsedMetadata()
+        }
     }
 
     // MARK: - ID3v2 parser (MP3)

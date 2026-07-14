@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import Combine
 import UIKit
+import SMBClient
 
 // MARK: - ScanCoordinator
 
@@ -133,18 +134,25 @@ final class ScanCoordinator: ObservableObject {
 
     private func findChangedFolders(source: LibrarySource) async -> [String] {
         do {
-            let currentStats = try await scanner.statFolders(source: source)
-            let storedStats  = try SorrivaDatabase.shared.folderStats(sourceId: source.id)
-            let storedMap    = Dictionary(uniqueKeysWithValues: storedStats.map { ($0.folderPath, $0) })
+            let storedStats = try SorrivaDatabase.shared.folderStats(sourceId: source.id)
+            guard !storedStats.isEmpty else { return [] }
+
+            // Stat each known folder individually — same granularity as FolderStat records.
+            // This avoids top-level vs album-level mismatch.
+            let client = SMBClient(host: source.host)
+            try await client.login(username: source.username ?? "", password: source.password ?? "")
+            defer { Task { try? await client.logoff() } }
+            try await client.connectShare(source.share)
+            defer { Task { try? await client.disconnectShare() } }
 
             var changed: [String] = []
-            for current in currentStats {
-                if let stored = storedMap[current.folderPath] {
-                    if current.fileCount != stored.fileCount || current.totalBytes != stored.totalBytes {
-                        changed.append(current.folderPath)
-                    }
-                } else {
-                    changed.append(current.folderPath)
+            for stored in storedStats {
+                var files: [(path: String, size: Int)] = []
+                try? await scanner.collectAudioFilesPublic(client: client, path: stored.folderPath, results: &files)
+                let currentCount = files.count
+                let currentBytes = files.reduce(0) { $0 + $1.size }
+                if currentCount != stored.fileCount || currentBytes != stored.totalBytes {
+                    changed.append(stored.folderPath)
                 }
             }
             return changed

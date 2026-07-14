@@ -1301,6 +1301,23 @@ final class SorrivaDatabase {
 
     // MARK: - Library browse queries
 
+    func clearLocalLibrary() throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM track_artists")
+            try db.execute(sql: "DELETE FROM artist_albums")
+            try db.execute(sql: "DELETE FROM tracks")
+            try db.execute(sql: "DELETE FROM albums")
+            try db.execute(sql: "DELETE FROM artists")
+            try db.execute(sql: "DELETE FROM folder_stats")
+            try db.execute(sql: """
+                UPDATE library_sources
+                SET scanState = 'idle', trackCount = 0, lastScanned = NULL,
+                    lastScanFileCount = NULL, lastScanTotalBytes = NULL
+            """)
+            print("SORRIVA DB: Local library cleared")
+        }
+    }
+
     /// All albums sorted by sortTitle — for Albums row and See All grid.
     func allAlbums() throws -> [Album] {
         try dbQueue.read { db in
