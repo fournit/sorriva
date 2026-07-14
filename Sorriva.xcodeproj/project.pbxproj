@@ -31,7 +31,6 @@
 		80325B003003C8F200308486 /* SomaFMServiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AFD3003C8F200308486 /* SomaFMServiceView.swift */; };
 		80325B023003D51000308486 /* LocalLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325B013003D51000308486 /* LocalLibraryView.swift */; };
 		80325B1930043EE300308486 /* AddSMBSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325B1830043EE300308486 /* AddSMBSourceView.swift */; };
-		805A16B730047FE600AF3100 /* SMBClient in Frameworks */ = {isa = PBXBuildFile; productRef = 805A16B630047FE600AF3100 /* SMBClient */; };
 		805A16BD3004886100AF3100 /* LocalFilesPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16BC3004886100AF3100 /* LocalFilesPickerView.swift */; };
 		805A16BF3005292E00AF3100 /* SMBScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16BE3005292E00AF3100 /* SMBScanner.swift */; };
 		805A16C130052B0B00AF3100 /* ScanCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16C030052B0B00AF3100 /* ScanCoordinator.swift */; };
@@ -41,6 +40,8 @@
 		805A16CA3005AEC600AF3100 /* AlbumDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16C43005AEC600AF3100 /* AlbumDetailView.swift */; };
 		805A16CB3005AEC600AF3100 /* TracksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16C73005AEC600AF3100 /* TracksView.swift */; };
 		805A16CD3005DC1600AF3100 /* SorrivaContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16CC3005DC1600AF3100 /* SorrivaContextMenu.swift */; };
+		805A16D03006B1BA00AF3100 /* SMBClient in Frameworks */ = {isa = PBXBuildFile; productRef = 805A16CF3006B1BA00AF3100 /* SMBClient */; };
+		805A16D63006BAE200AF3100 /* SMBClient in Frameworks */ = {isa = PBXBuildFile; productRef = 805A16D53006BAE200AF3100 /* SMBClient */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -118,7 +119,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				805A16B730047FE600AF3100 /* SMBClient in Frameworks */,
+				805A16D63006BAE200AF3100 /* SMBClient in Frameworks */,
+				805A16D03006B1BA00AF3100 /* SMBClient in Frameworks */,
 				80325AD83001436B00308486 /* GRDB in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -204,7 +206,8 @@
 			name = Sorriva;
 			packageProductDependencies = (
 				80325AD73001436B00308486 /* GRDB */,
-				805A16B630047FE600AF3100 /* SMBClient */,
+				805A16CF3006B1BA00AF3100 /* SMBClient */,
+				805A16D53006BAE200AF3100 /* SMBClient */,
 			);
 			productName = Sorriva;
 			productReference = 80325AA02FFED8DE00308486 /* Sorriva.app */;
@@ -236,7 +239,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				80325AD63001436B00308486 /* XCRemoteSwiftPackageReference "GRDB" */,
-				805A16B530047FE600AF3100 /* XCRemoteSwiftPackageReference "SMBClient" */,
+				805A16D43006BAE200AF3100 /* XCLocalSwiftPackageReference "LocalPackages/SMBClient" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 80325AA12FFED8DE00308486 /* Products */;
@@ -513,6 +516,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		805A16D43006BAE200AF3100 /* XCLocalSwiftPackageReference "LocalPackages/SMBClient" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = LocalPackages/SMBClient;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		80325AD63001436B00308486 /* XCRemoteSwiftPackageReference "GRDB" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -520,14 +530,6 @@
 			requirement = {
 				branch = master;
 				kind = branch;
-			};
-		};
-		805A16B530047FE600AF3100 /* XCRemoteSwiftPackageReference "SMBClient" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/kishikawakatsumi/SMBClient";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.3.1;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -538,9 +540,12 @@
 			package = 80325AD63001436B00308486 /* XCRemoteSwiftPackageReference "GRDB" */;
 			productName = GRDB;
 		};
-		805A16B630047FE600AF3100 /* SMBClient */ = {
+		805A16CF3006B1BA00AF3100 /* SMBClient */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 805A16B530047FE600AF3100 /* XCRemoteSwiftPackageReference "SMBClient" */;
+			productName = SMBClient;
+		};
+		805A16D53006BAE200AF3100 /* SMBClient */ = {
+			isa = XCSwiftPackageProductDependency;
 			productName = SMBClient;
 		};
 /* End XCSwiftPackageProductDependency section */
