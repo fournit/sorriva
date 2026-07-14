@@ -477,7 +477,17 @@ actor SMBScanner {
             if m.artist == nil { m.artist = components[0] }
         default:
             if m.albumArtist == nil && m.artist == nil { m.artist = components[components.count - 2] }
-            if m.album == nil { m.album = components[components.count - 1] }
+            if m.album == nil {
+                var albumName = components[components.count - 1]
+                // Strip leading "Artist - " prefix from album folder name
+                // e.g. "Stan Getz - This Is Jazz 14" → "This Is Jazz 14"
+                let artistName = m.albumArtist ?? m.artist ?? components[components.count - 2]
+                let prefix = "\(artistName) - "
+                if albumName.hasPrefix(prefix) {
+                    albumName = String(albumName.dropFirst(prefix.count))
+                }
+                m.album = albumName
+            }
         }
 
         return m

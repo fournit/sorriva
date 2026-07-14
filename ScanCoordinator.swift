@@ -119,7 +119,11 @@ final class ScanCoordinator: ObservableObject {
             progress = nil
         }
 
-        Task.detached { await ArtworkCache.shared.fetchMissingArtwork() }
+        Task.detached { [weak self] in
+            guard let self else { return }
+            await self.runFolderArtPass(source: source)
+            await ArtworkCache.shared.fetchMissingArtwork()
+        }
     }
 
     private func handleProgress(_ p: ScanProgress) {
@@ -130,6 +134,96 @@ final class ScanCoordinator: ObservableObject {
         }
     }
 
+    // MARK: - Folder artwork pass
+
+    private static let artCandidates = [
+        "AlbumArtLarge.jpg", "folder.jpg", "cover.jpg", "front.jpg", "AlbumArtSmall.jpg",
+        "AlbumArtLarge.png", "folder.png", "cover.png", "front.png"
+    ]
+
+    private func runFolderArtPass(source: LibrarySource) async {
+        let albums = (try? SorrivaDatabase.shared.albums(sourceId: source.id)) ?? []
+        guard !albums.isEmpty else { return }
+
+        print("ARTWORK: folder pass — \(albums.count) albums in \(source.displayName)")
+
+        do {
+            let client = SMBClient(host: source.host)
+            try await client.login(username: source.username ?? "", password: source.password ?? "")
+            defer { Task { try? await client.logoff() } }
+            try await client.connectShare(source.share)
+            defer { Task { try? await client.disconnectShare() } }
+
+            var found = 0
+            for album in albums {
+                guard !album.folderPath.isEmpty else { continue }
+
+                // List folder contents
+                guard let entries = try? await client.listDirectory(path: album.folderPath) else { continue }
+                let entryNames = Set(entries.map { $0.name })
+
+                // Find best art candidate
+                var artFilePath: String? = nil
+                for candidate in Self.artCandidates {
+                    if entryNames.contains(candidate) {
+                        artFilePath = album.folderPath == "/"
+                            ? "/\(candidate)"
+                            : "\(album.folderPath)/\(candidate)"
+                        break
+                    }
+                }
+
+                guard let artPath = artFilePath else { continue }
+
+                // Download and save
+                guard let imageData = try? await client.download(path: artPath),
+                      let image = UIImage(data: imageData) else { continue }
+
+                let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                let artDir = docsDir.appendingPathComponent("artwork", isDirectory: true)
+                try? FileManager.default.createDirectory(at: artDir, withIntermediateDirectories: true)
+
+                let fullURL  = artDir.appendingPathComponent("\(album.id)_full.jpg")
+                let thumbURL = artDir.appendingPathComponent("\(album.id)_thumb.jpg")
+
+                if let fullData  = resized(image, to: 600)?.jpegData(compressionQuality: 0.85),
+                   let thumbData = resized(image, to: 100)?.jpegData(compressionQuality: 0.85) {
+                    try? fullData.write(to: fullURL)
+                    try? thumbData.write(to: thumbURL)
+                    try? SorrivaDatabase.shared.updateAlbumArtwork(
+                        albumId: album.id,
+                        thumbPath: thumbURL.path,
+                        fullPath: fullURL.path
+                    )
+                    found += 1
+                    await MainActor.run {
+                        NotificationCenter.default.post(name: .artworkDidUpdate, object: album.id)
+                    }
+                }
+
+                // Small delay between downloads — avoid overwhelming NAS
+                try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
+            }
+
+            print("ARTWORK: folder pass complete — \(found)/\(albums.count) found")
+
+        } catch {
+            print("ARTWORK: folder pass error — \(error.localizedDescription)")
+        }
+    }
+
+    private func resized(_ image: UIImage, to maxDimension: CGFloat) -> UIImage? {
+        let size = image.size
+        let scale = min(maxDimension / size.width, maxDimension / size.height)
+        if scale >= 1 { return image }
+        let newSize = CGSize(width: size.width * scale, height: size.height * scale)
+        UIGraphicsBeginImageContextWithOptions(newSize, false, 1.0)
+        image.draw(in: CGRect(origin: .zero, size: newSize))
+        let result = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        return result
+    }
+
     // MARK: - Incremental change detection
 
     private func findChangedFolders(source: LibrarySource) async -> [String] {
@@ -137,8 +231,6 @@ final class ScanCoordinator: ObservableObject {
             let storedStats = try SorrivaDatabase.shared.folderStats(sourceId: source.id)
             guard !storedStats.isEmpty else { return [] }
 
-            // Stat each known folder individually — same granularity as FolderStat records.
-            // This avoids top-level vs album-level mismatch.
             let client = SMBClient(host: source.host)
             try await client.login(username: source.username ?? "", password: source.password ?? "")
             defer { Task { try? await client.logoff() } }
@@ -149,9 +241,7 @@ final class ScanCoordinator: ObservableObject {
             for stored in storedStats {
                 var files: [(path: String, size: Int)] = []
                 try? await scanner.collectAudioFilesPublic(client: client, path: stored.folderPath, results: &files)
-                let currentCount = files.count
-                let currentBytes = files.reduce(0) { $0 + $1.size }
-                if currentCount != stored.fileCount || currentBytes != stored.totalBytes {
+                if files.count != stored.fileCount || files.reduce(0, { $0 + $1.size }) != stored.totalBytes {
                     changed.append(stored.folderPath)
                 }
             }

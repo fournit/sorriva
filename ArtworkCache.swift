@@ -99,7 +99,11 @@ actor ArtworkCache {
     // MARK: - Private
 
     private func searchURL(artist: String, album: String) -> URL? {
-        let query = "\(artist) \(album)"
+        // Strip leading "Artist - " prefix from album title if present
+        // e.g. "Stan Getz - This Is Jazz 14" → "This Is Jazz 14"
+        let prefix = "\(artist) - "
+        let cleanAlbum = album.hasPrefix(prefix) ? String(album.dropFirst(prefix.count)) : album
+        let query = "\(artist) \(cleanAlbum)"
         guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
         return URL(string: "https://itunes.apple.com/search?term=\(encoded)&entity=album&limit=1&media=music")
     }
