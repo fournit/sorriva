@@ -165,12 +165,6 @@ actor SMBScanner {
         let folderGroups = Dictionary(grouping: allFiles) { ($0.path as NSString).deletingLastPathComponent }
         var completedInFolder: [String: Int] = [:]
 
-        // Option B: persistent connection recycled every 50 files
-        var readClient = SMBClient(host: source.host)
-        try await readClient.login(username: source.username ?? "", password: source.password ?? "")
-        try await readClient.connectShare(source.share)
-        var filesReadOnConnection = 0
-
         for file in allFiles {
             let filename = (file.path as NSString).lastPathComponent
             let ext = (filename as NSString).pathExtension.lowercased()
@@ -181,105 +175,32 @@ actor SMBScanner {
                 filesScanned: scanned, currentFile: filename
             ))
 
-            // ── OPTION A: Per-file fresh connection + 100ms throttle (INACTIVE) ─────────
-            // var meta = ParsedMetadata()
-            // var tagSource = "path"
-            // let readStart = Date()
-            // if ext != "wav" && ext != "aif" && ext != "aiff" {
-            //     print("SCAN: [\(scanned + 1)/\(totalFiles)] reading \(filename)")
-            //     let headerData = await readFileWithFreshConnection(
-            //         host: source.host, share: source.share,
-            //         username: source.username ?? "", password: source.password ?? "",
-            //         path: file.path, fileSize: file.size
-            //     )
-            //     let elapsed = String(format: "%.2fs", Date().timeIntervalSince(readStart))
-            //     if let data = headerData {
-            //         let parsed = parseTagData(data: data, ext: ext)
-            //         if parsed.title != nil || parsed.artist != nil || parsed.album != nil {
-            //             meta = parsed; tagSource = "tags"
-            //         }
-            //         print("SCAN: [\(scanned + 1)/\(totalFiles)] \(elapsed) src=\(tagSource) — \(filename)")
-            //     } else {
-            //         skipped += 1
-            //         print("SCAN: [\(scanned + 1)/\(totalFiles)] \(elapsed) FAILED — \(filename)")
-            //     }
-            //     try? await Task.sleep(nanoseconds: 100_000_000) // 100ms throttle
-            // } else {
-            //     print("SCAN: [\(scanned + 1)/\(totalFiles)] skip-read (wav/aiff) — \(filename)")
-            // }
-            // ── END OPTION A ──────────────────────────────────────────────────────────
-
-            // ── OPTION B: Persistent connection, recycle every 50 files (ACTIVE) ─────
+            // Per-file fresh connection — eliminates session degradation on UNAS Pro.
+            // 100ms throttle gives NAS time to release each connection before the next opens.
             var meta = ParsedMetadata()
-            var tagSource = "path"
-            let readStart = Date()
             if ext != "wav" && ext != "aif" && ext != "aiff" {
-                print("SCAN: [\(scanned + 1)/\(totalFiles)] reading \(filename)")
-                let readLength = UInt32(min(65536, file.size))
-                let headerData: Data? = await withCheckedContinuation { continuation in
-                    let semaphore = DispatchSemaphore(value: 0)
-                    var result: Data? = nil
-                    Task.detached {
-                        let reader = readClient.fileReader(path: file.path)
-                        if let data = try? await reader.read(offset: 0, length: readLength) {
-                            try? await reader.close()
-                            result = data
-                        }
-                        semaphore.signal()
-                    }
-                    DispatchQueue.global(qos: .utility).async {
-                        if semaphore.wait(timeout: .now() + 15) == .timedOut {
-                            print("SCAN: TIMEOUT 15s — \(file.path)")
-                        }
-                        continuation.resume(returning: result)
-                    }
-                }
+                let headerData = await readFileWithFreshConnection(
+                    host: source.host,
+                    share: source.share,
+                    username: source.username ?? "",
+                    password: source.password ?? "",
+                    path: file.path,
+                    fileSize: Int(file.size)
+                )
                 if let data = headerData {
                     let parsed = parseTagData(data: data, ext: ext)
                     if parsed.title != nil || parsed.artist != nil || parsed.album != nil {
                         meta = parsed
-                        tagSource = "tags"
                     }
-                    let elapsed = String(format: "%.2fs", Date().timeIntervalSince(readStart))
-                    print("SCAN: [\(scanned + 1)/\(totalFiles)] \(elapsed) src=\(tagSource) — \(filename)")
                 } else {
                     skipped += 1
-                    let elapsed = String(format: "%.2fs", Date().timeIntervalSince(readStart))
-                    print("SCAN: [\(scanned + 1)/\(totalFiles)] \(elapsed) FAILED — \(filename)")
+                    print("SCAN: SKIP — \(file.path)")
                 }
-                filesReadOnConnection += 1
-                if filesReadOnConnection >= 50 {
-                    print("SCAN: recycling connection after 50 reads")
-                    try? await readClient.disconnectShare()
-                    try? await readClient.logoff()
-                    let newClient = SMBClient(host: source.host)
-                    let recycled = await withCheckedContinuation { continuation in
-                        let semaphore = DispatchSemaphore(value: 0)
-                        var success = false
-                        Task.detached {
-                            do {
-                                try await newClient.login(username: source.username ?? "", password: source.password ?? "")
-                                try await newClient.connectShare(source.share)
-                                success = true
-                            } catch {
-                                print("SCAN: recycle connect error: \(error.localizedDescription)")
-                            }
-                            semaphore.signal()
-                        }
-                        DispatchQueue.global(qos: .utility).async {
-                            if semaphore.wait(timeout: .now() + 15) == .timedOut {
-                                print("SCAN: recycle timed out — keeping existing connection")
-                            }
-                            continuation.resume(returning: success)
-                        }
-                    }
-                    if recycled { readClient = newClient }
-                    filesReadOnConnection = 0
-                }
-            } else {
-                print("SCAN: [\(scanned + 1)/\(totalFiles)] skip-read (wav/aiff) — \(filename)")
+                try? await Task.sleep(nanoseconds: 200_000_000) // 200ms throttle
             }
-            // ── END OPTION B ──────────────────────────────────────────────────────────
+            if (scanned + 1) % 50 == 0 {
+                print("SCAN: [\(scanned + 1)/\(totalFiles)] progress — \(skipped) skipped so far")
+            }
 
             // Fill missing fields from path structure
             meta = fillFromPath(meta: meta, filePath: file.path, rootPath: root)
@@ -337,6 +258,7 @@ actor SMBScanner {
                     totalBytes: folderBytes
                 )
                 print("SCAN: folder done (\(folderFiles.count) tracks) — \(folderPath)")
+
                 // Notify UI progressively — library updates as each folder completes
                 await MainActor.run {
                     NotificationCenter.default.post(name: .libraryDidUpdate, object: nil)
@@ -361,10 +283,6 @@ actor SMBScanner {
         for album in albumCache.values {
             try? SorrivaDatabase.shared.updateAlbumTrackCount(albumId: album.id)
         }
-
-        // Clean up Option B persistent connection
-        try? await readClient.disconnectShare()
-        try? await readClient.logoff()
 
         let finalTrackCount = try SorrivaDatabase.shared.trackCount(sourceId: source.id)
         try SorrivaDatabase.shared.updateScanComplete(
@@ -447,56 +365,6 @@ actor SMBScanner {
             }
         }
         return results
-    }
-
-    // MARK: - Tag reading via Session.read() at maxReadSize
-
-    /// Read file header using Session directly.
-    /// The UNAS Pro requires reads at maxReadSize (8MB) — smaller reads stall.
-    /// We request maxReadSize but only use the first 64KB for tag parsing.
-    /// Uses DispatchSemaphore for reliable timeout — immune to cooperative thread blocking.
-    private func readHeader(session: Session, path: String, readSize: UInt32) async -> Data? {
-        let smbPath = path
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            .replacingOccurrences(of: "/", with: "\\")
-
-        return await withCheckedContinuation { continuation in
-            let semaphore = DispatchSemaphore(value: 0)
-            var result: Data? = nil
-
-            Task.detached {
-                do {
-                    let createResponse = try await session.create(
-                        desiredAccess: [.genericRead],
-                        fileAttributes: [],
-                        shareAccess: [.read],
-                        createDisposition: .open,
-                        createOptions: [],
-                        name: smbPath
-                    )
-                    let readResponse = try await session.read(
-                        fileId: createResponse.fileId,
-                        offset: 0,
-                        length: readSize
-                    )
-                    _ = try? await session.close(fileId: createResponse.fileId)
-                    // Take only first 64KB for tag parsing
-                    let buf = readResponse.buffer
-                    result = buf.count > 65536 ? Data(buf.prefix(65536)) : buf
-                } catch {
-                    print("SCAN: read error [\(error.localizedDescription)] — \(smbPath)")
-                }
-                semaphore.signal()
-            }
-
-            DispatchQueue.global(qos: .utility).async {
-                // 60s timeout — 8MB over WiFi typically takes 5-15s
-                if semaphore.wait(timeout: .now() + 60) == .timedOut {
-                    print("SCAN: TIMEOUT 60s — \(smbPath)")
-                }
-                continuation.resume(returning: result)
-            }
-        }
     }
 
     // MARK: - Track deletion helpers
@@ -615,17 +483,10 @@ actor SMBScanner {
         return m
     }
 
+    // MARK: - Folder artwork fetch
+
     // MARK: - Per-file fresh connection read
 
-    private func formatTime(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm:ss"
-        return f.string(from: date)
-    }
-
-    /// Open a fresh SMBClient per file, read first 64KB, close.
-    /// A stall on any single file never affects subsequent files.
-    /// Returns nil if connect or read times out.
     private func readFileWithFreshConnection(
         host: String, share: String,
         username: String, password: String,
@@ -660,6 +521,12 @@ actor SMBScanner {
                 continuation.resume(returning: result)
             }
         }
+    }
+
+    private func formatTime(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f.string(from: date)
     }
 
     /// Parse tag metadata from raw file header bytes.

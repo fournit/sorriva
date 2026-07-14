@@ -42,6 +42,7 @@
 		805A16CD3005DC1600AF3100 /* SorrivaContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16CC3005DC1600AF3100 /* SorrivaContextMenu.swift */; };
 		805A16D03006B1BA00AF3100 /* SMBClient in Frameworks */ = {isa = PBXBuildFile; productRef = 805A16CF3006B1BA00AF3100 /* SMBClient */; };
 		805A16D63006BAE200AF3100 /* SMBClient in Frameworks */ = {isa = PBXBuildFile; productRef = 805A16D53006BAE200AF3100 /* SMBClient */; };
+		805A16D93006BD4D00AF3100 /* SMBClient in Frameworks */ = {isa = PBXBuildFile; productRef = 805A16D83006BD4D00AF3100 /* SMBClient */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -121,6 +122,7 @@
 			files = (
 				805A16D63006BAE200AF3100 /* SMBClient in Frameworks */,
 				805A16D03006B1BA00AF3100 /* SMBClient in Frameworks */,
+				805A16D93006BD4D00AF3100 /* SMBClient in Frameworks */,
 				80325AD83001436B00308486 /* GRDB in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -208,6 +210,7 @@
 				80325AD73001436B00308486 /* GRDB */,
 				805A16CF3006B1BA00AF3100 /* SMBClient */,
 				805A16D53006BAE200AF3100 /* SMBClient */,
+				805A16D83006BD4D00AF3100 /* SMBClient */,
 			);
 			productName = Sorriva;
 			productReference = 80325AA02FFED8DE00308486 /* Sorriva.app */;
@@ -239,7 +242,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				80325AD63001436B00308486 /* XCRemoteSwiftPackageReference "GRDB" */,
-				805A16D43006BAE200AF3100 /* XCLocalSwiftPackageReference "LocalPackages/SMBClient" */,
+				805A16D73006BD4D00AF3100 /* XCRemoteSwiftPackageReference "SMBClient" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 80325AA12FFED8DE00308486 /* Products */;
@@ -516,13 +519,6 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		805A16D43006BAE200AF3100 /* XCLocalSwiftPackageReference "LocalPackages/SMBClient" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = LocalPackages/SMBClient;
-		};
-/* End XCLocalSwiftPackageReference section */
-
 /* Begin XCRemoteSwiftPackageReference section */
 		80325AD63001436B00308486 /* XCRemoteSwiftPackageReference "GRDB" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -530,6 +526,14 @@
 			requirement = {
 				branch = master;
 				kind = branch;
+			};
+		};
+		805A16D73006BD4D00AF3100 /* XCRemoteSwiftPackageReference "SMBClient" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/kishikawakatsumi/SMBClient";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.3.1;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -546,6 +550,11 @@
 		};
 		805A16D53006BAE200AF3100 /* SMBClient */ = {
 			isa = XCSwiftPackageProductDependency;
+			productName = SMBClient;
+		};
+		805A16D83006BD4D00AF3100 /* SMBClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 805A16D73006BD4D00AF3100 /* XCRemoteSwiftPackageReference "SMBClient" */;
 			productName = SMBClient;
 		};
 /* End XCSwiftPackageProductDependency section */
