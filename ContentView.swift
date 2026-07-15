@@ -2,17 +2,29 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var discovery = ZoneDiscoveryService()
+    @StateObject private var tabState = SorrivaTabBarState()
     @State private var selectedZoneID: String? = UserDefaults.standard.string(forKey: "sorriva.selectedZoneID")
     @State private var showNowPlaying = false
     @State private var showZonePicker = false
     @State private var expandZoneID: String? = nil
 
+    // Mini player height — tab bar floats directly above this
+    private let miniPlayerHeight: CGFloat = 90
+
     var body: some View {
         ZStack(alignment: .bottom) {
 
-            // MARK: — Tab View
-            TabView {
-                Tab("Library", systemImage: "music.note.list") {
+            // MARK: — Full screen background
+            LinearGradient(
+                colors: [Color.sGradientTop, Color.sGradientMid, Color.sGradientBottom],
+                startPoint: .top, endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            // MARK: — Tab content (full screen, no bottom padding)
+            Group {
+                switch tabState.selectedTab {
+                case .library:
                     NavigationStack {
                         LibraryView(
                             discovery: discovery,
@@ -23,25 +35,32 @@ struct ContentView: View {
                             },
                             onNavigateToZone: { zoneID in
                                 expandZoneID = zoneID
+                                tabState.selectedTab = .zones
                             }
                         )
                         .environmentObject(discovery)
                     }
-                }
 
-                Tab("Zones", systemImage: "hifispeaker.2") {
+                case .zones:
                     NavigationStack {
-                        ZonesView(discovery: discovery, expandZoneID: $expandZoneID)
+                        ZonesView(
+                            discovery: discovery,
+                            expandZoneID: $expandZoneID,
+                            onNowPlaying: { zoneID in
+                                selectedZoneID = zoneID
+                                persistSelectedZone(zoneID)
+                                showNowPlaying = true
+                            }
+                        )
+                        .environmentObject(tabState)
                     }
-                }
 
-                Tab("Discover", systemImage: "sparkles") {
+                case .discover:
                     NavigationStack {
                         DiscoverView()
                     }
-                }
 
-                Tab("Settings", systemImage: "gearshape") {
+                case .settings:
                     NavigationStack {
                         SettingsView(
                             discovery: discovery,
@@ -52,29 +71,32 @@ struct ContentView: View {
                             },
                             onNavigateToZone: { zoneID in
                                 expandZoneID = zoneID
+                                tabState.selectedTab = .zones
                             }
                         )
                     }
                 }
             }
-            .tint(.sTabActive)
+            .ignoresSafeArea(edges: .bottom)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // MARK: — Mini Player (always visible above tab bar)
-            VStack(spacing: 0) {
-                Spacer()
-                MiniPlayerView(
-                    selectedZoneID: $selectedZoneID,
-                    discovery: discovery,
-                    onTapTrack: { showNowPlaying = true },
-                    onTapZone: { showZonePicker = true }
-                )
-            }
+            // MARK: — Mini player (fixed at very bottom, always visible, floats over content)
+            MiniPlayerView(
+                selectedZoneID: $selectedZoneID,
+                discovery: discovery,
+                onTapTrack: { showNowPlaying = true },
+                onTapZone: { showZonePicker = true }
+            )
+            .ignoresSafeArea(edges: .bottom)
+
+            // MARK: — Floating tab bar (floats over content above mini player)
+            SorrivaTabBar(state: tabState)
+                .padding(.bottom, miniPlayerHeight + 8)
         }
         .ignoresSafeArea(edges: .bottom)
-        .onAppear {
-            discovery.startDiscovery()
-        }
-        // Auto-select first active zone if none selected
+        .preferredColorScheme(.dark)
+        .environmentObject(tabState)
+        .onAppear { discovery.startDiscovery() }
         .onChange(of: discovery.zones) { zones in
             if selectedZoneID == nil {
                 if let active = zones.first(where: { $0.isPlaying }) {
@@ -88,8 +110,17 @@ struct ContentView: View {
         }
         // Now Playing sheet
         .sheet(isPresented: $showNowPlaying) {
-            if let zoneID = selectedZoneID {
-                NowPlayingView(zoneID: zoneID, discovery: discovery)
+            if let _ = selectedZoneID {
+                NowPlayingView(
+                    selectedZoneID: $selectedZoneID,
+                    discovery: discovery,
+                    onTapZone: {
+                        showNowPlaying = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            showZonePicker = true
+                        }
+                    }
+                )
             }
         }
         // Zone picker sheet
@@ -97,7 +128,8 @@ struct ContentView: View {
             ZonePickerSheet(
                 title: "Select Zone",
                 subtitle: "Choose a zone to control",
-                discovery: discovery
+                discovery: discovery,
+                selectedZoneID: selectedZoneID
             ) { zone in
                 selectedZoneID = zone.id
                 persistSelectedZone(zone.id)

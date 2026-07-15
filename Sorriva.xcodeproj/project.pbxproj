@@ -48,6 +48,7 @@
 		805A16E53007403E00AF3100 /* Telegraph in Frameworks */ = {isa = PBXBuildFile; productRef = 805A16E43007403E00AF3100 /* Telegraph */; };
 		805A16E73007B30400AF3100 /* ZonePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16E63007B30400AF3100 /* ZonePickerSheet.swift */; };
 		805A16E93007B35300AF3100 /* LocalPlaybackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16E83007B35300AF3100 /* LocalPlaybackService.swift */; };
+		805A16EB300840D800AF3100 /* SorrivaTabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16EA300840D800AF3100 /* SorrivaTabBar.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -101,6 +102,7 @@
 		805A16DC30073D9200AF3100 /* SorrivaHTTPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SorrivaHTTPServer.swift; sourceTree = "<group>"; };
 		805A16E63007B30400AF3100 /* ZonePickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZonePickerSheet.swift; sourceTree = "<group>"; };
 		805A16E83007B35300AF3100 /* LocalPlaybackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalPlaybackService.swift; sourceTree = "<group>"; };
+		805A16EA300840D800AF3100 /* SorrivaTabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SorrivaTabBar.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -143,6 +145,7 @@
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
+				805A16EA300840D800AF3100 /* SorrivaTabBar.swift */,
 				805A16E83007B35300AF3100 /* LocalPlaybackService.swift */,
 				805A16E63007B30400AF3100 /* ZonePickerSheet.swift */,
 				805A16DB30073D9200AF3100 /* SorrivaDatabase+HTTPServer.swift */,
@@ -314,6 +317,7 @@
 				805A16C93005AEC600AF3100 /* AlbumsView.swift in Sources */,
 				805A16CA3005AEC600AF3100 /* AlbumDetailView.swift in Sources */,
 				805A16CB3005AEC600AF3100 /* TracksView.swift in Sources */,
+				805A16EB300840D800AF3100 /* SorrivaTabBar.swift in Sources */,
 				80325ABB2FFEE5DC00308486 /* SorrivaApp.swift in Sources */,
 				805A16C130052B0B00AF3100 /* ScanCoordinator.swift in Sources */,
 				805A16C33005AD5600AF3100 /* ArtworkCache.swift in Sources */,

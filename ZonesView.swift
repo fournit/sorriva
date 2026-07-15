@@ -5,8 +5,8 @@ import SwiftUI
 struct ZonesView: View {
     @ObservedObject var discovery: ZoneDiscoveryService
     @Binding var expandZoneID: String?
-    @State private var nowPlayingZoneID: String? = nil
-    @State private var showNowPlaying = false
+    var onNowPlaying: ((String) -> Void)? = nil
+    @EnvironmentObject private var tabState: SorrivaTabBarState
     @State private var scrollToZoneID: String? = nil
 
     var body: some View {
@@ -45,8 +45,7 @@ struct ZonesView: View {
                                     discovery: discovery,
                                     autoExpand: expandZoneID == zone.id,
                                     onNowPlaying: { zoneID in
-                                        nowPlayingZoneID = zoneID
-                                        showNowPlaying = true
+                                        onNowPlaying?(zoneID)
                                     }
                                 ))
                                 .id(zone.id)
@@ -54,6 +53,17 @@ struct ZonesView: View {
                         }
                         .padding(.horizontal, 0)
                         .padding(.bottom, 24)
+                    }
+                    .onScrollGeometryChange(for: CGFloat.self) { geo in
+                        geo.contentOffset.y
+                    } action: { oldY, newY in
+                        let delta = newY - oldY
+                        print("SCROLL: delta=\(delta) newY=\(newY)")
+                        if delta > 8 {
+                            tabState.hide()
+                        } else if delta < -8 {
+                            tabState.show()
+                        }
                     }
                     .onChange(of: expandZoneID) { zoneID in
                         guard let zoneID else { return }
@@ -81,9 +91,6 @@ struct ZonesView: View {
             }
         }
         .background(Color.clear)
-        .fullScreenCover(isPresented: $showNowPlaying) {
-            NowPlayingView(zoneID: nowPlayingZoneID ?? "", discovery: discovery)
-        }
     }
 
     @ViewBuilder

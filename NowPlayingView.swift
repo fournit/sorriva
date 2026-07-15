@@ -6,9 +6,9 @@ import SwiftUI
 // pausing/playing never dismisses the screen.
 
 struct NowPlayingView: View {
-    let zoneID: String
+    @Binding var selectedZoneID: String?
     @ObservedObject var discovery: ZoneDiscoveryService
-    @Environment(\.dismiss) private var dismiss
+    let onTapZone: () -> Void
 
     @State private var pollTask: Task<Void, Never>? = nil
     @State private var elapsed: Int = 0
@@ -16,8 +16,12 @@ struct NowPlayingView: View {
     @State private var cachedTrack: String = ""
     @State private var cachedArtist: String = ""
 
-    // Live zone lookup — always current, never stale
-    private var zone: SonosZone? { discovery.zones.first(where: { $0.id == zoneID }) }
+    // Live zone lookup
+    private var zone: SonosZone? {
+        guard let id = selectedZoneID else { return nil }
+        return discovery.zones.first(where: { $0.id == id })
+    }
+    private var zoneID: String { selectedZoneID ?? "" }
     private var zoneName: String { zone?.name ?? "" }
     private var zoneHost: String { zone?.host ?? "" }
     private var isPlaying: Bool { zone?.isPlaying ?? false }
@@ -52,34 +56,32 @@ struct NowPlayingView: View {
 
             VStack(spacing: 0) {
 
-                // Header
-                HStack {
-                    Button(action: { dismiss() }) {
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(.sTextPrimary)
-                            .padding(12)
-                    }
-                    .buttonStyle(.plain)
+                // Drag handle — swipe down to collapse
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.sSeparator)
+                    .frame(width: 36, height: 4)
+                    .padding(.top, 10)
+                    .padding(.bottom, 8)
 
-                    Spacer()
-
-                    VStack(spacing: 2) {
+                // Header — zone name
+                Button(action: onTapZone) {
+                    HStack(spacing: 6) {
                         Text("NOW PLAYING")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundColor(.sTextMuted)
                             .kerning(1.2)
-                        Text(zoneName)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.sTextSecondary)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 9))
+                            .foregroundColor(.sTextMuted)
                     }
-
-                    Spacer()
-
-                    Color.clear.frame(width: 44, height: 44)
                 }
-                .padding(.top, 56)
-                .padding(.horizontal, 8)
+                .buttonStyle(.plain)
+                .padding(.bottom, 2)
+
+                Text(zoneName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.sTextSecondary)
+                    .padding(.bottom, 8)
 
                 Spacer()
 
@@ -200,11 +202,32 @@ struct NowPlayingView: View {
                 VolumeControlView(zoneID: zoneID, discovery: discovery)
                     .padding(.horizontal, 32)
 
+                Spacer().frame(height: 24)
+
+                // Zone switcher
+                Button(action: onTapZone) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "hifispeaker.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(.sTextMuted)
+                        Text(zoneName.isEmpty ? "Select zone" : zoneName)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.sTextSecondary)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 11))
+                            .foregroundColor(.sTextMuted)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Color.sSurface)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .buttonStyle(.plain)
+
                 Spacer().frame(height: 48)
             }
         }
         .onAppear {
-            // Seed cache with current track immediately on open
             if let z = zone {
                 if !z.currentTrack.isEmpty { cachedTrack = z.currentTrack }
                 if !z.currentArtist.isEmpty { cachedArtist = z.currentArtist }
@@ -212,6 +235,14 @@ struct NowPlayingView: View {
             startPolling()
         }
         .onDisappear { pollTask?.cancel() }
+        .onChange(of: selectedZoneID) { _ in
+            // Reset cache and restart polling when zone changes
+            cachedTrack = ""
+            cachedArtist = ""
+            elapsed = 0
+            duration = 0
+            startPolling()
+        }
         .onChange(of: zone?.currentTrack ?? "") { track in
             if !track.isEmpty { cachedTrack = track }
         }
