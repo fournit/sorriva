@@ -46,6 +46,8 @@
 		805A16DD30073D9200AF3100 /* SorrivaDatabase+HTTPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16DB30073D9200AF3100 /* SorrivaDatabase+HTTPServer.swift */; };
 		805A16DE30073D9200AF3100 /* SorrivaHTTPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16DC30073D9200AF3100 /* SorrivaHTTPServer.swift */; };
 		805A16E53007403E00AF3100 /* Telegraph in Frameworks */ = {isa = PBXBuildFile; productRef = 805A16E43007403E00AF3100 /* Telegraph */; };
+		805A16E73007B30400AF3100 /* ZonePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16E63007B30400AF3100 /* ZonePickerSheet.swift */; };
+		805A16E93007B35300AF3100 /* LocalPlaybackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16E83007B35300AF3100 /* LocalPlaybackService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -97,6 +99,8 @@
 		805A16CC3005DC1600AF3100 /* SorrivaContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SorrivaContextMenu.swift; sourceTree = "<group>"; };
 		805A16DB30073D9200AF3100 /* SorrivaDatabase+HTTPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SorrivaDatabase+HTTPServer.swift"; sourceTree = "<group>"; };
 		805A16DC30073D9200AF3100 /* SorrivaHTTPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SorrivaHTTPServer.swift; sourceTree = "<group>"; };
+		805A16E63007B30400AF3100 /* ZonePickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZonePickerSheet.swift; sourceTree = "<group>"; };
+		805A16E83007B35300AF3100 /* LocalPlaybackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalPlaybackService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -139,6 +143,8 @@
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
+				805A16E83007B35300AF3100 /* LocalPlaybackService.swift */,
+				805A16E63007B30400AF3100 /* ZonePickerSheet.swift */,
 				805A16DB30073D9200AF3100 /* SorrivaDatabase+HTTPServer.swift */,
 				805A16DC30073D9200AF3100 /* SorrivaHTTPServer.swift */,
 				805A16CC3005DC1600AF3100 /* SorrivaContextMenu.swift */,
@@ -288,12 +294,14 @@
 				80325AB62FFEE5DC00308486 /* DiscoverView.swift in Sources */,
 				80325AB72FFEE5DC00308486 /* LibraryView.swift in Sources */,
 				80325AB82FFEE5DC00308486 /* MiniPlayerView.swift in Sources */,
+				805A16E73007B30400AF3100 /* ZonePickerSheet.swift in Sources */,
 				805A16DD30073D9200AF3100 /* SorrivaDatabase+HTTPServer.swift in Sources */,
 				805A16DE30073D9200AF3100 /* SorrivaHTTPServer.swift in Sources */,
 				80325AB92FFEE5DC00308486 /* Color+Theme.swift in Sources */,
 				80325AD33000B02B00308486 /* SorrivaWordmark.swift in Sources */,
 				80325AFE3003C8F200308486 /* IHeartServiceView.swift in Sources */,
 				80325AFF3003C8F200308486 /* IHeartStationBrowserView.swift in Sources */,
+				805A16E93007B35300AF3100 /* LocalPlaybackService.swift in Sources */,
 				80325B1930043EE300308486 /* AddSMBSourceView.swift in Sources */,
 				80325B003003C8F200308486 /* SomaFMServiceView.swift in Sources */,
 				805A16BF3005292E00AF3100 /* SMBScanner.swift in Sources */,

@@ -9,6 +9,8 @@ struct AlbumDetailView: View {
     @State private var tracks: [Track] = []
     @State private var trackToRemove: Track? = nil
     @State private var showRemoveConfirm = false
+    @State private var zonePickerTrack: Track? = nil
+    @EnvironmentObject private var discovery: ZoneDiscoveryService
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -64,6 +66,9 @@ struct AlbumDetailView: View {
                     VStack(spacing: 8) {
                         ForEach(tracks) { track in
                             TrackCard(track: track, showAlbum: false)
+                                .onTapGesture {
+                                    zonePickerTrack = track
+                                }
                                 .sorrivaContextMenu(
                                     title: track.title,
                                     subtitle: album.artistName,
@@ -92,6 +97,25 @@ struct AlbumDetailView: View {
             Button("Cancel", role: .cancel) { trackToRemove = nil }
         } message: {
             Text("This removes the track from your Sorriva library. The original file is not affected.")
+        }
+        .sheet(item: $zonePickerTrack) { track in
+            ZonePickerSheet(
+                title: track.title,
+                subtitle: "\(track.artistName) · \(album.title)",
+                discovery: discovery
+            ) { zone in
+                print("ALBUMDETAIL: onPick fired — zone:\(zone.name) track:\(track.title)")
+                zonePickerTrack = nil
+                print("ALBUMDETAIL: launching Task")
+                Task {
+                    print("ALBUMDETAIL: Task running — calling playTrack")
+                    await LocalPlaybackService.shared.playTrack(track, on: zone)
+                    print("ALBUMDETAIL: playTrack returned")
+                }
+                print("ALBUMDETAIL: Task launched")
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
     }
 
@@ -168,14 +192,5 @@ struct TrackCard: View {
         .padding(12)
         .background(Color.sCard)
         .clipShape(RoundedRectangle(cornerRadius: 10))
-        // TEMP: smoke test — logs HTTP URL to console, open in Safari to verify server serves the file
-        .onTapGesture {
-            if let url = SorrivaHTTPServer.shared.localURL(for: track.id) {
-                print("HTTPSERVER: tap — \(url)")
-                print("HTTPSERVER: track — \(track.title) (\(track.fileFormat))")
-            } else {
-                print("HTTPSERVER: server not running or no WiFi")
-            }
-        }
     }
 }

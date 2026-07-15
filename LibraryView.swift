@@ -459,7 +459,8 @@ struct MediaCard: View {
         }
         .sheet(item: $zonePickerStation) { rs in
             ZonePickerSheet(
-                station: rs,
+                title: rs.name,
+                subtitle: "iHeartRADIO",
                 discovery: discovery,
                 onPick: { zone in
                     zonePickerStation = nil
@@ -801,6 +802,7 @@ struct LibraryMediaItem: Identifiable {
 struct LibraryMediaRow: View {
     let items: [LibraryMediaItem]
     let onSeeAll: () -> Void
+    @EnvironmentObject private var discovery: ZoneDiscoveryService
     @State private var itemToRemove: LibraryMediaItem? = nil
     @State private var showRemoveConfirm = false
     @State private var selectedAlbum: Album? = nil
@@ -847,6 +849,7 @@ struct LibraryMediaRow: View {
                 AlbumDetailView(album: album)
             }
             .navigationViewStyle(.stack)
+            .environmentObject(discovery)
         }
     }
 

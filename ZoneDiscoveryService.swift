@@ -16,6 +16,8 @@ import Combine
 @MainActor
 final class ZoneDiscoveryService: NSObject, ObservableObject {
 
+    static weak var sharedInstance: ZoneDiscoveryService?
+
     @Published var zones: [SonosZone] = []       // Display-ready zone list, alpha sorted
     @Published var isDiscovering: Bool = false
     @Published var discoveryError: String? = nil
@@ -47,6 +49,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
 
     func startDiscovery() {
         guard serviceBrowser == nil else { return }
+        ZoneDiscoveryService.sharedInstance = self
         print("SORRIVA: startDiscovery — looking for any Sonos speaker")
         isDiscovering = true
         discoveryError = nil
@@ -686,7 +689,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         }
     }
 
-    static func playStationURL(streamURL: String, on zone: SonosZone, stationName: String = "", artURL: String = "") async {
+    nonisolated static func playStationURL(streamURL: String, on zone: SonosZone, stationName: String = "", artURL: String = "") async {
         print("SORRIVA: Playing \(streamURL) on \(zone.name)")
         await setAVTransportURI(host: zone.host, streamURL: streamURL, stationName: stationName, artURL: artURL)
         await sendTransportAction(host: zone.host, action: "Play")
@@ -699,7 +702,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         }
     }
 
-    private static func setAVTransportURI(host: String, streamURL: String, stationName: String = "", artURL: String = "") async {
+    nonisolated static func setAVTransportURI(host: String, streamURL: String, stationName: String = "", artURL: String = "") async {
         let escapedURL = streamURL.replacingOccurrences(of: "&", with: "&amp;")
         let escapedName = stationName
             .replacingOccurrences(of: "&", with: "&amp;")
@@ -744,6 +747,39 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         }
     }
 
+    /// Overload for local library playback — accepts a pre-built DIDL-Lite metadata string.
+    /// Used by LocalPlaybackService which builds musicTrack DIDL rather than audioBroadcast.
+    nonisolated static func setAVTransportURIWithMetadata(host: String, streamURL: String, didl: String) async {
+        let escapedURL = streamURL.replacingOccurrences(of: "&", with: "&amp;")
+        let soapBody = """
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+          <s:Body>
+            <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+              <InstanceID>0</InstanceID>
+              <CurrentURI>\(escapedURL)</CurrentURI>
+              <CurrentURIMetaData>\(didl)</CurrentURIMetaData>
+            </u:SetAVTransportURI>
+          </s:Body>
+        </s:Envelope>
+        """
+        guard let url = URL(string: "http://\(host):1400/MediaRenderer/AVTransport/Control"),
+              let bodyData = soapBody.data(using: .utf8) else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("\"urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI\"",
+                         forHTTPHeaderField: "SOAPACTION")
+        request.httpBody = bodyData
+        request.timeoutInterval = 5
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            print("SORRIVA: SetAVTransportURIWithMetadata \(host) status=\(status)")
+        } catch {
+            print("SORRIVA: SetAVTransportURIWithMetadata error: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - Transport control
 
     func togglePlayPause(zoneID: String) {
@@ -769,7 +805,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         Task { await ZoneDiscoveryService.sendTransportAction(host: zone.host, action: "Previous") }
     }
 
-    private static func sendTransportAction(host: String, action: String) async {
+    nonisolated static func sendTransportAction(host: String, action: String) async {
         let soapBody = """
         <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
           <s:Body>
