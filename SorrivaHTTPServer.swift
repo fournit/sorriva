@@ -112,9 +112,7 @@ final class SorrivaHTTPServer {
 
     private func processRequest(_ request: String, connection: NWConnection) {
         // Parse request line: GET /track/[id].flac HTTP/1.1
-        // Split on both \r\n and \n — Sonos may use either
         let lines = request.components(separatedBy: "\r\n").flatMap { $0.components(separatedBy: "\n") }
-        print("HTTPSERVER: full request — \(lines.prefix(8).joined(separator: " | "))")
         guard let requestLine = lines.first else {
             sendError(connection: connection, status: "400 Bad Request")
             return
@@ -154,12 +152,8 @@ final class SorrivaHTTPServer {
             let lower = line.lowercased()
             if lower.hasPrefix("range:") {
                 let value = String(line.dropFirst("range:".count)).trimmingCharacters(in: .whitespaces)
-                print("HTTPSERVER: Range header — '\(value)'")
                 if let parsed = Self.parseRangeHeader(value) {
                     rangeStart = parsed
-                    print("HTTPSERVER: parsed rangeStart — \(rangeStart)")
-                } else {
-                    print("HTTPSERVER: Range header parse failed")
                 }
             }
         }
@@ -234,14 +228,6 @@ final class SorrivaHTTPServer {
         var totalSent = 0
 
         while true {
-            print("HTTPSERVER: reading chunk at offset \(offset)...")
-
-            // Fresh SMBClient per chunk — UNAS Pro drops session after 2 sequential reads.
-            // 500ms between connections gives NAS time to release previous session.
-            if totalSent > 0 {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-            }
-
             let data = await Self.readSMBRange(
                 host: host, share: share,
                 username: username, password: password,
@@ -251,11 +237,9 @@ final class SorrivaHTTPServer {
             )
 
             guard let data = data, !data.isEmpty else {
-                print("HTTPSERVER: SMB read empty/nil at offset \(offset) — EOF or error")
+                print("HTTPSERVER: EOF at offset \(offset), total: \(totalSent)")
                 break
             }
-
-            print("HTTPSERVER: SMB read OK — \(data.count) bytes at offset \(offset)")
 
             let sendOK = await withCheckedContinuation { continuation in
                 connection.send(content: data, completion: .contentProcessed { error in
@@ -313,17 +297,14 @@ final class SorrivaHTTPServer {
         length: Int
     ) async -> Data? {
         guard length > 0 else { return Data() }
-        print("HTTPSERVER: SMB read starting — offset:\(offset) length:\(length)")
         do {
             let client = SMBClient(host: host)
             try await client.login(
                 username: username.isEmpty ? "guest" : username,
                 password: password
             )
-            print("HTTPSERVER: SMB login OK at offset \(offset)")
             defer { Task { try? await client.logoff() } }
             try await client.connectShare(share)
-            print("HTTPSERVER: SMB share OK at offset \(offset)")
             defer { Task { try? await client.disconnectShare() } }
             let reader = client.fileReader(path: path)
             defer { Task { try? await reader.close() } }
@@ -331,10 +312,9 @@ final class SorrivaHTTPServer {
                 offset: UInt64(offset),
                 length: UInt32(min(length, Int(UInt32.max)))
             )
-            print("HTTPSERVER: SMB read OK — \(data.count) bytes at offset \(offset)")
             return data
         } catch {
-            print("HTTPSERVER: SMB read FAILED at offset \(offset) — \(error.localizedDescription)")
+            print("HTTPSERVER: SMB error at offset \(offset) — \(error.localizedDescription)")
             return nil
         }
     }

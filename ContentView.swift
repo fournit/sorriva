@@ -32,7 +32,6 @@ struct ContentView: View {
                         withAnimation { selectedTab = .zones }
                     }
                 )
-                .environmentObject(discovery)
                 .opacity(selectedTab == .library ? 1 : 0)
                 .allowsHitTesting(selectedTab == .library)
 
@@ -84,28 +83,7 @@ struct ContentView: View {
             }
         }
         .ignoresSafeArea(edges: .bottom)
-        .onAppear {
-            print("CONTENTVIEW: onAppear fired")
-            discovery.startDiscovery()
-            // TEMP: prove local playback — fires 5s after launch
-            Task {
-                print("CONTENTVIEW: Task started")
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
-                print("CONTENTVIEW: 5s elapsed — zones: \(discovery.zones.map(\.name))")
-                guard let zone = discovery.zones.first(where: { $0.name == "Living Room" }) else {
-                    print("LOCALPLAY TEST: Living Room not found")
-                    return
-                }
-                print("LOCALPLAY TEST: zone found — \(zone.name) at \(zone.host)")
-                guard let track = try? SorrivaDatabase.shared.track(id: "83C137BC-4010-4375-B140-55A2DE5E4431") else {
-                    print("LOCALPLAY TEST: track not found in DB")
-                    return
-                }
-                print("LOCALPLAY TEST: track found — \(track.title)")
-                print("LOCALPLAY TEST: firing playTrack")
-                await LocalPlaybackService.shared.playTrack(track, on: zone)
-            }
-        }
+        .onAppear { discovery.startDiscovery() }
     }
 }
 

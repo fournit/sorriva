@@ -16,8 +16,6 @@ import Combine
 @MainActor
 final class ZoneDiscoveryService: NSObject, ObservableObject {
 
-    static weak var sharedInstance: ZoneDiscoveryService?
-
     @Published var zones: [SonosZone] = []       // Display-ready zone list, alpha sorted
     @Published var isDiscovering: Bool = false
     @Published var discoveryError: String? = nil
@@ -49,7 +47,6 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
 
     func startDiscovery() {
         guard serviceBrowser == nil else { return }
-        ZoneDiscoveryService.sharedInstance = self
         print("SORRIVA: startDiscovery — looking for any Sonos speaker")
         isDiscovering = true
         discoveryError = nil
