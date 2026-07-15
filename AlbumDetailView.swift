@@ -168,5 +168,14 @@ struct TrackCard: View {
         .padding(12)
         .background(Color.sCard)
         .clipShape(RoundedRectangle(cornerRadius: 10))
+        // TEMP: smoke test — logs HTTP URL to console, open in Safari to verify server serves the file
+        .onTapGesture {
+            if let url = SorrivaHTTPServer.shared.localURL(for: track.id) {
+                print("HTTPSERVER: tap — \(url)")
+                print("HTTPSERVER: track — \(track.title) (\(track.fileFormat))")
+            } else {
+                print("HTTPSERVER: server not running or no WiFi")
+            }
+        }
     }
 }

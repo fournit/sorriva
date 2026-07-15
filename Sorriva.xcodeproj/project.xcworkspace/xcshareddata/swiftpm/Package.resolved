@@ -1,6 +1,15 @@
 {
-  "originHash" : "0afbf62bd8e950b08a24dc2cf5ede14214af15967b0c3a9296da9f3afb73f9f9",
+  "originHash" : "221f66c962c8ee0c2cde20c3f584ad4668bbf69e41cb8df3e5d2f2549be32125",
   "pins" : [
+    {
+      "identity" : "cocoaasyncsocket",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/robbiehanson/CocoaAsyncSocket.git",
+      "state" : {
+        "revision" : "dbdc00669c1ced63b27c3c5f052ee4d28f10150c",
+        "version" : "7.6.5"
+      }
+    },
     {
       "identity" : "grdb.swift",
       "kind" : "remoteSourceControl",
@@ -11,12 +20,30 @@
       }
     },
     {
+      "identity" : "httpparserc",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Building42/HTTPParserC.git",
+      "state" : {
+        "revision" : "a32b391977a17c30fceec0f38933a359dfdaf112",
+        "version" : "9.2.0"
+      }
+    },
+    {
       "identity" : "smbclient",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/kishikawakatsumi/SMBClient",
       "state" : {
         "revision" : "e636c2b2458930770932a36d311ec9d478575b90",
         "version" : "0.3.1"
+      }
+    },
+    {
+      "identity" : "telegraph",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Building42/Telegraph",
+      "state" : {
+        "revision" : "f56b6726195e271fea397b7dd11c4adc36d5a32d",
+        "version" : "0.40.0"
       }
     }
   ],

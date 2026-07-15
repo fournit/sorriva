@@ -11,6 +11,12 @@ struct SorrivaApp: App {
         _ = SorrivaDatabase.shared
         // Reset any sources stuck in "scanning" state from a previous interrupted session
         resetStaleScanStates()
+        // TEMP: smoke test — start HTTP server on launch, check console for IP
+        do {
+            try SorrivaHTTPServer.shared.start()
+        } catch {
+            print("HTTPSERVER: failed to start — \(error)")
+        }
     }
 
     private func resetStaleScanStates() {
