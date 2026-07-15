@@ -5,6 +5,7 @@ import GRDB
 
 struct TracksView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var tabState: SorrivaTabBarState
     @State private var tracks: [Track] = []
     @State private var sortMode: TrackSortMode = .title
     @State private var trackToRemove: Track? = nil
@@ -94,10 +95,20 @@ struct TracksView: View {
                         .padding(.top, 4)
                         .padding(.bottom, 32)
                     }
+                    .onScrollGeometryChange(for: CGFloat.self) { geo in
+                        geo.contentOffset.y
+                    } action: { oldY, newY in
+                        let delta = newY - oldY
+                        if delta > 8 { tabState.hide() }
+                        else if delta < -8 { tabState.show() }
+                    }
                 }
             }
         }
-        .onAppear { loadTracks() }
+        .onAppear {
+            tabState.show()
+            loadTracks()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .libraryDidUpdate)) { _ in
             loadTracks()
         }

@@ -5,6 +5,7 @@ import GRDB
 
 struct ArtistsView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var tabState: SorrivaTabBarState
     @State private var artists: [Artist] = []
     @State private var artistToRemove: Artist? = nil
     @State private var showRemoveConfirm = false
@@ -16,7 +17,6 @@ struct ArtistsView: View {
     ]
 
     var body: some View {
-        NavigationView {
         ZStack(alignment: .topLeading) {
             LinearGradient(
                 colors: [Color.sGradientTop, Color.sGradientMid, Color.sGradientBottom],
@@ -83,11 +83,21 @@ struct ArtistsView: View {
                         .padding(.top, 4)
                         .padding(.bottom, 32)
                     }
+                    .onScrollGeometryChange(for: CGFloat.self) { geo in
+                        geo.contentOffset.y
+                    } action: { oldY, newY in
+                        let delta = newY - oldY
+                        if delta > 8 { tabState.hide() }
+                        else if delta < -8 { tabState.show() }
+                    }
                 }
             }
         }
         .navigationBarHidden(true)
-        .onAppear { loadArtists() }
+        .onAppear {
+            tabState.show()
+            loadArtists()
+        }
         .alert("Remove \"\(artistToRemove?.name ?? "")\"?",
                isPresented: $showRemoveConfirm) {
             Button("Remove", role: .destructive) {
@@ -97,8 +107,6 @@ struct ArtistsView: View {
             Button("Cancel", role: .cancel) { artistToRemove = nil }
         } message: {
             Text("This removes the artist and all their albums and tracks from your Sorriva library. Original files are not affected.")
-        }
-        .navigationViewStyle(.stack)
         }
     }
 

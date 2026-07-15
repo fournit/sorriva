@@ -39,6 +39,7 @@ struct ContentView: View {
                             }
                         )
                         .environmentObject(discovery)
+                        .environmentObject(tabState)
                     }
 
                 case .zones:

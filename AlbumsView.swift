@@ -7,6 +7,7 @@ import GRDB
 
 struct AlbumsView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var tabState: SorrivaTabBarState
     @State private var albums: [Album] = []
     @State private var sortMode: AlbumSortMode = .title
     @State private var albumToRemove: Album? = nil
@@ -33,8 +34,7 @@ struct AlbumsView: View {
     }
 
     var body: some View {
-        NavigationView {
-            ZStack(alignment: .topLeading) {
+        ZStack(alignment: .topLeading) {
             LinearGradient(
                 colors: [Color.sGradientTop, Color.sGradientMid, Color.sGradientBottom],
                 startPoint: .top, endPoint: .bottom
@@ -105,19 +105,27 @@ struct AlbumsView: View {
                         .padding(.top, 4)
                         .padding(.bottom, 32)
                     }
+                    .onScrollGeometryChange(for: CGFloat.self) { geo in
+                        geo.contentOffset.y
+                    } action: { oldY, newY in
+                        let delta = newY - oldY
+                        if delta > 8 { tabState.hide() }
+                        else if delta < -8 { tabState.show() }
+                    }
                 }
             }
         }
         .navigationBarHidden(true)
-        .onAppear { loadAlbums() }
+        .onAppear {
+            tabState.show()
+            loadAlbums()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .libraryDidUpdate)) { _ in loadAlbums() }
         .alert("Remove \"\(albumToRemove?.title ?? "")\"?", isPresented: $showRemoveConfirm) {
             Button("Remove", role: .destructive) { removeAlbum(albumToRemove); albumToRemove = nil }
             Button("Cancel", role: .cancel) { albumToRemove = nil }
         } message: {
             Text("This removes the album from your Sorriva library. Original files are not affected.")
-        }
-        .navigationViewStyle(.stack)
         }
     }
 

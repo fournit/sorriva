@@ -11,6 +11,7 @@ struct LibraryView: View {
     @ObservedObject var discovery: ZoneDiscoveryService
     let onPlayStation: (RadioStation, SonosZone) -> Void
     let onNavigateToZone: (String) -> Void
+    @EnvironmentObject private var tabState: SorrivaTabBarState
 
     @State private var favoriteIDs: Set<Int> = []
     @State private var loadedLogos: [Int: String] = [:]
@@ -107,6 +108,13 @@ struct LibraryView: View {
             }
         }
         .background(Color.clear)
+        .onScrollGeometryChange(for: CGFloat.self) { geo in
+            geo.contentOffset.y
+        } action: { oldY, newY in
+            let delta = newY - oldY
+            if delta > 8 { tabState.hide() }
+            else if delta < -8 { tabState.show() }
+        }
         .onAppear {
             loadFavorites()
             loadLibrary()
@@ -117,7 +125,10 @@ struct LibraryView: View {
         .onReceive(NotificationCenter.default.publisher(for: .stationsDidUpdate)) { _ in
             loadFavorites()
         }
-        .fullScreenCover(isPresented: $showFavoritesGrid) {
+        .navigationDestination(isPresented: $showAlbums) { AlbumsView() }
+        .navigationDestination(isPresented: $showArtists) { ArtistsView() }
+        .navigationDestination(isPresented: $showTracks) { TracksView() }
+        .navigationDestination(isPresented: $showFavoritesGrid) {
             MediaGridView(
                 title: "Favorites",
                 filter: .favorites,
@@ -129,7 +140,7 @@ struct LibraryView: View {
                 onFavoriteToggled: { id, isFav in toggleFavorite(id: id, isFav: isFav) }
             )
         }
-        .fullScreenCover(isPresented: $showRadioGrid) {
+        .navigationDestination(isPresented: $showRadioGrid) {
             MediaGridView(
                 title: "Radio",
                 filter: .radio,
@@ -141,9 +152,6 @@ struct LibraryView: View {
                 onFavoriteToggled: { id, isFav in toggleFavorite(id: id, isFav: isFav) }
             )
         }
-        .fullScreenCover(isPresented: $showAlbums)  { AlbumsView() }
-        .fullScreenCover(isPresented: $showArtists) { ArtistsView() }
-        .fullScreenCover(isPresented: $showTracks)  { TracksView() }
     }
 
     private func loadLibrary() {
@@ -642,6 +650,7 @@ struct MediaGridView: View {
     let onNavigateToZone: (String) -> Void
     let onFavoriteToggled: (Int, Bool) -> Void
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var tabState: SorrivaTabBarState
 
     @State private var allStations: [Station] = []
     @State private var availableGenres: [Genre] = []
@@ -751,7 +760,11 @@ struct MediaGridView: View {
                 }
             }
         }
-        .onAppear { loadFromDB() }
+        .navigationBarHidden(true)
+        .onAppear {
+            tabState.show()
+            loadFromDB()
+        }
     }
 
     private func loadFromDB() {
@@ -805,20 +818,27 @@ struct LibraryMediaRow: View {
     @EnvironmentObject private var discovery: ZoneDiscoveryService
     @State private var itemToRemove: LibraryMediaItem? = nil
     @State private var showRemoveConfirm = false
-    @State private var selectedAlbum: Album? = nil
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
                 ForEach(items) { item in
-                    Button {
+                    Group {
                         if let album = item.album {
-                            selectedAlbum = album
+                            NavigationLink(destination:
+                                AlbumDetailView(album: album)
+                                    .environmentObject(discovery)
+                            ) {
+                                LibraryMediaCard(item: item)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            Button { } label: {
+                                LibraryMediaCard(item: item)
+                            }
+                            .buttonStyle(.plain)
                         }
-                    } label: {
-                        LibraryMediaCard(item: item)
                     }
-                    .buttonStyle(.plain)
                     .sorrivaContextMenu(
                         title: item.title,
                         subtitle: item.subtitle,
@@ -843,13 +863,6 @@ struct LibraryMediaRow: View {
             Button("Cancel", role: .cancel) { itemToRemove = nil }
         } message: {
             Text("This removes it from your Sorriva library. The original file is not affected.")
-        }
-        .sheet(item: $selectedAlbum) { album in
-            NavigationView {
-                AlbumDetailView(album: album)
-            }
-            .navigationViewStyle(.stack)
-            .environmentObject(discovery)
         }
     }
 
