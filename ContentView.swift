@@ -1,112 +1,115 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var selectedTab: Tab = .zones
-    @State private var expandZoneID: String? = nil
     @StateObject private var discovery = ZoneDiscoveryService()
-
-    enum Tab {
-        case library, zones, discover, settings
-    }
+    @State private var selectedZoneID: String? = UserDefaults.standard.string(forKey: "sorriva.selectedZoneID")
+    @State private var showNowPlaying = false
+    @State private var showZonePicker = false
+    @State private var expandZoneID: String? = nil
 
     var body: some View {
         ZStack(alignment: .bottom) {
 
-            LinearGradient(
-                colors: [Color.sGradientTop, Color.sGradientMid, Color.sGradientBottom],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-
-            ZStack {
-                LibraryView(
-                    discovery: discovery,
-                    onPlayStation: { station, zone in
-                        discovery.playStation(streamID: station.id, on: zone)
-                        expandZoneID = zone.id
-                        withAnimation { selectedTab = .zones }
-                    },
-                    onNavigateToZone: { zoneID in
-                        expandZoneID = zoneID
-                        withAnimation { selectedTab = .zones }
+            // MARK: — Tab View
+            TabView {
+                Tab("Library", systemImage: "music.note.list") {
+                    NavigationStack {
+                        LibraryView(
+                            discovery: discovery,
+                            onPlayStation: { station, zone in
+                                discovery.playStation(streamID: station.id, on: zone)
+                                selectedZoneID = zone.id
+                                persistSelectedZone(zone.id)
+                            },
+                            onNavigateToZone: { zoneID in
+                                expandZoneID = zoneID
+                            }
+                        )
+                        .environmentObject(discovery)
                     }
-                )
-                .opacity(selectedTab == .library ? 1 : 0)
-                .allowsHitTesting(selectedTab == .library)
-
-                ZonesView(discovery: discovery, expandZoneID: $expandZoneID)
-                    .opacity(selectedTab == .zones ? 1 : 0)
-                    .allowsHitTesting(selectedTab == .zones)
-
-                DiscoverView()
-                    .opacity(selectedTab == .discover ? 1 : 0)
-                    .allowsHitTesting(selectedTab == .discover)
-
-                NavigationStack {
-                    SettingsView(
-                        discovery: discovery,
-                        onPlayStation: { station, zone in
-                            discovery.playStation(streamID: station.id, on: zone)
-                            expandZoneID = zone.id
-                            withAnimation { selectedTab = .zones }
-                        },
-                        onNavigateToZone: { zoneID in
-                            expandZoneID = zoneID
-                            withAnimation { selectedTab = .zones }
-                        }
-                    )
                 }
-                .opacity(selectedTab == .settings ? 1 : 0)
-                .allowsHitTesting(selectedTab == .settings)
+
+                Tab("Zones", systemImage: "hifispeaker.2") {
+                    NavigationStack {
+                        ZonesView(discovery: discovery, expandZoneID: $expandZoneID)
+                    }
+                }
+
+                Tab("Discover", systemImage: "sparkles") {
+                    NavigationStack {
+                        DiscoverView()
+                    }
+                }
+
+                Tab("Settings", systemImage: "gearshape") {
+                    NavigationStack {
+                        SettingsView(
+                            discovery: discovery,
+                            onPlayStation: { station, zone in
+                                discovery.playStation(streamID: station.id, on: zone)
+                                selectedZoneID = zone.id
+                                persistSelectedZone(zone.id)
+                            },
+                            onNavigateToZone: { zoneID in
+                                expandZoneID = zoneID
+                            }
+                        )
+                    }
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.bottom, 72)
+            .tint(.sTabActive)
 
+            // MARK: — Mini Player (always visible above tab bar)
             VStack(spacing: 0) {
-                Divider()
-                    .background(Color.sSeparator)
-
-                HStack(spacing: 0) {
-                    TabBarButton(icon: "music.note.list", label: "Library",
-                                 isActive: selectedTab == .library) { selectedTab = .library }
-                    TabBarButton(icon: "hifispeaker.2", label: "Zones",
-                                 isActive: selectedTab == .zones) { selectedTab = .zones }
-                    TabBarButton(icon: "sparkles", label: "Discover",
-                                 isActive: selectedTab == .discover) { selectedTab = .discover }
-                    TabBarButton(icon: "gearshape", label: "Settings",
-                                 isActive: selectedTab == .settings) { selectedTab = .settings }
-                }
-                .padding(.top, 8)
-                .padding(.bottom, 28)
-                .background(Color.sGradientBottom)
+                Spacer()
+                MiniPlayerView(
+                    selectedZoneID: $selectedZoneID,
+                    discovery: discovery,
+                    onTapTrack: { showNowPlaying = true },
+                    onTapZone: { showZonePicker = true }
+                )
             }
         }
         .ignoresSafeArea(edges: .bottom)
-        .onAppear { discovery.startDiscovery() }
-    }
-}
-
-// MARK: - Tab Bar Button
-struct TabBarButton: View {
-    let icon: String
-    let label: String
-    let isActive: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 22))
-                    .foregroundColor(isActive ? .sTabActive : .sTabInactive)
-                Text(label)
-                    .font(.system(size: 10))
-                    .foregroundColor(isActive ? .sTabActive : .sTabInactive)
-            }
-            .frame(maxWidth: .infinity)
+        .onAppear {
+            discovery.startDiscovery()
         }
-        .buttonStyle(.plain)
+        // Auto-select first active zone if none selected
+        .onChange(of: discovery.zones) { zones in
+            if selectedZoneID == nil {
+                if let active = zones.first(where: { $0.isPlaying }) {
+                    selectedZoneID = active.id
+                    persistSelectedZone(active.id)
+                } else if let first = zones.first {
+                    selectedZoneID = first.id
+                    persistSelectedZone(first.id)
+                }
+            }
+        }
+        // Now Playing sheet
+        .sheet(isPresented: $showNowPlaying) {
+            if let zoneID = selectedZoneID {
+                NowPlayingView(zoneID: zoneID, discovery: discovery)
+            }
+        }
+        // Zone picker sheet
+        .sheet(isPresented: $showZonePicker) {
+            ZonePickerSheet(
+                title: "Select Zone",
+                subtitle: "Choose a zone to control",
+                discovery: discovery
+            ) { zone in
+                selectedZoneID = zone.id
+                persistSelectedZone(zone.id)
+                showZonePicker = false
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+    }
+
+    private func persistSelectedZone(_ id: String) {
+        UserDefaults.standard.set(id, forKey: "sorriva.selectedZoneID")
     }
 }
 
