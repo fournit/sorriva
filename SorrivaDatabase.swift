@@ -1103,6 +1103,10 @@ final class SorrivaDatabase {
     }
 
     /// Find an existing album by title + primaryArtistId, or return nil.
+    func album(id: String) throws -> Album? {
+        try dbQueue.read { db in try Album.fetchOne(db, key: id) }
+    }
+
     func album(folderPath: String) throws -> Album? {
         try dbQueue.read { db in
             try Album
@@ -1302,8 +1306,37 @@ final class SorrivaDatabase {
         try dbQueue.read { db in
             try Album
                 .filter(Album.Columns.artPathThumb == nil)
+                .filter(Album.Columns.artManualOverride == false)
                 .order(Album.Columns.sortTitle)
                 .fetchAll(db)
+        }
+    }
+
+    func albumsNeedingEmbeddedArtScan() throws -> [Album] {
+        try dbQueue.read { db in
+            try Album
+                .filter(Album.Columns.embeddedArtScanned == false)
+                .filter(Album.Columns.artManualOverride == false)
+                .order(Album.Columns.sortTitle)
+                .fetchAll(db)
+        }
+    }
+
+    func markEmbeddedArtScanned(albumId: String) throws {
+        let now = Int(Date().timeIntervalSince1970)
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE albums SET embeddedArtScanned = 1, updatedAt = ? WHERE id = ?
+            """, arguments: [now, albumId])
+        }
+    }
+
+    func setArtManualOverride(albumId: String, override: Bool) throws {
+        let now = Int(Date().timeIntervalSince1970)
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE albums SET artManualOverride = ?, updatedAt = ? WHERE id = ?
+            """, arguments: [override, now, albumId])
         }
     }
 

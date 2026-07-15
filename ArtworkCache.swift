@@ -86,14 +86,16 @@ actor ArtworkCache {
 
     /// Load thumbnail from disk. Returns nil if not yet cached.
     func thumbnail(for album: Album) -> UIImage? {
-        guard let path = album.artPathThumb else { return nil }
-        return UIImage(contentsOfFile: path)
+        guard let rel = album.artPathThumb else { return nil }
+        let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return UIImage(contentsOfFile: docs.appendingPathComponent(rel).path)
     }
 
     /// Load full image from disk. Returns nil if not yet cached.
     func fullImage(for album: Album) -> UIImage? {
-        guard let path = album.artPathFull else { return nil }
-        return UIImage(contentsOfFile: path)
+        guard let rel = album.artPathFull else { return nil }
+        let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return UIImage(contentsOfFile: docs.appendingPathComponent(rel).path)
     }
 
     // MARK: - Private
@@ -131,7 +133,7 @@ actor ArtworkCache {
         let filePath = dir.appendingPathComponent("\(albumId)_\(suffix).jpg")
         try data.write(to: filePath)
 
-        return filePath.path
+        return "artwork/\(albumId)_\(suffix).jpg"
     }
 
     private func artworkDirectory() -> URL {
@@ -184,7 +186,20 @@ struct AlbumArtView: View {
 
     private func loadImage() {
         Task {
-            let img = await ArtworkCache.shared.thumbnail(for: album)
+            let fresh = (try? SorrivaDatabase.shared.album(id: album.id)) ?? album
+            let relativePath = size >= 80 ? fresh.artPathFull : fresh.artPathThumb
+            guard let rel = relativePath else {
+                await MainActor.run { image = nil }
+                return
+            }
+            // Resolve relative path to absolute — container UUID changes on reinstall
+            let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let absPath = docsDir.appendingPathComponent(rel).path
+            print("ARTWORK UI: loading \(size >= 80 ? "full" : "thumb") — \(absPath) for \(fresh.title)")
+            guard let img = UIImage(contentsOfFile: absPath) else {
+                await MainActor.run { image = nil }
+                return
+            }
             await MainActor.run { image = img }
         }
     }

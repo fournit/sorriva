@@ -123,6 +123,9 @@ final class ScanCoordinator: ObservableObject {
             guard let self else { return }
             await self.runFolderArtPass(source: source)
             await ArtworkCache.shared.fetchMissingArtwork()
+            // Wait 30s for iOS to reclaim sockets from scan and folder/iTunes passes
+            try? await Task.sleep(nanoseconds: 30_000_000_000)
+            await self.runEmbeddedArtPass(source: source)
         }
     }
 
@@ -145,71 +148,95 @@ final class ScanCoordinator: ObservableObject {
         let albums = (try? SorrivaDatabase.shared.albums(sourceId: source.id)) ?? []
         guard !albums.isEmpty else { return }
 
-        print("ARTWORK: folder pass — \(albums.count) albums in \(source.displayName)")
+        print("ARTWORK: folder pass START — \(albums.count) albums in \(source.displayName)")
+        var found = 0
 
-        do {
-            let client = SMBClient(host: source.host)
-            try await client.login(username: source.username ?? "", password: source.password ?? "")
-            defer { Task { try? await client.logoff() } }
-            try await client.connectShare(source.share)
-            defer { Task { try? await client.disconnectShare() } }
+        for (idx, album) in albums.enumerated() {
+            guard !album.artManualOverride else {
+                print("ARTWORK: folder [\(idx+1)/\(albums.count)] SKIP manual override — \(album.title)")
+                continue
+            }
+            guard !album.folderPath.isEmpty else {
+                print("ARTWORK: folder [\(idx+1)/\(albums.count)] SKIP no folder path — \(album.title)")
+                continue
+            }
 
-            var found = 0
-            for album in albums {
-                guard !album.folderPath.isEmpty else { continue }
+            print("ARTWORK: folder [\(idx+1)/\(albums.count)] checking — \(album.artistName) · \(album.title)")
 
-                // List folder contents
-                guard let entries = try? await client.listDirectory(path: album.folderPath) else { continue }
-                let entryNames = Set(entries.map { $0.name })
+            // Fresh connection per album
+            let imageData = await withCheckedContinuation { continuation in
+                let semaphore = DispatchSemaphore(value: 0)
+                var result: Data? = nil
 
-                // Find best art candidate
-                var artFilePath: String? = nil
-                for candidate in Self.artCandidates {
-                    if entryNames.contains(candidate) {
-                        artFilePath = album.folderPath == "/"
-                            ? "/\(candidate)"
-                            : "\(album.folderPath)/\(candidate)"
-                        break
+                Task.detached {
+                    do {
+                        let client = SMBClient(host: source.host)
+                        try await client.login(username: source.username ?? "", password: source.password ?? "")
+                        try await client.connectShare(source.share)
+
+                        let entries = try await client.listDirectory(path: album.folderPath)
+                        let entryNames = Set(entries.map { $0.name })
+
+                        var artFilePath: String? = nil
+                        for candidate in ScanCoordinator.artCandidates {
+                            if entryNames.contains(candidate) {
+                                artFilePath = album.folderPath == "/"
+                                    ? "/\(candidate)"
+                                    : "\(album.folderPath)/\(candidate)"
+                                break
+                            }
+                        }
+
+                        if let artPath = artFilePath {
+                            print("ARTWORK: folder [\(idx+1)/\(albums.count)] downloading \((artPath as NSString).lastPathComponent)")
+                            result = try? await client.download(path: artPath)
+                        } else {
+                            print("ARTWORK: folder [\(idx+1)/\(albums.count)] no art file found")
+                        }
+
+                        try? await client.disconnectShare()
+                        try? await client.logoff()
+                    } catch {
+                        print("ARTWORK: folder [\(idx+1)/\(albums.count)] connection error — \(error.localizedDescription)")
                     }
+                    semaphore.signal()
                 }
 
-                guard let artPath = artFilePath else { continue }
+                DispatchQueue.global(qos: .utility).async {
+                    if semaphore.wait(timeout: .now() + 20) == .timedOut {
+                        print("ARTWORK: folder [\(idx+1)/\(albums.count)] TIMEOUT 20s — \(album.title)")
+                    }
+                    continuation.resume(returning: result)
+                }
+            }
 
-                // Download and save
-                guard let imageData = try? await client.download(path: artPath),
-                      let image = UIImage(data: imageData) else { continue }
-
+            if let data = imageData, let image = UIImage(data: data) {
                 let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
                 let artDir = docsDir.appendingPathComponent("artwork", isDirectory: true)
                 try? FileManager.default.createDirectory(at: artDir, withIntermediateDirectories: true)
-
                 let fullURL  = artDir.appendingPathComponent("\(album.id)_full.jpg")
                 let thumbURL = artDir.appendingPathComponent("\(album.id)_thumb.jpg")
-
                 if let fullData  = resized(image, to: 600)?.jpegData(compressionQuality: 0.85),
-                   let thumbData = resized(image, to: 100)?.jpegData(compressionQuality: 0.85) {
+                   let thumbData = resized(image, to: 300)?.jpegData(compressionQuality: 0.85) {
                     try? fullData.write(to: fullURL)
                     try? thumbData.write(to: thumbURL)
+                    let writtenPath = "artwork/\(album.id)_full.jpg"
+                    print("ARTWORK: writing path — \(writtenPath)")
                     try? SorrivaDatabase.shared.updateAlbumArtwork(
-                        albumId: album.id,
-                        thumbPath: thumbURL.path,
-                        fullPath: fullURL.path
+                        albumId: album.id, thumbPath: "artwork/\(album.id)_thumb.jpg", fullPath: writtenPath
                     )
                     found += 1
+                    print("ARTWORK: folder [\(idx+1)/\(albums.count)] SAVED — \(album.artistName) · \(album.title)")
                     await MainActor.run {
                         NotificationCenter.default.post(name: .artworkDidUpdate, object: album.id)
                     }
                 }
-
-                // Small delay between downloads — avoid overwhelming NAS
-                try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
             }
 
-            print("ARTWORK: folder pass complete — \(found)/\(albums.count) found")
-
-        } catch {
-            print("ARTWORK: folder pass error — \(error.localizedDescription)")
+            try? await Task.sleep(nanoseconds: 300_000_000) // 300ms between albums
         }
+
+        print("ARTWORK: folder pass COMPLETE — \(found)/\(albums.count) found")
     }
 
     private func resized(_ image: UIImage, to maxDimension: CGFloat) -> UIImage? {
@@ -222,6 +249,243 @@ final class ScanCoordinator: ObservableObject {
         let result = UIGraphicsGetImageFromCurrentImageContext()
         UIGraphicsEndImageContext()
         return result
+    }
+
+    private func runEmbeddedArtPass(source: LibrarySource) async {
+        let albums = (try? SorrivaDatabase.shared.albumsNeedingEmbeddedArtScan()) ?? []
+        guard !albums.isEmpty else { return }
+
+        print("ARTWORK: embedded pass — \(albums.count) albums to scan")
+        var found = 0
+
+        // One persistent connection for the entire pass
+        var client = SMBClient(host: source.host)
+        do {
+            try await client.login(username: source.username ?? "", password: source.password ?? "")
+            try await client.connectShare(source.share)
+        } catch {
+            print("ARTWORK: embedded pass — failed to connect: \(error.localizedDescription)")
+            return
+        }
+
+        for (idx, album) in albums.enumerated() {
+            guard !album.folderPath.isEmpty else {
+                try? SorrivaDatabase.shared.markEmbeddedArtScanned(albumId: album.id)
+                continue
+            }
+
+            let tracks = (try? SorrivaDatabase.shared.tracks(albumId: album.id)) ?? []
+            guard !tracks.isEmpty else {
+                try? SorrivaDatabase.shared.markEmbeddedArtScanned(albumId: album.id)
+                continue
+            }
+
+            print("ARTWORK: embedded [\(idx+1)/\(albums.count)] — \(album.artistName) · \(album.title)")
+
+            var artFound = false
+            for track in tracks.prefix(3) {
+                let ext = (track.filePath as NSString).pathExtension.lowercased()
+                guard ["mp3", "flac", "m4a", "aac", "alac"].contains(ext) else { continue }
+
+                // Read using persistent connection
+                var imageData: Data? = nil
+                do {
+                    let reader = client.fileReader(path: track.filePath)
+                    let raw = try await reader.read(offset: 0, length: 1048576)
+                    try? await reader.close()
+                    imageData = Self.extractArt(from: raw, ext: ext)
+                } catch {
+                    print("ARTWORK: embedded read error — \((track.filePath as NSString).lastPathComponent): \(error.localizedDescription)")
+                    // Reconnect on error
+                    try? await client.disconnectShare()
+                    try? await client.logoff()
+                    client = SMBClient(host: source.host)
+                    if (try? await client.login(username: source.username ?? "", password: source.password ?? "")) != nil,
+                       (try? await client.connectShare(source.share)) != nil {
+                        print("ARTWORK: embedded reconnected")
+                    }
+                    continue
+                }
+
+                if let data = imageData, let image = UIImage(data: data) {
+                    let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                    let artDir = docsDir.appendingPathComponent("artwork", isDirectory: true)
+                    try? FileManager.default.createDirectory(at: artDir, withIntermediateDirectories: true)
+                    let fullURL  = artDir.appendingPathComponent("\(album.id)_full.jpg")
+                    let thumbURL = artDir.appendingPathComponent("\(album.id)_thumb.jpg")
+                    if let fullData  = resized(image, to: 600)?.jpegData(compressionQuality: 0.85),
+                       let thumbData = resized(image, to: 300)?.jpegData(compressionQuality: 0.85) {
+                        try? fullData.write(to: fullURL)
+                        try? thumbData.write(to: thumbURL)
+                        try? SorrivaDatabase.shared.updateAlbumArtwork(
+                            albumId: album.id, thumbPath: "artwork/\(album.id)_thumb.jpg", fullPath: "artwork/\(album.id)_full.jpg"
+                        )
+                        found += 1
+                        artFound = true
+                        print("ARTWORK: embedded found — \(album.artistName) · \(album.title)")
+                        await MainActor.run {
+                            NotificationCenter.default.post(name: .artworkDidUpdate, object: album.id)
+                        }
+                        break
+                    }
+                }
+            }
+
+            if !artFound {
+                print("ARTWORK: no embedded art — \(album.artistName) · \(album.title)")
+            }
+
+            try? SorrivaDatabase.shared.markEmbeddedArtScanned(albumId: album.id)
+            try? await Task.sleep(nanoseconds: 500_000_000) // 500ms between albums
+        }
+
+        try? await client.disconnectShare()
+        try? await client.logoff()
+        print("ARTWORK: embedded pass complete — \(found)/\(albums.count) found")
+    }
+
+    private func readEmbeddedArt(
+        host: String, share: String,
+        username: String, password: String,
+        path: String, ext: String
+    ) async -> Data? {
+        return await withCheckedContinuation { continuation in
+            let semaphore = DispatchSemaphore(value: 0)
+            var result: Data? = nil
+
+            Task.detached {
+                do {
+                    let client = SMBClient(host: host)
+                    try await client.login(username: username.isEmpty ? "guest" : username, password: password)
+                    try await client.connectShare(share)
+                    let reader = client.fileReader(path: path)
+                    let data = try await reader.read(offset: 0, length: 1048576)
+                    try? await reader.close()
+                    try? await client.disconnectShare()
+                    try? await client.logoff()
+                    result = Self.extractArt(from: data, ext: ext)
+                } catch {
+                    print("ARTWORK: embedded read error — \((path as NSString).lastPathComponent): \(error.localizedDescription)")
+                }
+                semaphore.signal()
+            }
+
+            DispatchQueue.global(qos: .utility).async {
+                if semaphore.wait(timeout: .now() + 20) == .timedOut {
+                    print("ARTWORK: embedded read timeout — \((path as NSString).lastPathComponent)")
+                }
+                continuation.resume(returning: result)
+            }
+        }
+    }
+
+    private nonisolated static func extractArt(from data: Data, ext: String) -> Data? {
+        switch ext {
+        case "mp3": return extractID3Art(data: data)
+        case "flac": return extractFlacArt(data: data)
+        case "m4a", "aac", "alac": return extractMP4Art(data: data)
+        default: return nil
+        }
+    }
+
+    private nonisolated static func extractID3Art(data: Data) -> Data? {
+        guard data.count > 10, data[0] == 0x49, data[1] == 0x44, data[2] == 0x33 else { return nil }
+        let tagSize = (Int(data[6]) << 21) | (Int(data[7]) << 14) | (Int(data[8]) << 7) | Int(data[9])
+        let version = data[3]
+        var offset = 10
+        while offset + 10 < min(tagSize + 10, data.count) {
+            let frameID = String(bytes: data[offset..<offset+4], encoding: .isoLatin1) ?? ""
+            if frameID == "\0\0\0\0" { break }
+            let frameSize: Int
+            if version >= 4 {
+                frameSize = (Int(data[offset+4]) << 21) | (Int(data[offset+5]) << 14) | (Int(data[offset+6]) << 7) | Int(data[offset+7])
+            } else {
+                frameSize = (Int(data[offset+4]) << 24) | (Int(data[offset+5]) << 16) | (Int(data[offset+6]) << 8) | Int(data[offset+7])
+            }
+            guard frameSize > 0, offset + 10 + frameSize <= data.count else { break }
+            if frameID == "APIC" {
+                let frameData = Data(data[(offset+10)..<(offset+10+frameSize)]) // base-zero copy
+                // Skip encoding byte, mime type, null, pic type, description, null
+                var pos = 1
+                while pos < frameData.count && frameData[pos] != 0 { pos += 1 }
+                pos += 2 // skip null and picture type
+                while pos < frameData.count && frameData[pos] != 0 { pos += 1 }
+                pos += 1 // skip null after description
+                if pos < frameData.count {
+                    return Data(frameData[pos...])
+                }
+            }
+            offset += 10 + frameSize
+        }
+        return nil
+    }
+
+    private nonisolated static func extractFlacArt(data: Data) -> Data? {
+        guard data.count > 4, data[0] == 0x66, data[1] == 0x4C, data[2] == 0x61, data[3] == 0x43 else { return nil }
+        var offset = 4
+        while offset + 4 <= data.count {
+            let blockHeader = data[offset]
+            let isLast = (blockHeader & 0x80) != 0
+            let blockType = blockHeader & 0x7F
+            let blockSize = (Int(data[offset+1]) << 16) | (Int(data[offset+2]) << 8) | Int(data[offset+3])
+            offset += 4
+            if blockType == 6 && offset + blockSize <= data.count {
+                let block = Data(data[offset..<(offset+blockSize)]) // base-zero copy
+                guard block.count == blockSize else { offset += blockSize; if isLast { break }; continue }
+                var pos = 4 // skip picture type
+                guard pos + 4 <= block.count else { offset += blockSize; if isLast { break }; continue }
+                let mimeLen = (Int(block[pos]) << 24) | (Int(block[pos+1]) << 16) | (Int(block[pos+2]) << 8) | Int(block[pos+3]); pos += 4
+                guard pos + mimeLen + 4 <= block.count else { offset += blockSize; if isLast { break }; continue }
+                pos += mimeLen
+                let descLen = (Int(block[pos]) << 24) | (Int(block[pos+1]) << 16) | (Int(block[pos+2]) << 8) | Int(block[pos+3]); pos += 4
+                guard pos + descLen + 20 <= block.count else { offset += blockSize; if isLast { break }; continue }
+                pos += descLen + 16 // skip desc, width, height, color depth, indexed colors
+                let dataLen = (Int(block[pos]) << 24) | (Int(block[pos+1]) << 16) | (Int(block[pos+2]) << 8) | Int(block[pos+3]); pos += 4
+                guard pos + dataLen <= block.count else { offset += blockSize; if isLast { break }; continue }
+                return Data(block[pos..<(pos+dataLen)])
+            }
+            offset += blockSize
+            if isLast { break }
+        }
+        return nil
+    }
+
+    private nonisolated static func extractMP4Art(data: Data) -> Data? {
+        // Find moov → udta → meta → ilst → covr → data
+        func atomSize(_ d: Data, _ o: Int) -> Int {
+            guard o + 4 <= d.count else { return 0 }
+            return (Int(d[o]) << 24) | (Int(d[o+1]) << 16) | (Int(d[o+2]) << 8) | Int(d[o+3])
+        }
+        func atomName(_ d: Data, _ o: Int) -> String {
+            guard o + 8 <= d.count else { return "" }
+            return String(bytes: d[(o+4)..<(o+8)], encoding: .isoLatin1) ?? ""
+        }
+        func findAtom(_ name: String, _ d: Data, _ start: Int, _ end: Int) -> Int? {
+            var pos = start
+            while pos + 8 <= end {
+                let size = atomSize(d, pos)
+                guard size >= 8 else { break }
+                if atomName(d, pos) == name { return pos }
+                pos += size
+            }
+            return nil
+        }
+        let end = data.count
+        guard let moov = findAtom("moov", data, 0, end) else { return nil }
+        let moovEnd = min(moov + atomSize(data, moov), end)
+        guard let udta = findAtom("udta", data, moov+8, moovEnd) else { return nil }
+        let udtaEnd = min(udta + atomSize(data, udta), end)
+        guard let meta = findAtom("meta", data, udta+8, udtaEnd) else { return nil }
+        let metaEnd = min(meta + atomSize(data, meta), end)
+        guard let ilst = findAtom("ilst", data, meta+12, metaEnd) else { return nil }
+        let ilstEnd = min(ilst + atomSize(data, ilst), end)
+        guard let covr = findAtom("covr", data, ilst+8, ilstEnd) else { return nil }
+        let covrEnd = min(covr + atomSize(data, covr), end)
+        guard let dataAtom = findAtom("data", data, covr+8, covrEnd) else { return nil }
+        let valueOffset = dataAtom + 16
+        let valueEnd = min(dataAtom + atomSize(data, dataAtom), covrEnd)
+        guard valueOffset < valueEnd else { return nil }
+        return Data(data[valueOffset..<valueEnd])
     }
 
     // MARK: - Incremental change detection

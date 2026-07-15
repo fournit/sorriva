@@ -10,6 +10,7 @@ struct SettingsView: View {
     let onPlayStation: (RadioStation, SonosZone) -> Void
     let onNavigateToZone: (String) -> Void
     @State private var showClearLibraryConfirm = false
+    @State private var showClearLibraryDone = false
 
     var body: some View {
             ZStack {
@@ -109,10 +110,16 @@ struct SettingsView: View {
             Button("Clear", role: .destructive) {
                 try? SorrivaDatabase.shared.clearLocalLibrary()
                 NotificationCenter.default.post(name: .libraryDidUpdate, object: nil)
+                showClearLibraryDone = true
             }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This removes all indexed tracks, albums, artists and scan history. Your actual music files are not affected. You will need to rescan to rebuild the library.")
+        }
+        .alert("Library Cleared", isPresented: $showClearLibraryDone) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("All indexed data has been removed. Open Local Library to rescan.")
         }
     }
 

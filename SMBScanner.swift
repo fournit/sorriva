@@ -430,6 +430,7 @@ actor SMBScanner {
             primaryArtistId: artist.id, artistName: artist.name,
             year: year, genre: genre,
             artPathThumb: nil, artPathFull: nil,
+            embeddedArtScanned: false, artManualOverride: false,
             trackCount: 0, sourceId: sourceId,
             folderPath: folderPath,
             createdAt: now, updatedAt: now

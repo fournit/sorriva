@@ -421,9 +421,14 @@ struct ShareDetailCard: View {
                 .frame(width: 36)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(source.share)
+                Text(shareDisplayName)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(.sTextPrimary)
+
+                Text(source.rootPath.isEmpty || source.rootPath == "/" ? "/" : source.rootPath)
+                    .font(.system(size: 11))
+                    .foregroundColor(.sTextMuted)
+                    .lineLimit(1)
 
                 HStack(spacing: 6) {
                     if isScanning, let p = coordinator.progress {
@@ -480,6 +485,14 @@ struct ShareDetailCard: View {
         if let fresh = try? SorrivaDatabase.shared.allLibrarySources().first(where: { $0.id == source.id }) {
             source = fresh
         }
+    }
+
+    private var shareDisplayName: String {
+        let share = source.share
+        let root = source.rootPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !root.isEmpty else { return share }
+        let lastComponent = root.components(separatedBy: "/").filter { !$0.isEmpty }.last ?? root
+        return "\(share) — .../\(lastComponent)"
     }
 
     private var lastScannedText: String {
