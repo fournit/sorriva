@@ -37,7 +37,7 @@ struct SorrivaContextMenuSheet: View {
                 if let album = album {
                     AlbumArtView(album: album, size: 56)
                 } else if let urlStr = imageURL, !urlStr.isEmpty, let url = URL(string: urlStr) {
-                    CachedAsyncImage(url: url) { phase in
+                    AsyncImage(url: url) { phase in
                         switch phase {
                         case .success(let img): img.resizable().scaledToFill()
                         default: RoundedRectangle(cornerRadius: 8).fill(Color.sCard)
@@ -157,19 +157,22 @@ extension View {
 enum SorrivaContextActions {
 
     static func track(_ track: Track, album: Album? = nil,
+                      onPlayOn: @escaping () -> Void = {},
                       onRemove: @escaping () -> Void) -> [SorrivaContextAction] {
         [
             SorrivaContextAction(label: "Add to Favorites", icon: "heart") {},
-            SorrivaContextAction(label: "Play on...", icon: "hifispeaker.2") {},
+            SorrivaContextAction(label: "Play on...", icon: "hifispeaker.2", action: onPlayOn),
             SorrivaContextAction(label: "Remove from Library", icon: "trash",
                                  role: .destructive, action: onRemove)
         ]
     }
 
-    static func album(_ album: Album, onRemove: @escaping () -> Void) -> [SorrivaContextAction] {
+    static func album(_ album: Album,
+                      onPlayOn: @escaping () -> Void = {},
+                      onRemove: @escaping () -> Void) -> [SorrivaContextAction] {
         [
             SorrivaContextAction(label: "Add to Favorites", icon: "heart") {},
-            SorrivaContextAction(label: "Play on...", icon: "hifispeaker.2") {},
+            SorrivaContextAction(label: "Play on...", icon: "hifispeaker.2", action: onPlayOn),
             SorrivaContextAction(label: "Remove from Library", icon: "trash",
                                  role: .destructive, action: onRemove)
         ]

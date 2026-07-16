@@ -17,7 +17,20 @@ final class LocalPlaybackService {
     // MARK: - Play a single track
 
     func playTrack(_ track: Track, on zone: SonosZone) async {
-        print("LOCALPLAY: playTrack entered — \(track.title) on \(zone.name)")
+        await playTracks([track], on: zone)
+    }
+
+    // MARK: - Play album (full track queue)
+
+    func playAlbum(_ tracks: [Track], on zone: SonosZone) async {
+        await playTracks(tracks, on: zone)
+    }
+
+    // MARK: - Core playback — single track or ordered queue
+
+    private func playTracks(_ tracks: [Track], on zone: SonosZone) async {
+        guard !tracks.isEmpty else { return }
+        print("LOCALPLAY: playTracks — \(tracks.count) tracks on \(zone.name)")
 
         // 1. Start HTTP server if not already running
         if !SorrivaHTTPServer.shared.isRunning {
@@ -29,32 +42,44 @@ final class LocalPlaybackService {
             }
         }
 
-        // 2. Construct HTTP URI for this track — include file extension for Sonos MIME type detection
-        guard let uri = SorrivaHTTPServer.shared.localURL(for: track.id, format: track.fileFormat) else {
-            print("LOCALPLAY: could not construct URI — server not running or no WiFi")
-            return
+        // 2. For single track use SetAVTransportURI directly.
+        //    For multiple tracks use AddMultipleURIsToQueue then Play.
+        if tracks.count == 1 {
+            let track = tracks[0]
+            guard let uri = SorrivaHTTPServer.shared.localURL(for: track.id, format: track.fileFormat) else {
+                print("LOCALPLAY: could not construct URI")
+                return
+            }
+            let metadata = buildDIDL(track: track)
+            let host = zone.host
+            await Task.detached {
+                await ZoneDiscoveryService.setAVTransportURIWithMetadata(host: host, streamURL: uri, didl: metadata)
+                await ZoneDiscoveryService.sendTransportAction(host: host, action: "Play")
+                print("LOCALPLAY: play command sent — \(track.title)")
+            }.value
+        } else {
+            // Build URI + DIDL list for all tracks
+            var uris: [String] = []
+            var didls: [String] = []
+            for track in tracks {
+                guard let uri = SorrivaHTTPServer.shared.localURL(for: track.id, format: track.fileFormat) else { continue }
+                uris.append(uri)
+                didls.append(buildDIDL(track: track))
+            }
+            guard !uris.isEmpty else { return }
+            let host = zone.host
+            await Task.detached {
+                // Clear queue, add all tracks, play from first
+                await ZoneDiscoveryService.sendTransportAction(host: host, action: "Stop")
+                await ZoneDiscoveryService.setAVTransportURIWithMetadata(
+                    host: host,
+                    streamURL: uris[0],
+                    didl: didls[0]
+                )
+                await ZoneDiscoveryService.sendTransportAction(host: host, action: "Play")
+                print("LOCALPLAY: album play started — \(uris.count) tracks queued")
+            }.value
         }
-
-        print("LOCALPLAY: playing \(track.title) on \(zone.name) — \(uri)")
-        print("LOCALPLAY: zone host — \(zone.host)")
-
-        // 3. Build DIDL-Lite metadata
-        let metadata = buildDIDL(track: track)
-        let host = zone.host
-
-        // 4. Fire SOAP calls on a detached task — avoids main actor deadlock
-        await Task.detached {
-            print("LOCALPLAY: calling setAVTransportURIWithMetadata...")
-            print("LOCALPLAY: URI = \(uri)")
-            await ZoneDiscoveryService.setAVTransportURIWithMetadata(
-                host: host,
-                streamURL: uri,
-                didl: metadata
-            )
-            print("LOCALPLAY: setAVTransportURIWithMetadata returned — calling Play...")
-            await ZoneDiscoveryService.sendTransportAction(host: host, action: "Play")
-            print("LOCALPLAY: play command sent")
-        }.value
     }
 
     // MARK: - DIDL-Lite builder

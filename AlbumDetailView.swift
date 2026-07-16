@@ -6,11 +6,14 @@ import GRDB
 struct AlbumDetailView: View {
     let album: Album
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var discovery: ZoneDiscoveryService
+    @AppStorage("sorriva.selectedZoneID") private var selectedZoneID: String = ""
     @State private var tracks: [Track] = []
     @State private var trackToRemove: Track? = nil
     @State private var showRemoveConfirm = false
     @State private var zonePickerTrack: Track? = nil
-    @EnvironmentObject private var discovery: ZoneDiscoveryService
+    @State private var showAlbumZonePicker = false
+    @State private var isFavorite = false
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -60,6 +63,60 @@ struct AlbumDetailView: View {
                             .foregroundColor(.sTextMuted)
                     }
                     .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
+
+                    // MARK: — Action bar: Play, Favorite, Add to Playlist
+                    HStack(spacing: 16) {
+
+                        // Play button — tap plays on selected zone, long press picks zone
+                        Button(action: {
+                            // Tap: play on currently selected zone
+                            guard let zone = discovery.zones.first(where: { $0.id == selectedZoneID })
+                                    ?? discovery.zones.first else { return }
+                            Task { await LocalPlaybackService.shared.playAlbum(tracks, on: zone) }
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 14, weight: .semibold))
+                                Text("Play")
+                                    .font(.system(size: 15, weight: .semibold))
+                            }
+                            .foregroundColor(.sGradientBottom)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color.sHighlight)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                        .buttonStyle(.plain)
+                        .simultaneousGesture(
+                            LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+                                showAlbumZonePicker = true
+                            }
+                        )
+
+                        // Favorite
+                        Button(action: { isFavorite.toggle() }) {
+                            Image(systemName: isFavorite ? "heart.fill" : "heart")
+                                .font(.system(size: 20))
+                                .foregroundColor(isFavorite ? .sBrass : .sTextMuted)
+                                .frame(width: 44, height: 44)
+                                .background(Color.sSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                        .buttonStyle(.plain)
+
+                        // Add to Playlist (stub)
+                        Button(action: {}) {
+                            Image(systemName: "text.badge.plus")
+                                .font(.system(size: 20))
+                                .foregroundColor(.sTextMuted)
+                                .frame(width: 44, height: 44)
+                                .background(Color.sSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 20)
                     .padding(.bottom, 24)
 
                     // Track list
@@ -73,7 +130,10 @@ struct AlbumDetailView: View {
                                     title: track.title,
                                     subtitle: album.artistName,
                                     album: album,
-                                    actions: SorrivaContextActions.track(track, album: album) {
+                                    actions: SorrivaContextActions.track(track, album: album,
+                                        onPlayOn: {
+                                            zonePickerTrack = track
+                                        }) {
                                         trackToRemove = track
                                         showRemoveConfirm = true
                                     },
@@ -102,17 +162,28 @@ struct AlbumDetailView: View {
             ZonePickerSheet(
                 title: track.title,
                 subtitle: "\(track.artistName) · \(album.title)",
-                discovery: discovery
+                discovery: discovery,
+                selectedZoneID: nil
             ) { zone in
-                print("ALBUMDETAIL: onPick fired — zone:\(zone.name) track:\(track.title)")
                 zonePickerTrack = nil
-                print("ALBUMDETAIL: launching Task")
                 Task {
-                    print("ALBUMDETAIL: Task running — calling playTrack")
                     await LocalPlaybackService.shared.playTrack(track, on: zone)
-                    print("ALBUMDETAIL: playTrack returned")
                 }
-                print("ALBUMDETAIL: Task launched")
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showAlbumZonePicker) {
+            ZonePickerSheet(
+                title: album.title,
+                subtitle: album.artistName,
+                discovery: discovery,
+                selectedZoneID: selectedZoneID.isEmpty ? nil : selectedZoneID
+            ) { zone in
+                showAlbumZonePicker = false
+                Task {
+                    await LocalPlaybackService.shared.playAlbum(tracks, on: zone)
+                }
             }
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
