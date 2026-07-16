@@ -60,7 +60,7 @@ struct MiniPlayerView: View {
                 Button(action: onTapTrack) {
                     Group {
                         if !artURL.isEmpty, let url = URL(string: artURL) {
-                            AsyncImage(url: url) { phase in
+                            CachedAsyncImage(url: url) { phase in
                                 switch phase {
                                 case .success(let img):
                                     img.resizable().scaledToFill()

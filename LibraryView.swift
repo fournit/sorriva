@@ -387,7 +387,7 @@ struct MediaCard: View {
             ZStack(alignment: .bottomTrailing) {
                 Group {
                     if !displayLogoURL.isEmpty, let url = URL(string: displayLogoURL) {
-                        AsyncImage(url: url) { phase in
+                        CachedAsyncImage(url: url) { phase in
                             switch phase {
                             case .success(let img): img.resizable().scaledToFill()
                             default: artPlaceholder
@@ -541,7 +541,7 @@ struct StationActionSheet: View {
             HStack(spacing: 14) {
                 Group {
                     if !logoURL.isEmpty, let url = URL(string: logoURL) {
-                        AsyncImage(url: url) { phase in
+                        CachedAsyncImage(url: url) { phase in
                             switch phase {
                             case .success(let img): img.resizable().scaledToFill()
                             default: RoundedRectangle(cornerRadius: 8).fill(Color.sCard)

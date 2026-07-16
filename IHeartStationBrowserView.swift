@@ -457,7 +457,7 @@ struct StationBrowserCell: View {
             HStack(spacing: 12) {
                 Group {
                     if !station.logoURL.isEmpty, let url = URL(string: station.logoURL) {
-                        AsyncImage(url: url) { phase in
+                        CachedAsyncImage(url: url) { phase in
                             switch phase {
                             case .success(let img): img.resizable().scaledToFill()
                             default: logoPlaceholder

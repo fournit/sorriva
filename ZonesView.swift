@@ -196,7 +196,7 @@ struct ZoneCard: View, Equatable {
                 Group {
                     if !z.stationLogoURL.isEmpty,
                        let artURL = URL(string: z.stationLogoURL) {
-                        AsyncImage(url: artURL) { phase in
+                        CachedAsyncImage(url: artURL) { phase in
                             switch phase {
                             case .success(let img):
                                 img.resizable().scaledToFill()

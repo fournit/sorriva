@@ -303,10 +303,13 @@ struct StationBlockedSheet: View {
                 HStack(spacing: 12) {
                     Group {
                         if let url = URL(string: logoURL), !logoURL.isEmpty {
-                            AsyncImage(url: url) { img in
-                                img.resizable().scaledToFill()
-                            } placeholder: {
-                                Color.sGradientMid
+                            CachedAsyncImage(url: url) { phase in
+                                switch phase {
+                                case .success(let img):
+                                    img.resizable().scaledToFill()
+                                default:
+                                    Color.sGradientMid
+                                }
                             }
                         } else {
                             Color.sGradientMid

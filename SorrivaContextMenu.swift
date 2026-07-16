@@ -37,7 +37,7 @@ struct SorrivaContextMenuSheet: View {
                 if let album = album {
                     AlbumArtView(album: album, size: 56)
                 } else if let urlStr = imageURL, !urlStr.isEmpty, let url = URL(string: urlStr) {
-                    AsyncImage(url: url) { phase in
+                    CachedAsyncImage(url: url) { phase in
                         switch phase {
                         case .success(let img): img.resizable().scaledToFill()
                         default: RoundedRectangle(cornerRadius: 8).fill(Color.sCard)
