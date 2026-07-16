@@ -38,9 +38,9 @@ struct ContentView: View {
                                 tabState.selectedTab = .zones
                             }
                         )
-                        .environmentObject(discovery)
                         .environmentObject(tabState)
                     }
+                    .environmentObject(discovery)
 
                 case .zones:
                     NavigationStack {

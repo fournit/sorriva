@@ -8,6 +8,7 @@ import GRDB
 struct AlbumsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var tabState: SorrivaTabBarState
+    @EnvironmentObject private var discovery: ZoneDiscoveryService
     @State private var albums: [Album] = []
     @State private var sortMode: AlbumSortMode = .title
     @State private var albumToRemove: Album? = nil
@@ -85,7 +86,7 @@ struct AlbumsView: View {
                     ScrollView {
                         LazyVGrid(columns: columns, spacing: 16) {
                             ForEach(sortedAlbums) { album in
-                                NavigationLink(destination: AlbumDetailView(album: album)) {
+                                NavigationLink(destination: AlbumDetailView(album: album).environmentObject(discovery)) {
                                     AlbumGridCard(album: album)
                                 }
                                 .buttonStyle(.plain)

@@ -11,9 +11,20 @@ struct AlbumDetailView: View {
     @State private var tracks: [Track] = []
     @State private var trackToRemove: Track? = nil
     @State private var showRemoveConfirm = false
-    @State private var zonePickerTrack: Track? = nil
-    @State private var showAlbumZonePicker = false
+    @State private var activeSheet: ActiveSheet? = nil
     @State private var isFavorite = false
+
+    private enum ActiveSheet: Identifiable {
+        case trackPicker(Track)
+        case albumPicker
+
+        var id: String {
+            switch self {
+            case .trackPicker(let t): return "track-\(t.id)"
+            case .albumPicker: return "album"
+            }
+        }
+    }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -90,7 +101,7 @@ struct AlbumDetailView: View {
                         .buttonStyle(.plain)
                         .simultaneousGesture(
                             LongPressGesture(minimumDuration: 0.5).onEnded { _ in
-                                showAlbumZonePicker = true
+                                activeSheet = .albumPicker
                             }
                         )
 
@@ -124,7 +135,7 @@ struct AlbumDetailView: View {
                         ForEach(tracks) { track in
                             TrackCard(track: track, showAlbum: false)
                                 .onTapGesture {
-                                    zonePickerTrack = track
+                                    activeSheet = .trackPicker(track)
                                 }
                                 .sorrivaContextMenu(
                                     title: track.title,
@@ -132,7 +143,7 @@ struct AlbumDetailView: View {
                                     album: album,
                                     actions: SorrivaContextActions.track(track, album: album,
                                         onPlayOn: {
-                                            zonePickerTrack = track
+                                            activeSheet = .trackPicker(track)
                                         }) {
                                         trackToRemove = track
                                         showRemoveConfirm = true
@@ -158,35 +169,38 @@ struct AlbumDetailView: View {
         } message: {
             Text("This removes the track from your Sorriva library. The original file is not affected.")
         }
-        .sheet(item: $zonePickerTrack) { track in
-            ZonePickerSheet(
-                title: track.title,
-                subtitle: "\(track.artistName) · \(album.title)",
-                discovery: discovery,
-                selectedZoneID: nil
-            ) { zone in
-                zonePickerTrack = nil
-                Task {
-                    await LocalPlaybackService.shared.playTrack(track, on: zone)
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .trackPicker(let track):
+                ZonePickerSheet(
+                    title: track.title,
+                    subtitle: "\(track.artistName) · \(album.title)",
+                    discovery: discovery,
+                    selectedZoneID: nil
+                ) { zone in
+                    activeSheet = nil
+                    Task {
+                        await LocalPlaybackService.shared.playTrack(track, on: zone)
+                    }
                 }
-            }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $showAlbumZonePicker) {
-            ZonePickerSheet(
-                title: album.title,
-                subtitle: album.artistName,
-                discovery: discovery,
-                selectedZoneID: selectedZoneID.isEmpty ? nil : selectedZoneID
-            ) { zone in
-                showAlbumZonePicker = false
-                Task {
-                    await LocalPlaybackService.shared.playAlbum(tracks, on: zone)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+
+            case .albumPicker:
+                ZonePickerSheet(
+                    title: album.title,
+                    subtitle: album.artistName,
+                    discovery: discovery,
+                    selectedZoneID: selectedZoneID.isEmpty ? nil : selectedZoneID
+                ) { zone in
+                    activeSheet = nil
+                    Task {
+                        await LocalPlaybackService.shared.playAlbum(tracks, on: zone)
+                    }
                 }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
             }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
         }
     }
 

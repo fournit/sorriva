@@ -1,12 +1,9 @@
 import Foundation
 
-// MARK: - LocalPlaybackService
-// Orchestrates local library → Sonos playback via SorrivaHTTPServer.
-// Starts the HTTP server if not running, constructs the track URI,
-// builds DIDL-Lite metadata, and fires SetAVTransportURI + Play.
-//
-// Usage:
-//   await LocalPlaybackService.shared.playTrack(track, on: zone)
+// MARK: - LocalPlaybackService (working version — v0.0.21)
+// This is the version that successfully played a full 9-minute FLAC track
+// on Sonos Living Room (192.168.1.219) from UNAS Pro via iPhone HTTP server.
+// Track: Never Let Me Down Again [Split Mix] — 73MB FLAC
 
 @MainActor
 final class LocalPlaybackService {
@@ -14,23 +11,17 @@ final class LocalPlaybackService {
     static let shared = LocalPlaybackService()
     private init() {}
 
-    // MARK: - Play a single track
-
     func playTrack(_ track: Track, on zone: SonosZone) async {
         await playTracks([track], on: zone)
     }
-
-    // MARK: - Play album (full track queue)
 
     func playAlbum(_ tracks: [Track], on zone: SonosZone) async {
         await playTracks(tracks, on: zone)
     }
 
-    // MARK: - Core playback — single track or ordered queue
-
     private func playTracks(_ tracks: [Track], on zone: SonosZone) async {
-        guard !tracks.isEmpty else { return }
-        print("LOCALPLAY: playTracks — \(tracks.count) tracks on \(zone.name)")
+        guard let track = tracks.first else { return }
+        print("LOCALPLAY: playTrack entered — \(track.title) on \(zone.name)")
 
         // 1. Start HTTP server if not already running
         if !SorrivaHTTPServer.shared.isRunning {
@@ -42,44 +33,31 @@ final class LocalPlaybackService {
             }
         }
 
-        // 2. For single track use SetAVTransportURI directly.
-        //    For multiple tracks use AddMultipleURIsToQueue then Play.
-        if tracks.count == 1 {
-            let track = tracks[0]
-            guard let uri = SorrivaHTTPServer.shared.localURL(for: track.id, format: track.fileFormat) else {
-                print("LOCALPLAY: could not construct URI")
-                return
-            }
-            let metadata = buildDIDL(track: track)
-            let host = zone.host
-            await Task.detached {
-                await ZoneDiscoveryService.setAVTransportURIWithMetadata(host: host, streamURL: uri, didl: metadata)
-                await ZoneDiscoveryService.sendTransportAction(host: host, action: "Play")
-                print("LOCALPLAY: play command sent — \(track.title)")
-            }.value
-        } else {
-            // Build URI + DIDL list for all tracks
-            var uris: [String] = []
-            var didls: [String] = []
-            for track in tracks {
-                guard let uri = SorrivaHTTPServer.shared.localURL(for: track.id, format: track.fileFormat) else { continue }
-                uris.append(uri)
-                didls.append(buildDIDL(track: track))
-            }
-            guard !uris.isEmpty else { return }
-            let host = zone.host
-            await Task.detached {
-                // Clear queue, add all tracks, play from first
-                await ZoneDiscoveryService.sendTransportAction(host: host, action: "Stop")
-                await ZoneDiscoveryService.setAVTransportURIWithMetadata(
-                    host: host,
-                    streamURL: uris[0],
-                    didl: didls[0]
-                )
-                await ZoneDiscoveryService.sendTransportAction(host: host, action: "Play")
-                print("LOCALPLAY: album play started — \(uris.count) tracks queued")
-            }.value
+        // 2. Construct HTTP URI — file extension required for Sonos MIME type (error 714 fix)
+        guard let uri = SorrivaHTTPServer.shared.localURL(for: track.id, format: track.fileFormat) else {
+            print("LOCALPLAY: could not construct URI — server not running or no WiFi")
+            return
         }
+
+        print("LOCALPLAY: playing \(track.title) on \(zone.name) — \(uri)")
+        print("LOCALPLAY: zone host — \(zone.host)")
+
+        // 3. Build DIDL-Lite metadata
+        let metadata = buildDIDL(track: track)
+        let host = zone.host
+
+        // 4. Fire SOAP calls on detached task — avoids main actor deadlock
+        await Task.detached {
+            print("LOCALPLAY: calling setAVTransportURIWithMetadata...")
+            await ZoneDiscoveryService.setAVTransportURIWithMetadata(
+                host: host,
+                streamURL: uri,
+                didl: metadata
+            )
+            print("LOCALPLAY: setAVTransportURIWithMetadata returned — calling Play...")
+            await ZoneDiscoveryService.sendTransportAction(host: host, action: "Play")
+            print("LOCALPLAY: play command sent")
+        }.value
     }
 
     // MARK: - DIDL-Lite builder
@@ -88,22 +66,9 @@ final class LocalPlaybackService {
         let title = escape(track.title)
         let artist = escape(track.artistName)
         let album = escape(track.albumTitle)
-
-        // Duration: stored as seconds in DB — convert to HH:MM:SS for DIDL
         let duration = track.duration.map { formatDuration($0) } ?? "0:00:00"
 
-        return """
-        &lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; \
-        xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; \
-        xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;\
-        &lt;item id=&quot;-1&quot; parentID=&quot;-1&quot; restricted=&quot;true&quot;&gt;\
-        &lt;dc:title&gt;\(title)&lt;/dc:title&gt;\
-        &lt;dc:creator&gt;\(artist)&lt;/dc:creator&gt;\
-        &lt;upnp:album&gt;\(album)&lt;/upnp:album&gt;\
-        &lt;upnp:duration&gt;\(duration)&lt;/upnp:duration&gt;\
-        &lt;upnp:class&gt;object.item.audioItem.musicTrack&lt;/upnp:class&gt;\
-        &lt;/item&gt;&lt;/DIDL-Lite&gt;
-        """
+        return "&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;-1&quot; parentID=&quot;-1&quot; restricted=&quot;true&quot;&gt;&lt;dc:title&gt;\(title)&lt;/dc:title&gt;&lt;dc:creator&gt;\(artist)&lt;/dc:creator&gt;&lt;upnp:album&gt;\(album)&lt;/upnp:album&gt;&lt;upnp:duration&gt;\(duration)&lt;/upnp:duration&gt;&lt;upnp:class&gt;object.item.audioItem.musicTrack&lt;/upnp:class&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;"
     }
 
     private func escape(_ string: String) -> String {

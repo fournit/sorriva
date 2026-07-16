@@ -6,6 +6,7 @@ import GRDB
 struct ArtistsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var tabState: SorrivaTabBarState
+    @EnvironmentObject private var discovery: ZoneDiscoveryService
     @State private var artists: [Artist] = []
     @State private var artistToRemove: Artist? = nil
     @State private var showRemoveConfirm = false
@@ -54,7 +55,7 @@ struct ArtistsView: View {
                     ScrollView {
                         LazyVGrid(columns: columns, spacing: 20) {
                             ForEach(artists) { artist in
-                                NavigationLink(destination: ArtistDetailView(artist: artist)) {
+                                NavigationLink(destination: ArtistDetailView(artist: artist).environmentObject(discovery)) {
                                     VStack(spacing: 6) {
                                         ArtistAvatarView(artist: artist, size: 100)
                                         Text(artist.name)
@@ -133,6 +134,7 @@ struct ArtistsView: View {
 struct ArtistDetailView: View {
     let artist: Artist
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var discovery: ZoneDiscoveryService
     @State private var albums: [Album] = []
 
     private let columns = [
@@ -186,7 +188,7 @@ struct ArtistDetailView: View {
 
                             LazyVGrid(columns: columns, spacing: 16) {
                                 ForEach(albums) { album in
-                                    NavigationLink(destination: AlbumDetailView(album: album)) {
+                                    NavigationLink(destination: AlbumDetailView(album: album).environmentObject(discovery)) {
                                         AlbumGridCard(album: album)
                                     }
                                     .buttonStyle(.plain)

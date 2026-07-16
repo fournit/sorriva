@@ -918,6 +918,7 @@ struct LibraryMediaCard: View {
 struct LibraryArtistRow: View {
     let artists: [Artist]
     let onSeeAll: () -> Void
+    @EnvironmentObject private var discovery: ZoneDiscoveryService
     @State private var selectedArtist: Artist? = nil
     @State private var artistToRemove: Artist? = nil
     @State private var showRemoveConfirm = false
@@ -961,6 +962,7 @@ struct LibraryArtistRow: View {
         .sheet(item: $selectedArtist) { artist in
             NavigationView {
                 ArtistDetailView(artist: artist)
+                    .environmentObject(discovery)
             }
             .navigationViewStyle(.stack)
         }
