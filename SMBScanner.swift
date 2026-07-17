@@ -178,26 +178,25 @@ actor SMBScanner {
             // Per-file fresh connection — eliminates session degradation on UNAS Pro.
             // 100ms throttle gives NAS time to release each connection before the next opens.
             var meta = ParsedMetadata()
-            if ext != "wav" && ext != "aif" && ext != "aiff" {
-                let headerData = await readFileWithFreshConnection(
-                    host: source.host,
-                    share: source.share,
-                    username: source.username ?? "",
-                    password: source.password ?? "",
-                    path: file.path,
-                    fileSize: Int(file.size)
-                )
-                if let data = headerData {
-                    let parsed = parseTagData(data: data, ext: ext)
-                    if parsed.title != nil || parsed.artist != nil || parsed.album != nil {
-                        meta = parsed
-                    }
-                } else {
-                    skipped += 1
-                    print("SCAN: SKIP — \(file.path)")
+            let headerData = await readFileWithFreshConnection(
+                host: source.host,
+                share: source.share,
+                username: source.username ?? "",
+                password: source.password ?? "",
+                path: file.path,
+                fileSize: Int(file.size)
+            )
+            if let data = headerData {
+                let parsed = parseTagData(data: data, ext: ext)
+                if parsed.title != nil || parsed.artist != nil || parsed.album != nil || parsed.duration != nil {
+                    meta = parsed
                 }
-                try? await Task.sleep(nanoseconds: 200_000_000) // 200ms throttle
+            } else {
+                skipped += 1
+                print("SCAN: SKIP — \(file.path)")
             }
+            try? await Task.sleep(nanoseconds: 200_000_000) // 200ms throttle
+
             if (scanned + 1) % 50 == 0 {
                 print("SCAN: [\(scanned + 1)/\(totalFiles)] progress — \(skipped) skipped so far")
             }
@@ -574,8 +573,82 @@ actor SMBScanner {
         case "mp3":  return parseID3v2(data: data)
         case "flac": return parseVorbisComment(data: data)
         case "m4a", "aac", "alac": return parseMP4Atoms(data: data)
+        case "wav", "aif", "aiff": return parseWAVDuration(data: data, ext: ext)
         default: return ParsedMetadata()
         }
+    }
+
+    // MARK: - WAV / AIFF duration parser
+
+    private func parseWAVDuration(data: Data, ext: String) -> ParsedMetadata {
+        var meta = ParsedMetadata()
+        guard data.count > 44 else { return meta }
+
+        if ext == "wav" {
+            // WAV RIFF header: "RIFF" + fileSize(4) + "WAVE" + "fmt "(4) + chunkSize(4)
+            // fmt chunk: audioFormat(2) + channels(2) + sampleRate(4) + byteRate(4) + blockAlign(2) + bitsPerSample(2)
+            guard data[0] == 0x52, data[1] == 0x49, data[2] == 0x46, data[3] == 0x46 else { return meta }
+            guard data[8] == 0x57, data[9] == 0x41, data[10] == 0x56, data[11] == 0x45 else { return meta }
+
+            // Find fmt chunk
+            var offset = 12
+            while offset + 8 <= data.count {
+                let chunkID = String(bytes: data[offset..<offset+4], encoding: .isoLatin1) ?? ""
+                let chunkSize = Int(data[offset+4]) | Int(data[offset+5]) << 8
+                             | Int(data[offset+6]) << 16 | Int(data[offset+7]) << 24
+                if chunkID == "fmt " && offset + 8 + chunkSize <= data.count && chunkSize >= 16 {
+                    let sampleRate = Int(data[offset+12]) | Int(data[offset+13]) << 8
+                                   | Int(data[offset+14]) << 16 | Int(data[offset+15]) << 24
+                    let byteRate   = Int(data[offset+16]) | Int(data[offset+17]) << 8
+                                   | Int(data[offset+18]) << 16 | Int(data[offset+19]) << 24
+                    // Find data chunk for size
+                    var dOffset = offset + 8 + chunkSize
+                    while dOffset + 8 <= data.count {
+                        let dID = String(bytes: data[dOffset..<dOffset+4], encoding: .isoLatin1) ?? ""
+                        let dSize = Int(data[dOffset+4]) | Int(data[dOffset+5]) << 8
+                                  | Int(data[dOffset+6]) << 16 | Int(data[dOffset+7]) << 24
+                        if dID == "data" && byteRate > 0 {
+                            meta.duration = Double(dSize) / Double(byteRate)
+                            return meta
+                        }
+                        dOffset += 8 + dSize
+                    }
+                    // Fallback: use file size from RIFF header
+                    if byteRate > 0 && sampleRate > 0 {
+                        let fileSize = Int(data[4]) | Int(data[5]) << 8
+                                     | Int(data[6]) << 16 | Int(data[7]) << 24
+                        meta.duration = Double(fileSize) / Double(byteRate)
+                    }
+                    return meta
+                }
+                offset += 8 + chunkSize
+            }
+        } else {
+            // AIFF: "FORM" + size(4) + "AIFF" + "COMM" chunk
+            guard data[0] == 0x46, data[1] == 0x4F, data[2] == 0x52, data[3] == 0x4D else { return meta }
+            var offset = 12
+            while offset + 8 <= data.count {
+                let chunkID = String(bytes: data[offset..<offset+4], encoding: .isoLatin1) ?? ""
+                let chunkSize = Int(data[offset+4]) << 24 | Int(data[offset+5]) << 16
+                             | Int(data[offset+6]) << 8  | Int(data[offset+7])
+                if chunkID == "COMM" && offset + 8 + 18 <= data.count {
+                    // numSampleFrames at offset+10 (4 bytes), sampleRate at offset+14 (80-bit IEEE float)
+                    let numFrames = Int(data[offset+10]) << 24 | Int(data[offset+11]) << 16
+                                  | Int(data[offset+12]) << 8  | Int(data[offset+13])
+                    // 80-bit extended: exponent at [14-15], mantissa at [16-23]
+                    let exp = Int(data[offset+14] & 0x7F) << 8 | Int(data[offset+15])
+                    let mant = UInt64(data[offset+16]) << 56 | UInt64(data[offset+17]) << 48
+                             | UInt64(data[offset+18]) << 40 | UInt64(data[offset+19]) << 32
+                    let sampleRate = Double(mant) * pow(2.0, Double(exp - 16383 - 63))
+                    if sampleRate > 0 && numFrames > 0 {
+                        meta.duration = Double(numFrames) / sampleRate
+                    }
+                    return meta
+                }
+                offset += 8 + chunkSize + (chunkSize % 2)
+            }
+        }
+        return meta
     }
 
     // MARK: - ID3v2 parser (MP3)
@@ -623,6 +696,11 @@ actor SMBScanner {
                     meta.discNumber = Int(s.components(separatedBy: "/").first ?? s)
                 }
             case "TCON": meta.genre = id3Genre(id3TextFrame(frameData))
+            case "TLEN":
+                // TLEN = track length in milliseconds
+                if let s = id3TextFrame(frameData), let ms = Double(s), ms > 0 {
+                    meta.duration = ms / 1000.0
+                }
             default: break
             }
             offset += 10 + frameSize
@@ -676,10 +754,30 @@ actor SMBScanner {
             let blockType = blockHeader & 0x7F
             let blockSize = Int(data[offset+1]) << 16 | Int(data[offset+2]) << 8 | Int(data[offset+3])
             offset += 4
-            if blockType == 4 && offset + blockSize <= data.count {
+
+            if blockType == 0 && blockSize >= 18 && offset + blockSize <= data.count {
+                // STREAMINFO block — extract sample rate and total samples for duration
+                // Bytes 10-13 (within block): min block size(16) + max block size(16) + min frame(24) + max frame(24) + sample rate(20) + channels(3) + bits(5) = start of sample rate at bit 80 = byte 10
+                // Layout: [0-1]=minBlockSize [2-3]=maxBlockSize [4-6]=minFrameSize [7-9]=maxFrameSize
+                //         [10-12 bits 0-19]=sampleRate [12 bits 20-22]=channels [12 bits 23-27]=bitsPerSample
+                //         [12 bit 28 .. 16 bit 43]=totalSamples (36 bits)
+                let b = data[offset..<(offset+blockSize)]
+                let sampleRate = (Int(b[10]) << 12) | (Int(b[11]) << 4) | (Int(b[12]) >> 4)
+                // Total samples: 36 bits starting at bit 108 (byte 13 bit 4)
+                let totalSamples = (Int(b[13] & 0x0F) << 32)
+                    | (Int(b[14]) << 24)
+                    | (Int(b[15]) << 16)
+                    | (Int(b[16]) << 8)
+                    | Int(b[17])
+                if sampleRate > 0 && totalSamples > 0 {
+                    meta.duration = Double(totalSamples) / Double(sampleRate)
+                }
+            } else if blockType == 4 && offset + blockSize <= data.count {
+                // VORBIS_COMMENT block — text tags
                 let block = Data(data[offset..<(offset+blockSize)])
                 parseVorbisBlock(block: block, meta: &meta)
             }
+
             offset += blockSize
             if isLast || offset >= data.count { break }
         }
@@ -734,6 +832,33 @@ actor SMBScanner {
         if let moovOffset = findAtom(name: "moov", data: data, offset: 0) {
             let moovSize = atomSize(data: data, offset: moovOffset)
             let moovEnd = min(moovOffset + moovSize, data.count)
+
+            // mvhd atom — contains duration in timescale units
+            if let mvhdOffset = findAtom(name: "mvhd", data: data, offset: moovOffset + 8, end: moovEnd),
+               mvhdOffset + 28 <= data.count {
+                let version = data[mvhdOffset + 8]
+                if version == 0 {
+                    // 32-bit: timescale at offset 12, duration at offset 16
+                    let timescale = Int(data[mvhdOffset+20]) << 24 | Int(data[mvhdOffset+21]) << 16
+                                  | Int(data[mvhdOffset+22]) << 8  | Int(data[mvhdOffset+23])
+                    let duration  = Int(data[mvhdOffset+24]) << 24 | Int(data[mvhdOffset+25]) << 16
+                                  | Int(data[mvhdOffset+26]) << 8  | Int(data[mvhdOffset+27])
+                    if timescale > 0 && duration > 0 {
+                        meta.duration = Double(duration) / Double(timescale)
+                    }
+                } else if version == 1 && mvhdOffset + 36 <= data.count {
+                    // 64-bit: timescale at offset 20, duration at offset 24
+                    let timescale = Int(data[mvhdOffset+28]) << 24 | Int(data[mvhdOffset+29]) << 16
+                                  | Int(data[mvhdOffset+30]) << 8  | Int(data[mvhdOffset+31])
+                    let durHi = Int(data[mvhdOffset+32]) << 24 | Int(data[mvhdOffset+33]) << 16
+                    let durLo = Int(data[mvhdOffset+34]) << 8  | Int(data[mvhdOffset+35])
+                    let duration = (durHi << 16) | durLo
+                    if timescale > 0 && duration > 0 {
+                        meta.duration = Double(duration) / Double(timescale)
+                    }
+                }
+            }
+
             if let udtaOffset = findAtom(name: "udta", data: data, offset: moovOffset + 8, end: moovEnd) {
                 let udtaSize = atomSize(data: data, offset: udtaOffset)
                 let udtaEnd = min(udtaOffset + udtaSize, data.count)

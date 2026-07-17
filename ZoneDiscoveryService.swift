@@ -777,6 +777,76 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         }
     }
 
+    // MARK: - Queue management
+
+    nonisolated static func removeAllTracksFromQueue(host: String) async {
+        let soapBody = """
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+          <s:Body>
+            <u:RemoveAllTracksFromQueue xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+              <InstanceID>0</InstanceID>
+            </u:RemoveAllTracksFromQueue>
+          </s:Body>
+        </s:Envelope>
+        """
+        guard let url = URL(string: "http://\(host):1400/MediaRenderer/AVTransport/Control"),
+              let bodyData = soapBody.data(using: .utf8) else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("\"urn:schemas-upnp-org:service:AVTransport:1#RemoveAllTracksFromQueue\"",
+                         forHTTPHeaderField: "SOAPACTION")
+        request.httpBody = bodyData
+        request.timeoutInterval = 5
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            print("SORRIVA: RemoveAllTracksFromQueue \(host) status=\(status)")
+        } catch {
+            print("SORRIVA: RemoveAllTracksFromQueue error: \(error.localizedDescription)")
+        }
+    }
+
+    nonisolated static func addMultipleURIsToQueue(host: String, uris: [String], didls: [String]) async {
+        guard !uris.isEmpty else { return }
+        // Build comma-separated URI and DIDL lists
+        let uriList = uris.map { $0.replacingOccurrences(of: "&", with: "&amp;") }.joined(separator: " ")
+        let didlList = didls.joined(separator: " ")
+        let soapBody = """
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+          <s:Body>
+            <u:AddMultipleURIsToQueue xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+              <InstanceID>0</InstanceID>
+              <UpdateID>0</UpdateID>
+              <NumberOfURIs>\(uris.count)</NumberOfURIs>
+              <EnqueuedURIs>\(uriList)</EnqueuedURIs>
+              <EnqueuedURIsMetaData>\(didlList)</EnqueuedURIsMetaData>
+              <ContainerURI></ContainerURI>
+              <ContainerMetaData></ContainerMetaData>
+              <DesiredFirstTrackNumberEnqueued>0</DesiredFirstTrackNumberEnqueued>
+              <EnqueueAsNext>0</EnqueueAsNext>
+            </u:AddMultipleURIsToQueue>
+          </s:Body>
+        </s:Envelope>
+        """
+        guard let url = URL(string: "http://\(host):1400/MediaRenderer/AVTransport/Control"),
+              let bodyData = soapBody.data(using: .utf8) else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("\"urn:schemas-upnp-org:service:AVTransport:1#AddMultipleURIsToQueue\"",
+                         forHTTPHeaderField: "SOAPACTION")
+        request.httpBody = bodyData
+        request.timeoutInterval = 10
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            print("SORRIVA: AddMultipleURIsToQueue \(host) \(uris.count) tracks status=\(status)")
+        } catch {
+            print("SORRIVA: AddMultipleURIsToQueue error: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - Transport control
 
     func togglePlayPause(zoneID: String) {
