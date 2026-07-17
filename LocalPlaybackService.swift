@@ -94,6 +94,7 @@ final class LocalPlaybackService {
 
         // Duration only if available — omitting is safer than sending 0:00:00
         let durationAttr = track.duration.map { " duration=&quot;\(formatDuration($0))&quot;" } ?? ""
+        print("LOCALPLAY: DIDL — \(track.title) duration=\(track.duration.map { formatDuration($0) } ?? "nil")")
 
         return "&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;-1&quot; parentID=&quot;-1&quot; restricted=&quot;true&quot;&gt;&lt;dc:title&gt;\(title)&lt;/dc:title&gt;&lt;dc:creator&gt;\(artist)&lt;/dc:creator&gt;&lt;upnp:album&gt;\(album)&lt;/upnp:album&gt;&lt;upnp:class&gt;object.item.audioItem.musicTrack&lt;/upnp:class&gt;&lt;res protocolInfo=&quot;\(protocolInfo)&quot;\(durationAttr)&gt;\(escapedURI)&lt;/res&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;"
     }

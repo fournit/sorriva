@@ -77,26 +77,26 @@ struct AlbumDetailView: View {
                     .padding(.bottom, 20)
 
                     // MARK: — Action bar: Play, Favorite, Add to Playlist
-                    HStack(spacing: 16) {
+                    HStack(spacing: 12) {
 
                         // Play button — tap plays on selected zone, long press picks zone
                         Button(action: {
-                            // Tap: play on currently selected zone
                             guard let zone = discovery.zones.first(where: { $0.id == selectedZoneID })
                                     ?? discovery.zones.first else { return }
                             Task { await LocalPlaybackService.shared.playAlbum(tracks, on: zone) }
                         }) {
                             HStack(spacing: 8) {
                                 Image(systemName: "play.fill")
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .font(.system(size: 13, weight: .bold))
                                 Text("Play")
-                                    .font(.system(size: 15, weight: .semibold))
+                                    .font(.system(size: 15, weight: .bold))
+                                    .tracking(0.2)
                             }
-                            .foregroundColor(.sGradientBottom)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(Color.sHighlight)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 28)
+                            .padding(.vertical, 13)
+                            .background(Color.sAccent)
+                            .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
                         .simultaneousGesture(
@@ -105,11 +105,13 @@ struct AlbumDetailView: View {
                             }
                         )
 
+                        Spacer()
+
                         // Favorite
                         Button(action: { isFavorite.toggle() }) {
                             Image(systemName: isFavorite ? "heart.fill" : "heart")
-                                .font(.system(size: 20))
-                                .foregroundColor(isFavorite ? .sBrass : .sTextMuted)
+                                .font(.system(size: 19))
+                                .foregroundColor(isFavorite ? .sBrass : .sTextSecondary)
                                 .frame(width: 44, height: 44)
                                 .background(Color.sSurface)
                                 .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -119,8 +121,8 @@ struct AlbumDetailView: View {
                         // Add to Playlist (stub)
                         Button(action: {}) {
                             Image(systemName: "text.badge.plus")
-                                .font(.system(size: 20))
-                                .foregroundColor(.sTextMuted)
+                                .font(.system(size: 19))
+                                .foregroundColor(.sTextSecondary)
                                 .frame(width: 44, height: 44)
                                 .background(Color.sSurface)
                                 .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -214,7 +216,8 @@ struct AlbumDetailView: View {
             try db.execute(sql: "DELETE FROM tracks WHERE id = ?", arguments: [track.id])
         }
         loadTracks()
-    }}
+    }
+}
 
 // MARK: - TrackCard
 // Card row for a single track. Used in AlbumDetailView and TracksView.
@@ -264,11 +267,19 @@ struct TrackCard: View {
             // Format badge
             Text(track.fileFormat.uppercased())
                 .font(.system(size: 9, weight: .semibold))
-                .foregroundColor(.sTextMuted)
+                .foregroundColor(.sTextSecondary)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 2)
                 .background(Color.sSurface)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
+
+            // Duration
+            if let duration = track.duration {
+                Text(formatDuration(duration))
+                    .font(.system(size: 11))
+                    .foregroundColor(.sTextPrimary)
+                    .monospacedDigit()
+            }
 
             Image(systemName: "ellipsis")
                 .font(.system(size: 16))
@@ -277,5 +288,12 @@ struct TrackCard: View {
         .padding(12)
         .background(Color.sCard)
         .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func formatDuration(_ seconds: Double) -> String {
+        let total = Int(seconds)
+        let m = total / 60
+        let s = total % 60
+        return String(format: "%d:%02d", m, s)
     }
 }

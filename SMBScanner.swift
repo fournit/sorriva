@@ -756,19 +756,21 @@ actor SMBScanner {
             offset += 4
 
             if blockType == 0 && blockSize >= 18 && offset + blockSize <= data.count {
-                // STREAMINFO block — extract sample rate and total samples for duration
-                // Bytes 10-13 (within block): min block size(16) + max block size(16) + min frame(24) + max frame(24) + sample rate(20) + channels(3) + bits(5) = start of sample rate at bit 80 = byte 10
-                // Layout: [0-1]=minBlockSize [2-3]=maxBlockSize [4-6]=minFrameSize [7-9]=maxFrameSize
-                //         [10-12 bits 0-19]=sampleRate [12 bits 20-22]=channels [12 bits 23-27]=bitsPerSample
-                //         [12 bit 28 .. 16 bit 43]=totalSamples (36 bits)
-                let b = data[offset..<(offset+blockSize)]
-                let sampleRate = (Int(b[10]) << 12) | (Int(b[11]) << 4) | (Int(b[12]) >> 4)
-                // Total samples: 36 bits starting at bit 108 (byte 13 bit 4)
-                let totalSamples = (Int(b[13] & 0x0F) << 32)
-                    | (Int(b[14]) << 24)
-                    | (Int(b[15]) << 16)
-                    | (Int(b[16]) << 8)
-                    | Int(b[17])
+                // STREAMINFO block (18 bytes) — use offset-relative indexing into data
+                // data[offset+0..1]  = min block size
+                // data[offset+2..3]  = max block size
+                // data[offset+4..6]  = min frame size
+                // data[offset+7..9]  = max frame size
+                // data[offset+10..12] = sample rate (20 bits) | channels (3) | bitsPerSample (5)
+                // data[offset+13..17] = total samples (36 bits)
+                let sampleRate = (Int(data[offset+10]) << 12)
+                              | (Int(data[offset+11]) << 4)
+                              | (Int(data[offset+12]) >> 4)
+                let totalSamples = (Int(data[offset+13] & 0x0F) << 32)
+                                 | (Int(data[offset+14]) << 24)
+                                 | (Int(data[offset+15]) << 16)
+                                 | (Int(data[offset+16]) << 8)
+                                 |  Int(data[offset+17])
                 if sampleRate > 0 && totalSamples > 0 {
                     meta.duration = Double(totalSamples) / Double(sampleRate)
                 }
