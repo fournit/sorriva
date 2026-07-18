@@ -610,6 +610,24 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         // Non-HDMI source — clear HDMI flag if it was previously set
         zones[idx].isHDMI = false
 
+        // Extract RelTime and TrackURI for position logging
+        let zoneName = zones[idx].name
+        if let relStart = raw.range(of: "<RelTime>"),
+           let relEnd = raw.range(of: "</RelTime>") {
+            let relTime = String(raw[relStart.upperBound..<relEnd.lowerBound])
+            // Only log for local HTTP tracks
+            if raw.contains(":8080/track/") {
+                if let uriStart = raw.range(of: "<TrackURI>"),
+                   let uriEnd = raw.range(of: "</TrackURI>") {
+                    let uri = String(raw[uriStart.upperBound..<uriEnd.lowerBound])
+                    let trackName = uri.components(separatedBy: "/").last ?? uri
+                    sLog("POSITION: \(zoneName) — \(trackName) @ \(relTime)")
+                } else {
+                    sLog("POSITION: \(zoneName) @ \(relTime)")
+                }
+            }
+        }
+
         // Parse current track from r:streamContent
         let decoded = raw
             .replacingOccurrences(of: "&amp;apos;", with: "'")
@@ -771,9 +789,9 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            print("SORRIVA: SetAVTransportURIWithMetadata \(host) status=\(status)")
+            sLog("SONOS: SetAVTransportURI \(host) status=\(status)")
         } catch {
-            print("SORRIVA: SetAVTransportURIWithMetadata error: \(error.localizedDescription)")
+            sLog("SONOS: SetAVTransportURI error: \(error.localizedDescription)")
         }
     }
 
@@ -799,11 +817,12 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         request.httpBody = bodyData
         request.timeoutInterval = 5
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            print("SORRIVA: RemoveAllTracksFromQueue \(host) status=\(status)")
+            let body = String(data: data, encoding: .utf8) ?? ""
+            sLog("SONOS: RemoveAllTracksFromQueue \(host) status=\(status)\(status != 200 ? " body=\(body.prefix(200))" : "")")
         } catch {
-            print("SORRIVA: RemoveAllTracksFromQueue error: \(error.localizedDescription)")
+            sLog("SONOS: RemoveAllTracksFromQueue error: \(error.localizedDescription)")
         }
     }
 
@@ -839,11 +858,12 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         request.httpBody = bodyData
         request.timeoutInterval = 10
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            print("SORRIVA: AddMultipleURIsToQueue \(host) \(uris.count) tracks status=\(status)")
+            let body = String(data: data, encoding: .utf8) ?? ""
+            sLog("SONOS: AddMultipleURIsToQueue \(host) \(uris.count) tracks status=\(status)\(status != 200 ? " body=\(body.prefix(300))" : "")")
         } catch {
-            print("SORRIVA: AddMultipleURIsToQueue error: \(error.localizedDescription)")
+            sLog("SONOS: AddMultipleURIsToQueue error: \(error.localizedDescription)")
         }
     }
 
@@ -897,9 +917,9 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            print("SORRIVA: \(action) \(host) status=\(status)")
+            sLog("SONOS: \(action) \(host) status=\(status)")
         } catch {
-            print("SORRIVA: \(action) error \(host): \(error.localizedDescription)")
+            sLog("SONOS: \(action) error \(host): \(error.localizedDescription)")
         }
     }
 

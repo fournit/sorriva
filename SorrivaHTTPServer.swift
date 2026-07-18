@@ -3,16 +3,12 @@ import Network
 import AVFoundation
 import SMBClient
 
-// MARK: - SorrivaHTTPServer (working version — v0.0.21)
-// This version successfully streamed a full 73MB FLAC file (9 minutes)
-// to Sonos Living Room via NWListener HTTP server.
-//
-// Key findings:
-// - UNAS Pro drops SMB sessions after 2 sequential reads on same connection
-// - Solution: fresh SMBClient per 1MB chunk
-// - Chunk size: 1MB (8MB caused timeout at 16MB every time)
-// - Sonos requires file extension in URI (.flac) to avoid error 714
-// - Backpressure: await .contentProcessed before reading next chunk
+// MARK: - SorrivaHTTPServer
+// NWListener HTTP server — streams local FLAC/MP3/WAV files from NAS to Sonos.
+// Architecture: one persistent SMB session per HTTP request, 1MB sequential reads.
+// Prefetch delay: when Sonos requests the next track, we delay the response until
+// the current track is nearly done playing. Combined with rolling 2-track queue
+// in LocalPlaybackService, this prevents Sonos from skipping tracks early.
 
 final class SorrivaHTTPServer {
 
@@ -23,13 +19,30 @@ final class SorrivaHTTPServer {
     private let port: NWEndpoint.Port = 8080
     private let queue = DispatchQueue(label: "sorriva.httpserver", qos: .userInitiated)
 
+    // MARK: - Current track state (for prefetch delay calculation)
+    private var currentTrackId: String? = nil
+    private var currentTrackStartTime: Date? = nil
+    private var currentTrackDuration: Double? = nil
+
+    // MARK: - Notifications
+    static let trackDidStartNotification = Notification.Name("SorrivaHTTPServer.trackDidStart")
+    static let trackIdKey = "trackId"
+
+    // Called by LocalPlaybackService when initiating playback of first track
+    func setCurrentTrack(id: String, duration: Double?) {
+        currentTrackId = id
+        currentTrackStartTime = Date()
+        currentTrackDuration = duration
+        sLog("HTTPSERVER: track registered — \(id) duration=\(duration.map { String($0) } ?? "nil")")
+    }
+
     private init() {}
 
     // MARK: - Public API
 
     func start() throws {
         guard !isRunning else {
-            print("HTTPSERVER: already running")
+            sLog("HTTPSERVER: already running")
             return
         }
 
@@ -46,9 +59,9 @@ final class SorrivaHTTPServer {
         listener.stateUpdateHandler = { state in
             switch state {
             case .ready:
-                print("HTTPSERVER: started on port 8080 — device IP: \(SorrivaHTTPServer.wifiIPAddress() ?? "unknown")")
+                sLog("HTTPSERVER: started on port 8080 — device IP: \(SorrivaHTTPServer.wifiIPAddress() ?? "unknown")")
             case .failed(let error):
-                print("HTTPSERVER: listener failed — \(error)")
+                sLog("HTTPSERVER: listener failed — \(error)")
             default:
                 break
             }
@@ -63,7 +76,7 @@ final class SorrivaHTTPServer {
         listener = nil
         isRunning = false
         try? AVAudioSession.sharedInstance().setActive(false)
-        print("HTTPSERVER: stopped")
+        sLog("HTTPSERVER: stopped")
     }
 
     func localURL(for trackId: String, format: String) -> String? {
@@ -118,14 +131,13 @@ final class SorrivaHTTPServer {
         }
 
         let path = parts[1]
-        print("HTTPSERVER: request — \(path)")
+        sLog("HTTPSERVER: request — \(path)")
 
         guard path.hasPrefix("/track/") else {
             sendError(connection: connection, status: "404 Not Found")
             return
         }
 
-        // Strip /track/ prefix and file extension
         let rawId = String(path.dropFirst("/track/".count))
         let trackId: String
         if let dotIndex = rawId.lastIndex(of: ".") {
@@ -139,7 +151,6 @@ final class SorrivaHTTPServer {
             return
         }
 
-        // Parse Range header
         var rangeStart = 0
         for line in lines {
             let lower = line.lowercased()
@@ -151,15 +162,14 @@ final class SorrivaHTTPServer {
             }
         }
 
-        // Look up track and source
         guard let track = try? SorrivaDatabase.shared.track(id: trackId) else {
-            print("HTTPSERVER: track not found — \(trackId)")
+            sLog("HTTPSERVER: track not found — \(trackId)")
             sendError(connection: connection, status: "404 Not Found")
             return
         }
 
         guard let source = try? SorrivaDatabase.shared.librarySource(id: track.sourceId) else {
-            print("HTTPSERVER: source not found — \(track.title)")
+            sLog("HTTPSERVER: source not found — \(track.title)")
             sendError(connection: connection, status: "404 Not Found")
             return
         }
@@ -167,10 +177,37 @@ final class SorrivaHTTPServer {
         let fileSize = track.fileSize ?? 0
         let contentType = Self.contentType(for: track.fileFormat)
 
-        print("HTTPSERVER: streaming \(track.title) from offset \(rangeStart), fileSize \(fileSize)")
+        sLog("HTTPSERVER: streaming \(track.title) from offset \(rangeStart), fileSize \(fileSize)")
 
-        // Send headers immediately
+        // MARK: Prefetch delay + track state management
+        var prefetchDelay: Double = 0
+        if rangeStart == 0 {
+            if trackId != currentTrackId {
+                // Different track — calculate prefetch delay
+                if let startTime = currentTrackStartTime, let duration = currentTrackDuration {
+                    let elapsed = Date().timeIntervalSince(startTime)
+                    let delay = (duration - 1.0) - elapsed
+                    prefetchDelay = max(0, delay)
+                    if prefetchDelay > 0 {
+                        sLog("HTTPSERVER: prefetch delay \(String(format: "%.1f", prefetchDelay))s for \(track.title) (current has \(String(format: "%.1f", (currentTrackDuration ?? 0) - elapsed))s remaining)")
+                    }
+                }
+            }
+            // Update current track state
+            currentTrackId = trackId
+            currentTrackStartTime = Date()
+            currentTrackDuration = track.duration
+        }
+
+        let smbHost = source.host
+        let smbShare = source.share
+        let smbUser = source.username ?? ""
+        let smbPass = source.password ?? ""
+        let filePath = track.filePath
+        let chunkSize = 1 * 1024 * 1024
         let statusLine = rangeStart > 0 ? "206 Partial Content" : "200 OK"
+
+        // Send headers immediately — Sonos needs a response or it will timeout and close the socket
         var headers = "HTTP/1.1 \(statusLine)\r\n"
         headers += "Content-Type: \(contentType)\r\n"
         headers += "Content-Length: \(fileSize > 0 ? fileSize - rangeStart : 0)\r\n"
@@ -181,19 +218,27 @@ final class SorrivaHTTPServer {
         headers += "Cache-Control: no-cache\r\n"
         headers += "Connection: close\r\n"
         headers += "\r\n"
-
         sendData(Data(headers.utf8), connection: connection)
 
-        // Stream SMB file — 1MB chunks, fresh SMBClient per chunk
-        let smbHost = source.host
-        let smbShare = source.share
-        let smbUser = source.username ?? ""
-        let smbPass = source.password ?? ""
-        let filePath = track.filePath
-        let chunkSize = 1 * 1024 * 1024  // 1MB — critical, 8MB causes UNAS Pro session drop
+        let notificationTrackId = trackId
 
         Task.detached { [weak self] in
             guard let self else { return }
+            // Delay body only — headers already sent so Sonos won't timeout
+            if prefetchDelay > 0 {
+                sLog("HTTPSERVER: holding body for \(String(format: "%.1f", prefetchDelay))s")
+                try? await Task.sleep(nanoseconds: UInt64(prefetchDelay * 1_000_000_000))
+                // Reset start time after delay so next prefetch calculates correctly
+                await MainActor.run { self.currentTrackStartTime = Date() }
+            }
+            // Notify AFTER delay so LocalPlaybackService enqueues next track at the right time
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: SorrivaHTTPServer.trackDidStartNotification,
+                    object: nil,
+                    userInfo: [SorrivaHTTPServer.trackIdKey: notificationTrackId]
+                )
+            }
             await self.streamFile(
                 host: smbHost, share: smbShare,
                 username: smbUser, password: smbPass,
@@ -218,7 +263,6 @@ final class SorrivaHTTPServer {
         var offset = startOffset
         var totalSent = 0
 
-        // One SMB session for the entire file — login once, read all chunks, close once
         do {
             let client = SMBClient(host: host)
             try await client.login(username: username.isEmpty ? "guest" : username, password: password)
@@ -228,7 +272,7 @@ final class SorrivaHTTPServer {
             let reader = client.fileReader(path: path)
             defer { Task { try? await reader.close() } }
 
-            print("HTTPSERVER: SMB session open — streaming \(path) from offset \(offset)")
+            sLog("HTTPSERVER: SMB session open — streaming \(path) from offset \(offset)")
 
             while true {
                 let data: Data
@@ -238,19 +282,19 @@ final class SorrivaHTTPServer {
                         length: UInt32(min(chunkSize, Int(UInt32.max)))
                     )
                 } catch {
-                    print("HTTPSERVER: SMB read error at offset \(offset) — \(error.localizedDescription)")
+                    sLog("HTTPSERVER: SMB read error at offset \(offset) — \(error.localizedDescription)")
                     break
                 }
 
                 guard !data.isEmpty else {
-                    print("HTTPSERVER: EOF at offset \(offset), total: \(totalSent)")
+                    sLog("HTTPSERVER: EOF at offset \(offset), total: \(totalSent)")
                     break
                 }
 
                 let sendOK = await withCheckedContinuation { continuation in
                     connection.send(content: data, completion: .contentProcessed { error in
                         if let error = error {
-                            print("HTTPSERVER: send error at offset \(offset) — \(error)")
+                            sLog("HTTPSERVER: send error at offset \(offset) — \(error)")
                             continuation.resume(returning: false)
                         } else {
                             continuation.resume(returning: true)
@@ -259,21 +303,21 @@ final class SorrivaHTTPServer {
                 }
 
                 guard sendOK else {
-                    print("HTTPSERVER: send failed at offset \(offset) — stopping")
+                    sLog("HTTPSERVER: send failed at offset \(offset) — stopping")
                     break
                 }
 
                 offset += data.count
                 totalSent += data.count
-                print("HTTPSERVER: sent \(data.count) bytes at offset \(offset), total: \(totalSent)")
+                sLog("HTTPSERVER: sent \(data.count) bytes at offset \(offset), total: \(totalSent)")
 
                 if data.count < chunkSize { break }
             }
         } catch {
-            print("HTTPSERVER: SMB session error — \(error.localizedDescription)")
+            sLog("HTTPSERVER: SMB session error — \(error.localizedDescription)")
         }
 
-        print("HTTPSERVER: stream complete — \(totalSent) bytes sent")
+        sLog("HTTPSERVER: stream complete — \(totalSent) bytes sent")
         try? await Task.sleep(nanoseconds: 500_000_000)
         connection.cancel()
     }
@@ -283,7 +327,7 @@ final class SorrivaHTTPServer {
     private func sendData(_ data: Data, connection: NWConnection) {
         connection.send(content: data, completion: .contentProcessed { error in
             if let error = error {
-                print("HTTPSERVER: send error — \(error)")
+                sLog("HTTPSERVER: send error — \(error)")
             }
         })
     }

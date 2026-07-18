@@ -50,6 +50,7 @@
 		805A16E93007B35300AF3100 /* LocalPlaybackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16E83007B35300AF3100 /* LocalPlaybackService.swift */; };
 		805A16EB300840D800AF3100 /* SorrivaTabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16EA300840D800AF3100 /* SorrivaTabBar.swift */; };
 		805A16ED30085C4000AF3100 /* CachedAsyncImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16EC30085C4000AF3100 /* CachedAsyncImage.swift */; };
+		805A16EF300A7D3D00AF3100 /* SorrivaLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16EE300A7D3D00AF3100 /* SorrivaLogger.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -105,6 +106,7 @@
 		805A16E83007B35300AF3100 /* LocalPlaybackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalPlaybackService.swift; sourceTree = "<group>"; };
 		805A16EA300840D800AF3100 /* SorrivaTabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SorrivaTabBar.swift; sourceTree = "<group>"; };
 		805A16EC30085C4000AF3100 /* CachedAsyncImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedAsyncImage.swift; sourceTree = "<group>"; };
+		805A16EE300A7D3D00AF3100 /* SorrivaLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SorrivaLogger.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -147,6 +149,7 @@
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
+				805A16EE300A7D3D00AF3100 /* SorrivaLogger.swift */,
 				805A16EC30085C4000AF3100 /* CachedAsyncImage.swift */,
 				805A16EA300840D800AF3100 /* SorrivaTabBar.swift */,
 				805A16E83007B35300AF3100 /* LocalPlaybackService.swift */,
@@ -308,6 +311,7 @@
 				80325AD33000B02B00308486 /* SorrivaWordmark.swift in Sources */,
 				80325AFE3003C8F200308486 /* IHeartServiceView.swift in Sources */,
 				80325AFF3003C8F200308486 /* IHeartStationBrowserView.swift in Sources */,
+				805A16EF300A7D3D00AF3100 /* SorrivaLogger.swift in Sources */,
 				805A16E93007B35300AF3100 /* LocalPlaybackService.swift in Sources */,
 				80325B1930043EE300308486 /* AddSMBSourceView.swift in Sources */,
 				80325B003003C8F200308486 /* SomaFMServiceView.swift in Sources */,

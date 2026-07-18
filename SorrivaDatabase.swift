@@ -571,6 +571,22 @@ final class SorrivaDatabase {
             print("SORRIVA DB: v9 folder_stats table created")
         }
 
+        // v10 — add missing album columns (embeddedArtScanned, artManualOverride)
+        migrator.registerMigration("v10_album_art_columns") { db in
+            let columns = try db.columns(in: "albums").map { $0.name }
+            if !columns.contains("embeddedArtScanned") {
+                try db.alter(table: "albums") { t in
+                    t.add(column: "embeddedArtScanned", .boolean).notNull().defaults(to: false)
+                }
+            }
+            if !columns.contains("artManualOverride") {
+                try db.alter(table: "albums") { t in
+                    t.add(column: "artManualOverride", .boolean).notNull().defaults(to: false)
+                }
+            }
+            print("SORRIVA DB: v10 album art columns added")
+        }
+
         try migrator.migrate(dbQueue)
         print("SORRIVA DB: Migrations complete")
     }

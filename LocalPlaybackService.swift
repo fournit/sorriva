@@ -3,13 +3,23 @@ import Foundation
 // MARK: - LocalPlaybackService
 // Orchestrates local library → Sonos playback via SorrivaHTTPServer.
 // Single track: SetAVTransportURI + Play (empty DIDL — Sonos plays to EOF).
-// Multiple tracks: RemoveAllTracksFromQueue + AddMultipleURIsToQueue + play from queue.
+// Multiple tracks: enqueue 2 tracks at a time, add next track when current starts playing.
+// This prevents Sonos from prefetching the entire album at once and skipping early.
 
 @MainActor
 final class LocalPlaybackService {
 
     static let shared = LocalPlaybackService()
-    private init() {}
+    private init() {
+        observeTrackStart()
+    }
+
+    // MARK: - Internal queue state
+    private var queuedTracks: [Track] = []
+    private var currentQueueIndex: Int = 0
+    private var lastEnqueuedIndex: Int = 1  // track 2 is enqueued at start (index 1)
+    private var activeZoneHost: String = ""
+    private var activeZoneID: String = ""
 
     func playTrack(_ track: Track, on zone: SonosZone) async {
         await playTracks([track], on: zone)
@@ -21,14 +31,14 @@ final class LocalPlaybackService {
 
     private func playTracks(_ tracks: [Track], on zone: SonosZone) async {
         guard !tracks.isEmpty else { return }
-        print("LOCALPLAY: playTracks — \(tracks.count) track(s) on \(zone.name)")
+        sLog("LOCALPLAY: playTracks — \(tracks.count) track(s) on \(zone.name)")
 
         // 1. Start HTTP server if not already running
         if !SorrivaHTTPServer.shared.isRunning {
             do {
                 try SorrivaHTTPServer.shared.start()
             } catch {
-                print("LOCALPLAY: HTTP server failed to start — \(error.localizedDescription)")
+                sLog("LOCALPLAY: HTTP server failed to start — \(error.localizedDescription)")
                 return
             }
         }
@@ -37,49 +47,108 @@ final class LocalPlaybackService {
             // MARK: Single track — SetAVTransportURI + Play (empty DIDL, proven working)
             let track = tracks[0]
             guard let uri = SorrivaHTTPServer.shared.localURL(for: track.id, format: track.fileFormat) else {
-                print("LOCALPLAY: could not construct URI — server not running or no WiFi")
+                sLog("LOCALPLAY: could not construct URI — server not running or no WiFi")
                 return
             }
-            print("LOCALPLAY: single track — \(track.title) — \(uri)")
+            sLog("LOCALPLAY: single track — \(track.title) — \(uri)")
+            SorrivaHTTPServer.shared.setCurrentTrack(id: track.id, duration: track.duration)
             let host = zone.host
             await Task.detached {
                 await ZoneDiscoveryService.setAVTransportURIWithMetadata(host: host, streamURL: uri, didl: "")
                 await ZoneDiscoveryService.sendTransportAction(host: host, action: "Play")
-                print("LOCALPLAY: play command sent — \(track.title)")
+                sLog("LOCALPLAY: play command sent — \(track.title)")
             }.value
 
         } else {
-            // MARK: Multi-track — build URI + DIDL list, enqueue all, play from queue
+            // MARK: Multi-track — enqueue first 2 tracks, add more as playback advances
+            queuedTracks = tracks
+            currentQueueIndex = 0
+            lastEnqueuedIndex = 0  // only track 1 enqueued at start
+            activeZoneHost = zone.host
+            activeZoneID = zone.id
+
+            // Build URI for first track only — add next track when current starts streaming
+            let initialTracks = Array(tracks.prefix(1))
             var uris: [String] = []
             var didls: [String] = []
-            for track in tracks {
+            for track in initialTracks {
                 guard let uri = SorrivaHTTPServer.shared.localURL(for: track.id, format: track.fileFormat) else {
-                    print("LOCALPLAY: skipping \(track.title) — could not construct URI")
+                    sLog("LOCALPLAY: skipping \(track.title) — could not construct URI")
                     continue
                 }
                 uris.append(uri)
                 didls.append(buildQueueDIDL(track: track, uri: uri))
             }
             guard !uris.isEmpty else {
-                print("LOCALPLAY: no valid URIs — aborting")
+                sLog("LOCALPLAY: no valid URIs — aborting")
                 return
             }
 
-            print("LOCALPLAY: queueing \(uris.count) tracks on \(zone.name)")
+            sLog("LOCALPLAY: queueing first \(uris.count) of \(tracks.count) tracks on \(zone.name)")
+            SorrivaHTTPServer.shared.setCurrentTrack(id: tracks[0].id, duration: tracks[0].duration)
             let host = zone.host
             let zoneID = zone.id
             await Task.detached {
-                // Clear existing queue
                 await ZoneDiscoveryService.removeAllTracksFromQueue(host: host)
-                // Enqueue all tracks
                 await ZoneDiscoveryService.addMultipleURIsToQueue(host: host, uris: uris, didls: didls)
-                // Point transport at queue and play
                 let queueURI = "x-rincon-queue:\(zoneID)#0"
                 await ZoneDiscoveryService.setAVTransportURIWithMetadata(host: host, streamURL: queueURI, didl: "")
                 await ZoneDiscoveryService.sendTransportAction(host: host, action: "Play")
-                print("LOCALPLAY: album queue started — \(uris.count) tracks")
+                sLog("LOCALPLAY: album started — 1 track in queue, \(tracks.count - 1) pending")
             }.value
         }
+    }
+
+    // MARK: - Track start notification — enqueue next track when current starts playing
+
+    private func observeTrackStart() {
+        NotificationCenter.default.addObserver(
+            forName: SorrivaHTTPServer.trackDidStartNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let trackId = notification.userInfo?[SorrivaHTTPServer.trackIdKey] as? String else { return }
+            Task { @MainActor in
+                await self.handleTrackStart(trackId: trackId)
+            }
+        }
+    }
+
+    private func handleTrackStart(trackId: String) async {
+        guard !queuedTracks.isEmpty, !activeZoneHost.isEmpty else { return }
+
+        // Find which track just started
+        guard let idx = queuedTracks.firstIndex(where: { $0.id == trackId }) else { return }
+        currentQueueIndex = idx
+
+        // Enqueue the next track — only if we haven't already enqueued it
+        let nextToEnqueue = idx + 1
+        guard nextToEnqueue < queuedTracks.count else {
+            sLog("LOCALPLAY: track \(idx + 1)/\(queuedTracks.count) started — no more tracks to enqueue")
+            return
+        }
+
+        // Prevent duplicate enqueuing
+        guard nextToEnqueue > lastEnqueuedIndex else {
+            sLog("LOCALPLAY: track \(idx + 1)/\(queuedTracks.count) started — track \(nextToEnqueue + 1) already enqueued")
+            return
+        }
+        lastEnqueuedIndex = nextToEnqueue
+
+        let track = queuedTracks[nextToEnqueue]
+        guard let uri = SorrivaHTTPServer.shared.localURL(for: track.id, format: track.fileFormat) else {
+            sLog("LOCALPLAY: could not build URI for \(track.title)")
+            return
+        }
+        let didl = buildQueueDIDL(track: track, uri: uri)
+        let host = activeZoneHost
+
+        sLog("LOCALPLAY: track \(idx + 1)/\(queuedTracks.count) started — enqueuing \(track.title) (\(nextToEnqueue + 1)/\(queuedTracks.count))")
+
+        await Task.detached {
+            await ZoneDiscoveryService.addMultipleURIsToQueue(host: host, uris: [uri], didls: [didl])
+        }.value
     }
 
     // MARK: - DIDL builder for queue (requires <res> element so Sonos knows track URI)
@@ -94,7 +163,7 @@ final class LocalPlaybackService {
 
         // Duration only if available — omitting is safer than sending 0:00:00
         let durationAttr = track.duration.map { " duration=&quot;\(formatDuration($0))&quot;" } ?? ""
-        print("LOCALPLAY: DIDL — \(track.title) duration=\(track.duration.map { formatDuration($0) } ?? "nil")")
+        sLog("LOCALPLAY: DIDL — \(track.title) duration=\(track.duration.map { formatDuration($0) } ?? "nil")")
 
         return "&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;-1&quot; parentID=&quot;-1&quot; restricted=&quot;true&quot;&gt;&lt;dc:title&gt;\(title)&lt;/dc:title&gt;&lt;dc:creator&gt;\(artist)&lt;/dc:creator&gt;&lt;upnp:album&gt;\(album)&lt;/upnp:album&gt;&lt;upnp:class&gt;object.item.audioItem.musicTrack&lt;/upnp:class&gt;&lt;res protocolInfo=&quot;\(protocolInfo)&quot;\(durationAttr)&gt;\(escapedURI)&lt;/res&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;"
     }

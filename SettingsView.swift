@@ -61,17 +61,6 @@ struct SettingsView: View {
                             }
                             .buttonStyle(.plain)
 
-                            // Clear Local Library
-                            Button { showClearLibraryConfirm = true } label: {
-                                SettingsMenuRow(
-                                    icon: "trash",
-                                    iconColor: .red,
-                                    title: "Clear Local Library",
-                                    subtitle: "Remove all indexed tracks, albums and artists"
-                                )
-                            }
-                            .buttonStyle(.plain)
-
                             // Zones (stub)
                             SettingsMenuRow(
                                 icon: "hifispeaker.2",
@@ -97,6 +86,35 @@ struct SettingsView: View {
                                     iconColor: .sTextMuted,
                                     title: "About",
                                     subtitle: "Version \(appVersion)"
+                                )
+                            }
+                            .buttonStyle(.plain)
+
+                            #if DEBUG
+                            // Debug Log
+                            NavigationLink(destination: DebugLogView()) {
+                                SettingsMenuRow(
+                                    icon: "doc.text.magnifyingglass",
+                                    iconColor: Color(hex: "#E07B39"),
+                                    title: "Debug Log",
+                                    subtitle: "Playback diagnostics"
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            #endif
+
+                            // Separator before destructive action
+                            Divider()
+                                .background(Color.sSeparator)
+                                .padding(.vertical, 4)
+
+                            // Clear Local Library — isolated at bottom
+                            Button { showClearLibraryConfirm = true } label: {
+                                SettingsMenuRow(
+                                    icon: "trash",
+                                    iconColor: .red,
+                                    title: "Clear Local Library",
+                                    subtitle: "Remove all indexed tracks, albums and artists"
                                 )
                             }
                             .buttonStyle(.plain)
@@ -483,3 +501,106 @@ struct AboutView: View {
         .navigationBarTitleDisplayMode(.large)
     }
 }
+
+// MARK: - DebugLogView
+
+#if DEBUG
+struct DebugLogView: View {
+    @State private var logText: String = ""
+    @State private var showShareSheet = false
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color.sGradientTop, Color.sGradientMid, Color.sGradientBottom],
+                startPoint: .top, endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // Header
+                HStack {
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.sTextPrimary)
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                    Text("Debug Log")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(.sTextPrimary)
+                    Spacer()
+                    Button(action: { showShareSheet = true }) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 18))
+                            .foregroundColor(.sTextPrimary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 56)
+                .padding(.bottom, 12)
+
+                HStack(spacing: 12) {
+                    Button(action: {
+                        SorrivaLogger.shared.clearLog()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { loadLog() }
+                    }) {
+                        Text("Clear")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.red)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 7)
+                            .background(Color.sSurface)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                    Text("\(logText.components(separatedBy: "\n").count) lines")
+                        .font(.system(size: 12))
+                        .foregroundColor(.sTextMuted)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
+
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        Text(logText.isEmpty ? "No log entries yet." : logText)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.sTextSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .id("bottom")
+                    }
+                    .background(Color.sCard)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .padding(.horizontal, 16)
+                    .onAppear {
+                        loadLog()
+                        proxy.scrollTo("bottom", anchor: .bottom)
+                    }
+                }
+                .padding(.bottom, 32)
+            }
+        }
+        .navigationBarHidden(true)
+        .sheet(isPresented: $showShareSheet) {
+            ShareSheet(items: [SorrivaLogger.shared.logFileURL])
+        }
+    }
+
+    private func loadLog() {
+        logText = (try? String(contentsOf: SorrivaLogger.shared.logFileURL, encoding: .utf8)) ?? ""
+    }
+}
+
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+    func updateUIViewController(_ uvc: UIActivityViewController, context: Context) {}
+}
+#endif
