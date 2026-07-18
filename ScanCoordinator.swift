@@ -49,7 +49,9 @@ final class ScanCoordinator: ObservableObject {
     /// Skips never-scanned sources (require confirmation).
     /// Detects interrupted scans and surfaces restart option.
     /// Runs incremental rescan for changed folders on completed sources.
+    /// Restarts retry scheduler if pending skips exist and no scan is active.
     func checkForChanges() {
+        sLog("SCAN: checkForChanges — scene became active")
         Task {
             let sources = (try? SorrivaDatabase.shared.allLibrarySources()) ?? []
             for source in sources {
@@ -64,9 +66,17 @@ final class ScanCoordinator: ObservableObject {
 
                 guard source.lastScanned != nil else { continue }
 
+                // Resume retry scheduler if pending skips exist and no scan is running
+                let pendingSkips = (try? SorrivaDatabase.shared.pendingScanSkips(sourceId: source.id)) ?? []
+                let pendingArt   = (try? SorrivaDatabase.shared.albumsNeedingEmbeddedArtRetry()) ?? []
+                if !pendingSkips.isEmpty || !pendingArt.isEmpty {
+                    sLog("SCAN: foregrounded with \(pendingSkips.count) pending track skips, \(pendingArt.count) pending art retries — resuming scheduler")
+                    await ScanRetryScheduler.shared.start(source: source, scanner: scanner)
+                }
+
                 let changedFolders = await findChangedFolders(source: source)
                 if !changedFolders.isEmpty {
-                    print("SCAN: \(changedFolders.count) changed folder(s) in \(source.displayName)")
+                    sLog("SCAN: \(changedFolders.count) changed folder(s) in \(source.displayName)")
                     startIncrementalScan(source: source, folders: changedFolders)
                     await scanTask?.value
                 }
@@ -126,6 +136,9 @@ final class ScanCoordinator: ObservableObject {
             // Wait 30s for iOS to reclaim sockets from scan and folder/iTunes passes
             try? await Task.sleep(nanoseconds: 30_000_000_000)
             await self.runEmbeddedArtPass(source: source)
+            // Kick retry scheduler — runs track retry then embedded art retry on backoff schedule
+            sLog("SCAN: pipeline complete — starting retry scheduler for \(source.displayName)")
+            await ScanRetryScheduler.shared.start(source: source, scanner: self.scanner)
         }
     }
 
@@ -146,68 +159,71 @@ final class ScanCoordinator: ObservableObject {
 
     private func runFolderArtPass(source: LibrarySource) async {
         let albums = (try? SorrivaDatabase.shared.albums(sourceId: source.id)) ?? []
-        guard !albums.isEmpty else { return }
+        guard !albums.isEmpty else {
+            sLog("ARTWORK: folder pass — nothing to scan")
+            return
+        }
 
-        print("ARTWORK: folder pass START — \(albums.count) albums in \(source.displayName)")
+        sLog("ARTWORK: folder pass START — \(albums.count) albums in \(source.displayName)")
         var found = 0
+
+        // One persistent connection for the entire pass — same architecture as embedded art pass.
+        // Per-album fresh connections flood the NAS and exhaust the socket pool.
+        var client = SMBClient(host: source.host)
+        do {
+            try await client.login(username: source.username ?? "", password: source.password ?? "")
+            try await client.connectShare(source.share)
+        } catch {
+            sLog("ARTWORK: folder pass — failed to connect: \(error.localizedDescription)")
+            return
+        }
 
         for (idx, album) in albums.enumerated() {
             guard !album.artManualOverride else {
-                print("ARTWORK: folder [\(idx+1)/\(albums.count)] SKIP manual override — \(album.title)")
+                sLog("ARTWORK: folder [\(idx+1)/\(albums.count)] SKIP manual override — \(album.title)")
                 continue
             }
             guard !album.folderPath.isEmpty else {
-                print("ARTWORK: folder [\(idx+1)/\(albums.count)] SKIP no folder path — \(album.title)")
+                sLog("ARTWORK: folder [\(idx+1)/\(albums.count)] SKIP no folder path — \(album.title)")
                 continue
             }
 
-            print("ARTWORK: folder [\(idx+1)/\(albums.count)] checking — \(album.artistName) · \(album.title)")
+            sLog("ARTWORK: folder [\(idx+1)/\(albums.count)] checking — \(album.artistName) · \(album.title)")
 
-            // Fresh connection per album
-            let imageData = await withCheckedContinuation { continuation in
-                let semaphore = DispatchSemaphore(value: 0)
-                var result: Data? = nil
+            var imageData: Data? = nil
 
-                Task.detached {
-                    do {
-                        let client = SMBClient(host: source.host)
-                        try await client.login(username: source.username ?? "", password: source.password ?? "")
-                        try await client.connectShare(source.share)
+            do {
+                let entries = try await client.listDirectory(path: album.folderPath)
+                let entryNames = Set(entries.map { $0.name })
 
-                        let entries = try await client.listDirectory(path: album.folderPath)
-                        let entryNames = Set(entries.map { $0.name })
-
-                        var artFilePath: String? = nil
-                        for candidate in ScanCoordinator.artCandidates {
-                            if entryNames.contains(candidate) {
-                                artFilePath = album.folderPath == "/"
-                                    ? "/\(candidate)"
-                                    : "\(album.folderPath)/\(candidate)"
-                                break
-                            }
-                        }
-
-                        if let artPath = artFilePath {
-                            print("ARTWORK: folder [\(idx+1)/\(albums.count)] downloading \((artPath as NSString).lastPathComponent)")
-                            result = try? await client.download(path: artPath)
-                        } else {
-                            print("ARTWORK: folder [\(idx+1)/\(albums.count)] no art file found")
-                        }
-
-                        try? await client.disconnectShare()
-                        try? await client.logoff()
-                    } catch {
-                        print("ARTWORK: folder [\(idx+1)/\(albums.count)] connection error — \(error.localizedDescription)")
+                var artFilePath: String? = nil
+                for candidate in ScanCoordinator.artCandidates {
+                    if entryNames.contains(candidate) {
+                        artFilePath = album.folderPath == "/"
+                            ? "/\(candidate)"
+                            : "\(album.folderPath)/\(candidate)"
+                        break
                     }
-                    semaphore.signal()
                 }
 
-                DispatchQueue.global(qos: .utility).async {
-                    if semaphore.wait(timeout: .now() + 20) == .timedOut {
-                        print("ARTWORK: folder [\(idx+1)/\(albums.count)] TIMEOUT 20s — \(album.title)")
-                    }
-                    continuation.resume(returning: result)
+                if let artPath = artFilePath {
+                    sLog("ARTWORK: folder [\(idx+1)/\(albums.count)] downloading \((artPath as NSString).lastPathComponent)")
+                    imageData = try await client.download(path: artPath)
+                } else {
+                    sLog("ARTWORK: folder [\(idx+1)/\(albums.count)] no art file found")
                 }
+            } catch {
+                sLog("ARTWORK: folder [\(idx+1)/\(albums.count)] error — \(error.localizedDescription)")
+                // Reconnect and continue to next album
+                try? await client.disconnectShare()
+                try? await client.logoff()
+                client = SMBClient(host: source.host)
+                if (try? await client.login(username: source.username ?? "", password: source.password ?? "")) != nil,
+                   (try? await client.connectShare(source.share)) != nil {
+                    sLog("ARTWORK: folder — reconnected")
+                }
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                continue
             }
 
             if let data = imageData, let image = UIImage(data: data) {
@@ -220,13 +236,13 @@ final class ScanCoordinator: ObservableObject {
                    let thumbData = resized(image, to: 300)?.jpegData(compressionQuality: 0.85) {
                     try? fullData.write(to: fullURL)
                     try? thumbData.write(to: thumbURL)
-                    let writtenPath = "artwork/\(album.id)_full.jpg"
-                    print("ARTWORK: writing path — \(writtenPath)")
                     try? SorrivaDatabase.shared.updateAlbumArtwork(
-                        albumId: album.id, thumbPath: "artwork/\(album.id)_thumb.jpg", fullPath: writtenPath
+                        albumId: album.id,
+                        thumbPath: "artwork/\(album.id)_thumb.jpg",
+                        fullPath: "artwork/\(album.id)_full.jpg"
                     )
                     found += 1
-                    print("ARTWORK: folder [\(idx+1)/\(albums.count)] SAVED — \(album.artistName) · \(album.title)")
+                    sLog("ARTWORK: folder [\(idx+1)/\(albums.count)] SAVED — \(album.artistName) · \(album.title)")
                     await MainActor.run {
                         NotificationCenter.default.post(name: .artworkDidUpdate, object: album.id)
                     }
@@ -236,10 +252,12 @@ final class ScanCoordinator: ObservableObject {
             try? await Task.sleep(nanoseconds: 300_000_000) // 300ms between albums
         }
 
-        print("ARTWORK: folder pass COMPLETE — \(found)/\(albums.count) found")
+        try? await client.disconnectShare()
+        try? await client.logoff()
+        sLog("ARTWORK: folder pass COMPLETE — \(found)/\(albums.count) found")
     }
 
-    private func resized(_ image: UIImage, to maxDimension: CGFloat) -> UIImage? {
+    func resized(_ image: UIImage, to maxDimension: CGFloat) -> UIImage? {
         let size = image.size
         let scale = min(maxDimension / size.width, maxDimension / size.height)
         if scale >= 1 { return image }
@@ -253,9 +271,12 @@ final class ScanCoordinator: ObservableObject {
 
     private func runEmbeddedArtPass(source: LibrarySource) async {
         let albums = (try? SorrivaDatabase.shared.albumsNeedingEmbeddedArtScan()) ?? []
-        guard !albums.isEmpty else { return }
+        guard !albums.isEmpty else {
+            sLog("ARTWORK: embedded pass — nothing to scan")
+            return
+        }
 
-        print("ARTWORK: embedded pass — \(albums.count) albums to scan")
+        sLog("ARTWORK: embedded pass START — \(albums.count) albums")
         var found = 0
 
         // One persistent connection for the entire pass
@@ -264,7 +285,7 @@ final class ScanCoordinator: ObservableObject {
             try await client.login(username: source.username ?? "", password: source.password ?? "")
             try await client.connectShare(source.share)
         } catch {
-            print("ARTWORK: embedded pass — failed to connect: \(error.localizedDescription)")
+            sLog("ARTWORK: embedded pass — failed to connect: \(error.localizedDescription)")
             return
         }
 
@@ -280,14 +301,15 @@ final class ScanCoordinator: ObservableObject {
                 continue
             }
 
-            print("ARTWORK: embedded [\(idx+1)/\(albums.count)] — \(album.artistName) · \(album.title)")
+            sLog("ARTWORK: embedded [\(idx+1)/\(albums.count)] — \(album.artistName) · \(album.title)")
 
             var artFound = false
+            var artReadErrored = false  // true if any track read threw an error (vs genuine no-art)
+
             for track in tracks.prefix(3) {
                 let ext = (track.filePath as NSString).pathExtension.lowercased()
                 guard ["mp3", "flac", "m4a", "aac", "alac"].contains(ext) else { continue }
 
-                // Read using persistent connection
                 var imageData: Data? = nil
                 do {
                     let reader = client.fileReader(path: track.filePath)
@@ -295,14 +317,15 @@ final class ScanCoordinator: ObservableObject {
                     try? await reader.close()
                     imageData = Self.extractArt(from: raw, ext: ext)
                 } catch {
-                    print("ARTWORK: embedded read error — \((track.filePath as NSString).lastPathComponent): \(error.localizedDescription)")
+                    sLog("ARTWORK: embedded read error — \((track.filePath as NSString).lastPathComponent): \(error.localizedDescription)")
+                    artReadErrored = true
                     // Reconnect on error
                     try? await client.disconnectShare()
                     try? await client.logoff()
                     client = SMBClient(host: source.host)
                     if (try? await client.login(username: source.username ?? "", password: source.password ?? "")) != nil,
                        (try? await client.connectShare(source.share)) != nil {
-                        print("ARTWORK: embedded reconnected")
+                        sLog("ARTWORK: embedded — reconnected")
                     }
                     continue
                 }
@@ -318,11 +341,14 @@ final class ScanCoordinator: ObservableObject {
                         try? fullData.write(to: fullURL)
                         try? thumbData.write(to: thumbURL)
                         try? SorrivaDatabase.shared.updateAlbumArtwork(
-                            albumId: album.id, thumbPath: "artwork/\(album.id)_thumb.jpg", fullPath: "artwork/\(album.id)_full.jpg"
+                            albumId: album.id,
+                            thumbPath: "artwork/\(album.id)_thumb.jpg",
+                            fullPath: "artwork/\(album.id)_full.jpg"
                         )
+                        try? SorrivaDatabase.shared.markEmbeddedArtScanned(albumId: album.id)
                         found += 1
                         artFound = true
-                        print("ARTWORK: embedded found — \(album.artistName) · \(album.title)")
+                        sLog("ARTWORK: embedded SAVED — \(album.artistName) · \(album.title)")
                         await MainActor.run {
                             NotificationCenter.default.post(name: .artworkDidUpdate, object: album.id)
                         }
@@ -332,54 +358,26 @@ final class ScanCoordinator: ObservableObject {
             }
 
             if !artFound {
-                print("ARTWORK: no embedded art — \(album.artistName) · \(album.title)")
+                if artReadErrored {
+                    // Read error — not genuinely artless. Queue for retry.
+                    try? SorrivaDatabase.shared.markEmbeddedArtFailed(albumId: album.id)
+                    sLog("ARTWORK: embedded FAILED (queued for retry) — \(album.artistName) · \(album.title)")
+                } else {
+                    // No read errors — file simply has no embedded art. Mark done permanently.
+                    try? SorrivaDatabase.shared.markEmbeddedArtScanned(albumId: album.id)
+                    sLog("ARTWORK: embedded — no art in file — \(album.artistName) · \(album.title)")
+                }
             }
 
-            try? SorrivaDatabase.shared.markEmbeddedArtScanned(albumId: album.id)
             try? await Task.sleep(nanoseconds: 500_000_000) // 500ms between albums
         }
 
         try? await client.disconnectShare()
         try? await client.logoff()
-        print("ARTWORK: embedded pass complete — \(found)/\(albums.count) found")
+        sLog("ARTWORK: embedded pass COMPLETE — \(found)/\(albums.count) found")
     }
 
-    private func readEmbeddedArt(
-        host: String, share: String,
-        username: String, password: String,
-        path: String, ext: String
-    ) async -> Data? {
-        return await withCheckedContinuation { continuation in
-            let semaphore = DispatchSemaphore(value: 0)
-            var result: Data? = nil
-
-            Task.detached {
-                do {
-                    let client = SMBClient(host: host)
-                    try await client.login(username: username.isEmpty ? "guest" : username, password: password)
-                    try await client.connectShare(share)
-                    let reader = client.fileReader(path: path)
-                    let data = try await reader.read(offset: 0, length: 1048576)
-                    try? await reader.close()
-                    try? await client.disconnectShare()
-                    try? await client.logoff()
-                    result = Self.extractArt(from: data, ext: ext)
-                } catch {
-                    print("ARTWORK: embedded read error — \((path as NSString).lastPathComponent): \(error.localizedDescription)")
-                }
-                semaphore.signal()
-            }
-
-            DispatchQueue.global(qos: .utility).async {
-                if semaphore.wait(timeout: .now() + 20) == .timedOut {
-                    print("ARTWORK: embedded read timeout — \((path as NSString).lastPathComponent)")
-                }
-                continuation.resume(returning: result)
-            }
-        }
-    }
-
-    private nonisolated static func extractArt(from data: Data, ext: String) -> Data? {
+    nonisolated static func extractArt(from data: Data, ext: String) -> Data? {
         switch ext {
         case "mp3": return extractID3Art(data: data)
         case "flac": return extractFlacArt(data: data)

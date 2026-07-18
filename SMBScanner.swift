@@ -158,6 +158,7 @@ actor SMBScanner {
 
         var scanned = 0
         var skipped = 0
+        var skippedPaths: [String] = []  // collected during loop, written to DB after scan completes
         var artistCache: [String: Artist] = [:]
         var albumCache:  [String: Album]  = [:]
 
@@ -193,7 +194,8 @@ actor SMBScanner {
                 }
             } else {
                 skipped += 1
-                print("SCAN: SKIP — \(file.path)")
+                sLog("SCAN: skip (read failed) — \(file.path)")
+                skippedPaths.append(file.path)
             }
             try? await Task.sleep(nanoseconds: 200_000_000) // 200ms throttle
 
@@ -266,6 +268,15 @@ actor SMBScanner {
             scanned += 1
         }
 
+        // Batch-write scan skips after all SMB connections are closed.
+        // Writing inline during the scan loop caused concurrent session pressure on the NAS.
+        if !skippedPaths.isEmpty {
+            sLog("SCAN: writing \(skippedPaths.count) skip record(s) to DB")
+            for path in skippedPaths {
+                try? SorrivaDatabase.shared.insertScanSkip(filePath: path, sourceId: source.id)
+            }
+        }
+
         // Phase 3: finalize
         progressHandler(ScanProgress(
             sourceId: source.id, sourceName: source.displayName,
@@ -292,7 +303,7 @@ actor SMBScanner {
         let finalAlbumCount = try SorrivaDatabase.shared.albums(sourceId: source.id).count
         let scanEnd = Date()
         let duration = String(format: "%.1fs", scanEnd.timeIntervalSince(scanStart))
-        print("SCAN: END \(source.displayName) at \(formatTime(scanEnd)) — \(duration) total, \(finalTrackCount) tracks, \(skipped) skipped")
+        sLog("SCAN: END \(source.displayName) at \(formatTime(scanEnd)) — \(duration) total, \(finalTrackCount) tracks, \(skipped) skipped")
         let report = ScanReport(
             sourceId: source.id,
             sourceName: source.displayName,
@@ -430,6 +441,7 @@ actor SMBScanner {
             year: year, genre: genre,
             artPathThumb: nil, artPathFull: nil,
             embeddedArtScanned: false, artManualOverride: false,
+            embeddedArtFailed: false, embeddedArtRetryCount: 0,
             trackCount: 0, sourceId: sourceId,
             folderPath: folderPath,
             createdAt: now, updatedAt: now
@@ -960,6 +972,93 @@ actor SMBScanner {
             }
         }
         return name
+    }
+
+    // MARK: - Scan skip retry pass
+
+    /// Retry tag reads for files that failed during the main scan.
+    /// Called by ScanRetryScheduler after the full pipeline completes.
+    /// On success: updates the track record with recovered tags, marks skip resolved.
+    /// On failure: increments attempt count. After 5 total attempts the row is retained
+    /// with attemptCount = 5 for future admin review — no further retries attempted.
+    func retrySkippedTracks(source: LibrarySource) async {
+        let skips: [ScanSkip]
+        do {
+            skips = try SorrivaDatabase.shared.pendingScanSkips(sourceId: source.id)
+        } catch {
+            sLog("RETRY: tracks — failed to fetch pending skips: \(error.localizedDescription)")
+            return
+        }
+        guard !skips.isEmpty else {
+            sLog("RETRY: tracks — no pending skips for \(source.displayName)")
+            return
+        }
+
+        sLog("RETRY: tracks START — \(skips.count) pending for \(source.displayName)")
+        var resolved = 0
+        var stillFailing = 0
+
+        for skip in skips {
+            let filename = (skip.filePath as NSString).lastPathComponent
+            let ext = (filename as NSString).pathExtension.lowercased()
+            let attemptNum = skip.attemptCount + 1
+
+            sLog("RETRY: track attempt \(attemptNum)/5 — \(filename)")
+
+            let fileSize = (try? SorrivaDatabase.shared.track(filePath: skip.filePath))?.fileSize ?? 65536
+
+            let headerData = await readFileWithFreshConnection(
+                host: source.host,
+                share: source.share,
+                username: source.username ?? "",
+                password: source.password ?? "",
+                path: skip.filePath,
+                fileSize: fileSize
+            )
+
+            if let data = headerData {
+                let parsed = parseTagData(data: data, ext: ext)
+                let hasUsefulTags = parsed.title != nil || parsed.artist != nil
+                                 || parsed.album != nil || parsed.duration != nil
+                if hasUsefulTags {
+                    try? SorrivaDatabase.shared.updateTrackTags(
+                        filePath: skip.filePath,
+                        title: parsed.title,
+                        artistName: parsed.artist ?? parsed.albumArtist,
+                        trackNumber: parsed.trackNumber,
+                        discNumber: parsed.discNumber,
+                        year: parsed.year,
+                        genre: parsed.genre,
+                        duration: parsed.duration
+                    )
+                    try? SorrivaDatabase.shared.resolveScanSkip(filePath: skip.filePath)
+                    sLog("RETRY: track RESOLVED (attempt \(attemptNum)) — \(filename)")
+                    resolved += 1
+                } else {
+                    // Read succeeded but yielded no tags — count as failure
+                    try? SorrivaDatabase.shared.incrementScanSkip(filePath: skip.filePath)
+                    if attemptNum >= 5 {
+                        sLog("RETRY: track PERMANENT FAIL (no tags after 5 attempts) — \(filename)")
+                    } else {
+                        sLog("RETRY: track attempt \(attemptNum) — read ok but no tags — \(filename)")
+                    }
+                    stillFailing += 1
+                }
+            } else {
+                try? SorrivaDatabase.shared.incrementScanSkip(filePath: skip.filePath)
+                if attemptNum >= 5 {
+                    sLog("RETRY: track PERMANENT FAIL (read error after 5 attempts) — \(filename)")
+                } else {
+                    sLog("RETRY: track attempt \(attemptNum) failed (read error) — \(filename)")
+                }
+                stillFailing += 1
+            }
+
+            try? await Task.sleep(nanoseconds: 200_000_000) // 200ms between files
+        }
+
+        let permanent = (try? SorrivaDatabase.shared.permanentScanSkipCount(sourceId: source.id)) ?? 0
+        sLog("RETRY: tracks COMPLETE — \(resolved) resolved, \(stillFailing) still failing, \(permanent) permanent")
     }
 
     // MARK: - ID3 genre table

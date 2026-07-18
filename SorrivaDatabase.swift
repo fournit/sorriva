@@ -587,6 +587,35 @@ final class SorrivaDatabase {
             print("SORRIVA DB: v10 album art columns added")
         }
 
+        // v11 — scan retry infrastructure: scan_skips table + embedded art retry columns on albums
+        migrator.registerMigration("v11_scan_retry") { db in
+            // scan_skips table — one row per audio file that failed tag read during scan
+            try db.create(table: "scan_skips", ifNotExists: true) { t in
+                t.column("filePath", .text).primaryKey()
+                t.column("sourceId", .text).notNull()
+                t.column("attemptCount", .integer).notNull().defaults(to: 0)
+                t.column("lastAttemptAt", .integer).notNull().defaults(to: 0)
+                t.column("resolved", .boolean).notNull().defaults(to: false)
+            }
+            try db.create(index: "idx_scan_skips_sourceId", on: "scan_skips",
+                          columns: ["sourceId"], ifNotExists: true)
+
+            // embeddedArtFailed — distinct from embeddedArtScanned; set when a read error occurs
+            // embeddedArtRetryCount — number of failed embedded art attempts, capped at 5
+            let albumColumns = try db.columns(in: "albums").map { $0.name }
+            if !albumColumns.contains("embeddedArtFailed") {
+                try db.alter(table: "albums") { t in
+                    t.add(column: "embeddedArtFailed", .boolean).notNull().defaults(to: false)
+                }
+            }
+            if !albumColumns.contains("embeddedArtRetryCount") {
+                try db.alter(table: "albums") { t in
+                    t.add(column: "embeddedArtRetryCount", .integer).notNull().defaults(to: 0)
+                }
+            }
+            print("SORRIVA DB: v11 scan retry infrastructure added")
+        }
+
         try migrator.migrate(dbQueue)
         print("SORRIVA DB: Migrations complete")
     }
@@ -1333,6 +1362,7 @@ final class SorrivaDatabase {
             try Album
                 .filter(Album.Columns.embeddedArtScanned == false)
                 .filter(Album.Columns.artManualOverride == false)
+                .filter(Album.Columns.embeddedArtFailed == false)  // exclude errored albums — handled by retry
                 .order(Album.Columns.sortTitle)
                 .fetchAll(db)
         }
@@ -1353,6 +1383,135 @@ final class SorrivaDatabase {
             try db.execute(sql: """
                 UPDATE albums SET artManualOverride = ?, updatedAt = ? WHERE id = ?
             """, arguments: [override, now, albumId])
+        }
+    }
+
+    // MARK: - Embedded art retry
+
+    /// Albums where an embedded art read error occurred and retries remain.
+    /// Excludes artManualOverride albums and those permanently given up (embeddedArtScanned = true).
+    func albumsNeedingEmbeddedArtRetry() throws -> [Album] {
+        try dbQueue.read { db in
+            try Album
+                .filter(Album.Columns.embeddedArtFailed == true)
+                .filter(Album.Columns.artManualOverride == false)
+                .order(Album.Columns.sortTitle)
+                .fetchAll(db)
+        }
+    }
+
+    /// Called when an embedded art read errors (not genuine no-art).
+    /// Increments retry count. At attempt 5, permanently marks scanned so it never re-queues.
+    /// Rows are retained for admin review — the attempt count tells the full story.
+    func markEmbeddedArtFailed(albumId: String) throws {
+        try dbQueue.write { db in
+            let count = try Int.fetchOne(db, sql:
+                "SELECT embeddedArtRetryCount FROM albums WHERE id = ?",
+                arguments: [albumId]) ?? 0
+            let newCount = count + 1
+            let now = Int(Date().timeIntervalSince1970)
+            if newCount >= 5 {
+                // Give up — mark permanently scanned so it never re-queues
+                try db.execute(sql: """
+                    UPDATE albums
+                    SET embeddedArtFailed = 0, embeddedArtScanned = 1,
+                        embeddedArtRetryCount = ?, updatedAt = ?
+                    WHERE id = ?
+                """, arguments: [newCount, now, albumId])
+            } else {
+                try db.execute(sql: """
+                    UPDATE albums
+                    SET embeddedArtFailed = 1, embeddedArtScanned = 0,
+                        embeddedArtRetryCount = ?, updatedAt = ?
+                    WHERE id = ?
+                """, arguments: [newCount, now, albumId])
+            }
+        }
+    }
+
+    // MARK: - Scan skip (track retry)
+
+    /// Insert a new scan skip record for a file that failed tag read during main scan.
+    /// INSERT OR IGNORE — safe to call even if the file was skipped in a prior interrupted scan.
+    func insertScanSkip(filePath: String, sourceId: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT OR IGNORE INTO scan_skips (filePath, sourceId, attemptCount, lastAttemptAt, resolved)
+                VALUES (?, ?, 0, ?, 0)
+            """, arguments: [filePath, sourceId, Int(Date().timeIntervalSince1970)])
+        }
+    }
+
+    /// Increment the attempt count and update lastAttemptAt after a failed retry.
+    func incrementScanSkip(filePath: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE scan_skips SET attemptCount = attemptCount + 1, lastAttemptAt = ?
+                WHERE filePath = ?
+            """, arguments: [Int(Date().timeIntervalSince1970), filePath])
+        }
+    }
+
+    /// Mark a skip as successfully resolved — tags were recovered.
+    func resolveScanSkip(filePath: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE scan_skips SET resolved = 1, lastAttemptAt = ?
+                WHERE filePath = ?
+            """, arguments: [Int(Date().timeIntervalSince1970), filePath])
+        }
+    }
+
+    /// All unresolved skips under attempt 5 for a given source — the active retry queue.
+    func pendingScanSkips(sourceId: String) throws -> [ScanSkip] {
+        try dbQueue.read { db in
+            try ScanSkip
+                .filter(ScanSkip.Columns.sourceId == sourceId)
+                .filter(ScanSkip.Columns.resolved == false)
+                .filter(ScanSkip.Columns.attemptCount < 5)
+                .fetchAll(db)
+        }
+    }
+
+    /// Count of permanently failed skips (5 attempts, still unresolved) — for logging and future admin UI.
+    func permanentScanSkipCount(sourceId: String) throws -> Int {
+        try dbQueue.read { db in
+            try ScanSkip
+                .filter(ScanSkip.Columns.sourceId == sourceId)
+                .filter(ScanSkip.Columns.resolved == false)
+                .filter(ScanSkip.Columns.attemptCount >= 5)
+                .fetchCount(db)
+        }
+    }
+
+    // MARK: - Track lookup and tag update (used by retry pass)
+
+    /// Update tag fields on a track after a successful retry read.
+    /// Only non-nil values are written — path-derived fields already in place are preserved.
+    func updateTrackTags(
+        filePath: String,
+        title: String?,
+        artistName: String?,
+        trackNumber: Int?,
+        discNumber: Int?,
+        year: Int?,
+        genre: String?,
+        duration: Double?
+    ) throws {
+        try dbQueue.write { db in
+            let now = Int(Date().timeIntervalSince1970)
+            var sets: [String] = ["updatedAt = ?"]
+            var args: [DatabaseValueConvertible] = [now]
+            if let v = title       { sets.append("title = ?");       args.append(v) }
+            if let v = artistName  { sets.append("artistName = ?");  args.append(v) }
+            if let v = trackNumber { sets.append("trackNumber = ?"); args.append(v) }
+            if let v = discNumber  { sets.append("discNumber = ?");  args.append(v) }
+            if let v = year        { sets.append("year = ?");        args.append(v) }
+            if let v = genre       { sets.append("genre = ?");       args.append(v) }
+            if let v = duration    { sets.append("duration = ?");    args.append(v) }
+            args.append(filePath)
+            let sql = "UPDATE tracks SET \(sets.joined(separator: ", ")) WHERE filePath = ?"
+            try db.execute(sql: sql, arguments: StatementArguments(args))
         }
     }
 

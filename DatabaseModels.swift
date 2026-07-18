@@ -292,8 +292,10 @@ struct Album: Codable, FetchableRecord, PersistableRecord, Identifiable {
     var genre: String?          // Parsed from tag — null if not present
     var artPathThumb: String?   // Local path to 100px cached artwork — null until enrichment pass
     var artPathFull: String?    // Local path to 600px cached artwork — null until enrichment pass
-    var embeddedArtScanned: Bool // True after embedded art pass has run — never runs again once set
-    var artManualOverride: Bool  // True when user manually set artwork — blocks all automated art passes
+    var embeddedArtScanned: Bool    // True after embedded art pass has run — never runs again once set
+    var artManualOverride: Bool     // True when user manually set artwork — blocks all automated art passes
+    var embeddedArtFailed: Bool     // True when embedded art read errored (not genuine no-art) — triggers retry
+    var embeddedArtRetryCount: Int  // Number of failed embedded art attempts — capped at 5
     var trackCount: Int         // Denormalized — updated after scan
     var sourceId: String        // FK → library_sources.id
     var folderPath: String      // SMB path to album folder — used for artwork discovery
@@ -310,8 +312,10 @@ struct Album: Codable, FetchableRecord, PersistableRecord, Identifiable {
         static let genre               = Column(CodingKeys.genre)
         static let artPathThumb        = Column(CodingKeys.artPathThumb)
         static let artPathFull         = Column(CodingKeys.artPathFull)
-        static let embeddedArtScanned  = Column(CodingKeys.embeddedArtScanned)
-        static let artManualOverride   = Column(CodingKeys.artManualOverride)
+        static let embeddedArtScanned    = Column(CodingKeys.embeddedArtScanned)
+        static let artManualOverride     = Column(CodingKeys.artManualOverride)
+        static let embeddedArtFailed     = Column(CodingKeys.embeddedArtFailed)
+        static let embeddedArtRetryCount = Column(CodingKeys.embeddedArtRetryCount)
         static let trackCount          = Column(CodingKeys.trackCount)
         static let sourceId            = Column(CodingKeys.sourceId)
         static let folderPath          = Column(CodingKeys.folderPath)
@@ -409,6 +413,30 @@ struct TrackArtist: Codable, FetchableRecord, PersistableRecord {
         static let trackId  = Column(CodingKeys.trackId)
         static let artistId = Column(CodingKeys.artistId)
         static let role     = Column(CodingKeys.role)
+    }
+}
+
+// MARK: - ScanSkip
+// Records audio files that failed tag reads during scan.
+// Retry pass runs after the full scan pipeline (scan → folder art → iTunes art → embedded art).
+// Up to 5 attempts total. Rows are retained after attempt 5 (resolved = false, attemptCount = 5)
+// for future admin review. resolved = true means the file was successfully recovered.
+
+struct ScanSkip: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "scan_skips"
+
+    var filePath: String        // Primary key — full SMB path of the failed file
+    var sourceId: String        // FK → library_sources.id
+    var attemptCount: Int       // Number of retry attempts made (0 = not yet retried)
+    var lastAttemptAt: Int      // Unix timestamp of most recent attempt
+    var resolved: Bool          // True when tags were successfully recovered
+
+    enum Columns {
+        static let filePath      = Column(CodingKeys.filePath)
+        static let sourceId      = Column(CodingKeys.sourceId)
+        static let attemptCount  = Column(CodingKeys.attemptCount)
+        static let lastAttemptAt = Column(CodingKeys.lastAttemptAt)
+        static let resolved      = Column(CodingKeys.resolved)
     }
 }
 
