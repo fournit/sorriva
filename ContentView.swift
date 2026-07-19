@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var discovery = ZoneDiscoveryService()
     @StateObject private var tabState = SorrivaTabBarState()
+    @StateObject private var playbackContext = PlaybackContextService.shared
     @State private var selectedZoneID: String? = UserDefaults.standard.string(forKey: "sorriva.selectedZoneID")
     @State private var showNowPlaying = false
     @State private var showZonePicker = false
@@ -46,6 +47,7 @@ struct ContentView: View {
                     NavigationStack {
                         ZonesView(
                             discovery: discovery,
+                            playbackContext: playbackContext,
                             expandZoneID: $expandZoneID,
                             onNowPlaying: { zoneID in
                                 selectedZoneID = zoneID
@@ -85,6 +87,7 @@ struct ContentView: View {
             MiniPlayerView(
                 selectedZoneID: $selectedZoneID,
                 discovery: discovery,
+                playbackContext: playbackContext,
                 onTapTrack: { showNowPlaying = true },
                 onTapZone: { showZonePicker = true }
             )
@@ -97,7 +100,11 @@ struct ContentView: View {
         .ignoresSafeArea(edges: .bottom)
         .preferredColorScheme(.dark)
         .environmentObject(tabState)
-        .onAppear { discovery.startDiscovery() }
+        .environmentObject(discovery)
+        .onAppear {
+            discovery.startDiscovery()
+            playbackContext.observe(discovery)
+        }
         .onChange(of: discovery.zones) { zones in
             if selectedZoneID == nil {
                 if let active = zones.first(where: { $0.isPlaying }) {

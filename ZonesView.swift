@@ -4,6 +4,7 @@ import SwiftUI
 
 struct ZonesView: View {
     @ObservedObject var discovery: ZoneDiscoveryService
+    @ObservedObject var playbackContext: PlaybackContextService
     @Binding var expandZoneID: String?
     var onNowPlaying: ((String) -> Void)? = nil
     @EnvironmentObject private var tabState: SorrivaTabBarState
@@ -43,6 +44,7 @@ struct ZonesView: View {
                                 EquatableView(content: ZoneCard(
                                     zone: zone,
                                     discovery: discovery,
+                                    playbackContext: playbackContext,
                                     autoExpand: expandZoneID == zone.id,
                                     onNowPlaying: { zoneID in
                                         onNowPlaying?(zoneID)
@@ -162,14 +164,21 @@ struct ZoneCard: View, Equatable {
 
     let zone: SonosZone
     @ObservedObject var discovery: ZoneDiscoveryService
+    @ObservedObject var playbackContext: PlaybackContextService
     let autoExpand: Bool
     let onNowPlaying: (String) -> Void
     @State private var isExpanded = false
     @State private var showEQ = false
     @State private var showGroupPicker = false
+    @State private var contextVersion: Int = 0
 
     private var liveZone: SonosZone? {
         discovery.zones.first(where: { $0.id == zone.id })
+    }
+
+    private var localContext: PlaybackContext? {
+        let ctx = playbackContext.contexts[zone.id]
+        return ctx?.isLocal == true ? ctx : nil
     }
 
     private var isPlaying: Bool { liveZone?.isPlaying ?? false }
@@ -191,10 +200,14 @@ struct ZoneCard: View, Equatable {
             // Card header
             HStack(spacing: 12) {
 
-                // Station art thumbnail — square, 48pt
+                // Station/local art thumbnail — square, 48pt
                 let z = liveZone ?? zone
+                let artKey = "\(localContext?.artAlbum?.id ?? "")-\(z.stationLogoURL)-\(contextVersion)"
                 Group {
-                    if !z.stationLogoURL.isEmpty,
+                    if let album = localContext?.artAlbum {
+                        AlbumArtView(album: album, size: 48)
+                            .id(album.id)
+                    } else if !z.stationLogoURL.isEmpty,
                        let artURL = URL(string: z.stationLogoURL) {
                         CachedAsyncImage(url: artURL) { phase in
                             switch phase {
@@ -208,6 +221,7 @@ struct ZoneCard: View, Equatable {
                         artPlaceholder
                     }
                 }
+                .id(artKey)
                 .frame(width: 48, height: 48)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
@@ -234,26 +248,17 @@ struct ZoneCard: View, Equatable {
                         }
                     }
 
-                    // Station name in brass
-                    if !z.stationName.isEmpty {
-                        Text(z.stationName)
+                    // Source label — album name for local tracks, station name for streams
+                    let sourceLabel: String = {
+                        if let ctx = localContext { return ctx.albumName }
+                        return z.stationName
+                    }()
+                    if !sourceLabel.isEmpty {
+                        Text(sourceLabel)
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(.sBrass)
                             .lineLimit(1)
                     }
-
-                    // Track · artist
-                    let trackLine: String = {
-                        if !z.currentTrack.isEmpty {
-                            return z.currentArtist.isEmpty ? z.currentTrack : "\(z.currentTrack) · \(z.currentArtist)"
-                        }
-                        return isPlaying ? "Playing" : "Idle"
-                    }()
-                    Text(trackLine)
-                        .font(.system(size: 11))
-                        .foregroundColor(.sTextSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -439,11 +444,14 @@ struct ZoneCard: View, Equatable {
                 }
             }
         }
+        .onReceive(playbackContext.$contexts) { _ in
+            contextVersion += 1
+        }
     }
 }
 
 #Preview {
-    ZonesView(discovery: ZoneDiscoveryService(), expandZoneID: .constant(nil))
+    ZonesView(discovery: ZoneDiscoveryService(), playbackContext: PlaybackContextService.shared, expandZoneID: .constant(nil))
         .preferredColorScheme(.dark)
 }
 

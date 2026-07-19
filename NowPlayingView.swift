@@ -8,6 +8,7 @@ import SwiftUI
 struct NowPlayingView: View {
     @Binding var selectedZoneID: String?
     @ObservedObject var discovery: ZoneDiscoveryService
+    @ObservedObject private var playbackContext = PlaybackContextService.shared
     let onTapZone: () -> Void
 
     @State private var pollTask: Task<Void, Never>? = nil
@@ -27,11 +28,26 @@ struct NowPlayingView: View {
     private var isPlaying: Bool { zone?.isPlaying ?? false }
     private var volume: Int { zone?.volume ?? 0 }
 
-    // Track display — use cached values so pause doesn't clear the track
-    // cachedTrack updates when zone has a track, never clears on pause
-    private var displayTrack: String { cachedTrack.isEmpty ? (zone?.currentTrack ?? "") : cachedTrack }
-    private var displayArtist: String { cachedArtist.isEmpty ? (zone?.currentArtist ?? "") : cachedArtist }
-    private var stationName: String { zone?.stationName ?? "" }
+    // Local playback context — takes priority over zone state for local tracks
+    private var localContext: PlaybackContext? {
+        guard let id = selectedZoneID else { return nil }
+        let ctx = playbackContext.contexts[id]
+        return ctx?.isLocal == true ? ctx : nil
+    }
+
+    // Track display — local context takes priority, then cached zone values
+    private var displayTrack: String {
+        if let ctx = localContext { return ctx.track }
+        return cachedTrack.isEmpty ? (zone?.currentTrack ?? "") : cachedTrack
+    }
+    private var displayArtist: String {
+        if let ctx = localContext { return ctx.artist }
+        return cachedArtist.isEmpty ? (zone?.currentArtist ?? "") : cachedArtist
+    }
+    private var stationName: String {
+        if localContext != nil { return "" }
+        return zone?.stationName ?? ""
+    }
     private var progress: Double { duration > 0 ? Double(elapsed) / Double(duration) : 0 }
 
     private var artPlaceholder: some View {
@@ -85,10 +101,12 @@ struct NowPlayingView: View {
 
                 Spacer()
 
-                // Album art — AsyncImage from zone's stationLogoURL (same source as zone card)
+                // Album art — local context uses AlbumArtView, stations use CachedAsyncImage
                 let artURL = zone?.stationLogoURL ?? ""
                 Group {
-                    if !artURL.isEmpty, let url = URL(string: artURL) {
+                    if let album = localContext?.artAlbum {
+                        AlbumArtView(album: album, size: 280)
+                    } else if !artURL.isEmpty, let url = URL(string: artURL) {
                         CachedAsyncImage(url: url) { phase in
                             switch phase {
                             case .success(let img):

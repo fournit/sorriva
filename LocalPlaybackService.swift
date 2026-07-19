@@ -52,6 +52,9 @@ final class LocalPlaybackService {
             }
             sLog("LOCALPLAY: single track — \(track.title) — \(uri)")
             SorrivaHTTPServer.shared.setCurrentTrack(id: track.id, duration: track.duration)
+            if let album = try? SorrivaDatabase.shared.album(id: track.albumId) {
+                PlaybackContextService.shared.setLocalContext(zoneID: zone.id, track: track, album: album)
+            }
             let host = zone.host
             await Task.detached {
                 await ZoneDiscoveryService.setAVTransportURIWithMetadata(host: host, streamURL: uri, didl: "")
@@ -86,6 +89,9 @@ final class LocalPlaybackService {
 
             sLog("LOCALPLAY: queueing first \(uris.count) of \(tracks.count) tracks on \(zone.name)")
             SorrivaHTTPServer.shared.setCurrentTrack(id: tracks[0].id, duration: tracks[0].duration)
+            if let album = try? SorrivaDatabase.shared.album(id: tracks[0].albumId) {
+                PlaybackContextService.shared.setLocalContext(zoneID: zone.id, track: tracks[0], album: album)
+            }
             let host = zone.host
             let zoneID = zone.id
             await Task.detached {
@@ -121,6 +127,10 @@ final class LocalPlaybackService {
         // Find which track just started
         guard let idx = queuedTracks.firstIndex(where: { $0.id == trackId }) else { return }
         currentQueueIndex = idx
+        let advancedTrack = queuedTracks[idx]
+        if let album = try? SorrivaDatabase.shared.album(id: advancedTrack.albumId) {
+            PlaybackContextService.shared.setLocalContext(zoneID: activeZoneID, track: advancedTrack, album: album)
+        }
 
         // Enqueue the next track — only if we haven't already enqueued it
         let nextToEnqueue = idx + 1

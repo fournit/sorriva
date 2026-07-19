@@ -11,8 +11,10 @@ import SwiftUI
 struct MiniPlayerView: View {
     @Binding var selectedZoneID: String?
     @ObservedObject var discovery: ZoneDiscoveryService
+    @ObservedObject var playbackContext: PlaybackContextService
     let onTapTrack: () -> Void
     let onTapZone: () -> Void
+    @State private var contextVersion: Int = 0
 
     private var zone: SonosZone? {
         guard let id = selectedZoneID else { return nil }
@@ -22,6 +24,7 @@ struct MiniPlayerView: View {
     private var isPlaying: Bool { zone?.isPlaying ?? false }
 
     private var trackName: String {
+        if let ctx = localContext { return ctx.track }
         if let z = zone {
             if !z.currentTrack.isEmpty { return z.currentTrack }
             if !z.stationName.isEmpty { return z.stationName }
@@ -31,6 +34,7 @@ struct MiniPlayerView: View {
     }
 
     private var artistName: String {
+        if let ctx = localContext { return ctx.artist }
         if let z = zone {
             if !z.currentArtist.isEmpty { return z.currentArtist }
             if !z.currentTrack.isEmpty, !z.stationName.isEmpty { return z.stationName }
@@ -39,6 +43,11 @@ struct MiniPlayerView: View {
     }
 
     private var artURL: String { zone?.stationLogoURL ?? "" }
+    private var localContext: PlaybackContext? {
+        guard let id = selectedZoneID else { return nil }
+        let ctx = playbackContext.contexts[id]
+        return ctx?.isLocal == true ? ctx : nil
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -58,8 +67,13 @@ struct MiniPlayerView: View {
 
                 // Art — spans full height
                 Button(action: onTapTrack) {
+                    let isLocalNow = localContext?.artAlbum != nil
+                    let artKey = "\(isLocalNow)-\(localContext?.artAlbum?.id ?? "")-\(artURL)-\(contextVersion)"
                     Group {
-                        if !artURL.isEmpty, let url = URL(string: artURL) {
+                        if let album = localContext?.artAlbum {
+                            AlbumArtView(album: album, size: 44)
+                                .id(album.id)
+                        } else if !artURL.isEmpty, let url = URL(string: artURL) {
                             CachedAsyncImage(url: url) { phase in
                                 switch phase {
                                 case .success(let img):
@@ -72,6 +86,7 @@ struct MiniPlayerView: View {
                             artPlaceholder
                         }
                     }
+                    .id(artKey)
                     .frame(width: 44, height: 44)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
@@ -120,6 +135,9 @@ struct MiniPlayerView: View {
             .padding(.top, 10)
             .padding(.bottom, 28)
             .background(Color.sGradientBottom.opacity(0.97))
+        }
+        .onReceive(playbackContext.$contexts) { _ in
+            contextVersion += 1
         }
     }
 

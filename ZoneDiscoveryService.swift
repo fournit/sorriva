@@ -658,6 +658,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
     // MARK: - Station playback
 
     func playStation(streamID: Int, on zone: SonosZone) {
+        PlaybackContextService.shared.clearLocalContext(zoneID: zone.id)
         Task {
             print("SORRIVA: Fetching stream URL for station \(streamID)")
             guard let streamURL = await IHeartAPI.fetchStreamURL(streamID: streamID) else {

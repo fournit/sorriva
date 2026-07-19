@@ -22,6 +22,28 @@ actor ArtworkCache {
     private let session = URLSession.shared
     private let fileManager = FileManager.default
 
+    // MARK: - In-memory image cache
+    // NSCache is thread-safe and automatically evicted under memory pressure.
+    // Keyed by albumId — separate caches for thumb and full so size-specific
+    // eviction doesn't knock out the other size.
+    // Bounded at 150 entries each (~15MB thumb, ~60MB full at typical JPEG sizes).
+    private let thumbCache: NSCache<NSString, UIImage> = {
+        let c = NSCache<NSString, UIImage>()
+        c.countLimit = 150
+        return c
+    }()
+    private let fullCache: NSCache<NSString, UIImage> = {
+        let c = NSCache<NSString, UIImage>()
+        c.countLimit = 150
+        return c
+    }()
+
+    /// Evict a specific album from the in-memory cache — called when artwork is updated.
+    func evictFromCache(albumId: String) {
+        thumbCache.removeObject(forKey: albumId as NSString)
+        fullCache.removeObject(forKey: albumId as NSString)
+    }
+
     private init() {}
 
     // MARK: - Public API
@@ -84,18 +106,26 @@ actor ArtworkCache {
 
     // MARK: - Image loading for UI
 
-    /// Load thumbnail from disk. Returns nil if not yet cached.
+    /// Load thumbnail — checks in-memory cache first, falls back to disk.
     func thumbnail(for album: Album) -> UIImage? {
+        let key = album.id as NSString
+        if let cached = thumbCache.object(forKey: key) { return cached }
         guard let rel = album.artPathThumb else { return nil }
         let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return UIImage(contentsOfFile: docs.appendingPathComponent(rel).path)
+        guard let img = UIImage(contentsOfFile: docs.appendingPathComponent(rel).path) else { return nil }
+        thumbCache.setObject(img, forKey: key)
+        return img
     }
 
-    /// Load full image from disk. Returns nil if not yet cached.
+    /// Load full image — checks in-memory cache first, falls back to disk.
     func fullImage(for album: Album) -> UIImage? {
+        let key = album.id as NSString
+        if let cached = fullCache.object(forKey: key) { return cached }
         guard let rel = album.artPathFull else { return nil }
         let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return UIImage(contentsOfFile: docs.appendingPathComponent(rel).path)
+        guard let img = UIImage(contentsOfFile: docs.appendingPathComponent(rel).path) else { return nil }
+        fullCache.setObject(img, forKey: key)
+        return img
     }
 
     // MARK: - Private
@@ -179,6 +209,7 @@ struct AlbumArtView: View {
         .onAppear { loadImage() }
         .onReceive(NotificationCenter.default.publisher(for: .artworkDidUpdate)) { note in
             if let updatedId = note.object as? String, updatedId == album.id {
+                Task { await ArtworkCache.shared.evictFromCache(albumId: updatedId) }
                 loadImage()
             }
         }
@@ -186,20 +217,20 @@ struct AlbumArtView: View {
 
     private func loadImage() {
         Task {
+            let isThumb = size < 80
+            // Check in-memory cache synchronously before hitting disk or DB
+            let cached = await isThumb
+                ? ArtworkCache.shared.thumbnail(for: album)
+                : ArtworkCache.shared.fullImage(for: album)
+            if let cached {
+                await MainActor.run { image = cached }
+                return
+            }
+            // Cache miss — re-fetch album from DB in case art path was just written
             let fresh = (try? SorrivaDatabase.shared.album(id: album.id)) ?? album
-            let relativePath = size >= 80 ? fresh.artPathFull : fresh.artPathThumb
-            guard let rel = relativePath else {
-                await MainActor.run { image = nil }
-                return
-            }
-            // Resolve relative path to absolute — container UUID changes on reinstall
-            let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            let absPath = docsDir.appendingPathComponent(rel).path
-            print("ARTWORK UI: loading \(size >= 80 ? "full" : "thumb") — \(absPath) for \(fresh.title)")
-            guard let img = UIImage(contentsOfFile: absPath) else {
-                await MainActor.run { image = nil }
-                return
-            }
+            let img = await isThumb
+                ? ArtworkCache.shared.thumbnail(for: fresh)
+                : ArtworkCache.shared.fullImage(for: fresh)
             await MainActor.run { image = img }
         }
     }
