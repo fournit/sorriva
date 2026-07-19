@@ -223,7 +223,7 @@ struct LibrarySource: Codable, FetchableRecord, PersistableRecord, Identifiable,
     var password: String?
     var lastScanned: Int?
     var trackCount: Int
-    var scanState: String           // "idle" | "scanning" | "error"
+    var scanState: String           // "idle" | "scanning" | "error" | "retrying" | "complete"
     var lastScanFileCount: Int?     // audio file count at last successful scan — change detection
     var lastScanTotalBytes: Int?    // aggregate file size at last successful scan — change detection
     var createdAt: Int

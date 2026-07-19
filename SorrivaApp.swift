@@ -46,15 +46,52 @@ struct SorrivaApp: App {
 
     private func resetStaleScanStates() {
         let sources = (try? SorrivaDatabase.shared.allLibrarySources()) ?? []
-        for source in sources where source.scanState == "scanning" {
-            try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "error")
+        for source in sources {
+            if source.scanState == "scanning" {
+                // Killed mid-scan — mark as error so checkForChanges surfaces restart alert
+                try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "error")
+            }
+            // "retrying" state is left intact — checkForChanges will resume the scheduler
         }
     }
+
+    @ObservedObject private var coordinator = ScanCoordinator.shared
 
     var body: some Scene {
         WindowGroup {
             SplashView()
                 .preferredColorScheme(.dark)
+                .alert(
+                    "Scan Incomplete",
+                    isPresented: Binding(
+                        get: { coordinator.interruptedScanSource != nil },
+                        set: { if !$0 { coordinator.interruptedScanSource = nil } }
+                    )
+                ) {
+                    Button("Restart Scan") {
+                        if let source = coordinator.interruptedScanSource {
+                            coordinator.confirmAndScanSource(source)
+                        }
+                    }
+                    Button("Cancel", role: .cancel) {
+                        if let source = coordinator.interruptedScanSource {
+                            // User chose not to restart — mark complete so alert never fires again
+                            Task {
+                                try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "complete")
+                            }
+                        }
+                        coordinator.interruptedScanSource = nil
+                    }
+                } message: {
+                    if let source = coordinator.interruptedScanSource {
+                        let root = source.rootPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                        let lastComponent = root.components(separatedBy: "/").filter { !$0.isEmpty }.last ?? root
+                        let shareDetail = root.isEmpty ? source.share : "\(source.share) — .../\(lastComponent)"
+                        Text("The scan of \(shareDetail) on \(source.displayName) did not complete. Would you like to restart it?")
+                    } else {
+                        Text("A previous scan did not complete. Would you like to restart it?")
+                    }
+                }
         }
         .onChange(of: scenePhase) { phase in
             if phase == .active {

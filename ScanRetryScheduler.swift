@@ -31,11 +31,16 @@ actor ScanRetryScheduler {
     static let shared = ScanRetryScheduler()
 
     // Delays between passes (seconds): 2min, 10min, 30min, 60min
-    private let retryDelays: [TimeInterval] = [120, 600, 1800, 3600]
+    private let retryDelays: [TimeInterval] = [30, 30, 30, 30]
 
     private var schedulerTask: Task<Void, Never>? = nil
 
     private init() {}
+
+    private func scanLog(_ message: String) {
+        sLog(message)
+        ScanCoordinator.shared.appendStatus(message)
+    }
 
     // MARK: - Public API
 
@@ -45,7 +50,7 @@ actor ScanRetryScheduler {
         schedulerTask?.cancel()
 
         schedulerTask = Task {
-            sLog("RETRY: scheduler START for \(source.displayName)")
+            scanLog("RETRY: scheduler START for \(source.displayName)")
 
             // Pass 1 — immediate
             await runRetryPass(source: source, scanner: scanner, passNumber: 1)
@@ -53,21 +58,26 @@ actor ScanRetryScheduler {
             // Passes 2–5 — on backoff schedule
             for (idx, delay) in retryDelays.enumerated() {
                 guard !Task.isCancelled else {
-                    sLog("RETRY: scheduler CANCELLED before pass \(idx + 2)")
+                    scanLog("RETRY: scheduler CANCELLED before pass \(idx + 2)")
                     break
                 }
 
                 // Check both queues before sleeping — bail early if already clear
                 if await bothQueuesClear(sourceId: source.id) {
-                    sLog("RETRY: scheduler DONE — both queues clear after pass \(idx + 1)")
+                    scanLog("RETRY: scheduler DONE — both queues clear after pass \(idx + 1)")
+                    try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "complete")
+                    scanLog("SCAN: state = complete for \(source.displayName)")
+                    await MainActor.run {
+                        NotificationCenter.default.post(name: .libraryDidUpdate, object: nil)
+                    }
                     break
                 }
 
-                sLog("RETRY: scheduler waiting \(Int(delay))s until pass \(idx + 2)")
+                scanLog("RETRY: scheduler waiting \(Int(delay))s until pass \(idx + 2)")
                 await wallClockSleep(seconds: delay, passNumber: idx + 2)
 
                 guard !Task.isCancelled else {
-                    sLog("RETRY: scheduler CANCELLED during sleep before pass \(idx + 2)")
+                    scanLog("RETRY: scheduler CANCELLED during sleep before pass \(idx + 2)")
                     break
                 }
 
@@ -78,7 +88,12 @@ actor ScanRetryScheduler {
             let tracksPending  = (try? SorrivaDatabase.shared.pendingScanSkips(sourceId: source.id))?.count ?? 0
             let tracksPermanent = (try? SorrivaDatabase.shared.permanentScanSkipCount(sourceId: source.id)) ?? 0
             let artPending     = (try? SorrivaDatabase.shared.albumsNeedingEmbeddedArtRetry())?.count ?? 0
-            sLog("RETRY: scheduler COMPLETE — \(tracksPending) tracks still pending, \(tracksPermanent) tracks permanent, \(artPending) art still pending")
+            scanLog("RETRY: scheduler COMPLETE — \(tracksPending) tracks still pending, \(tracksPermanent) tracks permanent, \(artPending) art still pending")
+            try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "complete")
+            scanLog("SCAN: state = complete for \(source.displayName)")
+            await MainActor.run {
+                NotificationCenter.default.post(name: .libraryDidUpdate, object: nil)
+            }
         }
     }
 
@@ -86,16 +101,16 @@ actor ScanRetryScheduler {
     func cancel() {
         schedulerTask?.cancel()
         schedulerTask = nil
-        sLog("RETRY: scheduler cancelled")
+        scanLog("RETRY: scheduler cancelled")
     }
 
     // MARK: - Private
 
     private func runRetryPass(source: LibrarySource, scanner: SMBScanner, passNumber: Int) async {
-        sLog("RETRY: === PASS \(passNumber) START ===")
+        scanLog("RETRY: === PASS \(passNumber) START ===")
         await scanner.retrySkippedTracks(source: source)
         await retryFailedEmbeddedArt(source: source)
-        sLog("RETRY: === PASS \(passNumber) COMPLETE ===")
+        scanLog("RETRY: === PASS \(passNumber) COMPLETE ===")
     }
 
     private func bothQueuesClear(sourceId: String) async -> Bool {
@@ -108,17 +123,11 @@ actor ScanRetryScheduler {
     /// Logs every 15 seconds so we can trace scheduler state in the debug log.
     private func wallClockSleep(seconds: TimeInterval, passNumber: Int) async {
         let target = Date().addingTimeInterval(seconds)
-        var nextLog = Date().addingTimeInterval(15)
         while Date() < target {
             guard !Task.isCancelled else { return }
-            let remaining = Int(target.timeIntervalSinceNow)
-            if Date() >= nextLog {
-                sLog("RETRY: scheduler — pass \(passNumber) waiting, \(remaining)s remaining")
-                nextLog = Date().addingTimeInterval(15)
-            }
             try? await Task.sleep(nanoseconds: 5_000_000_000) // 5s heartbeat
         }
-        sLog("RETRY: scheduler — pass \(passNumber) delay elapsed, firing")
+        scanLog("RETRY: scheduler — pass \(passNumber) delay elapsed, firing")
     }
 
     // MARK: - Embedded art retry pass
@@ -128,15 +137,15 @@ actor ScanRetryScheduler {
         do {
             albums = try SorrivaDatabase.shared.albumsNeedingEmbeddedArtRetry()
         } catch {
-            sLog("RETRY: embedded art — failed to fetch queue: \(error.localizedDescription)")
+            scanLog("RETRY: embedded art — failed to fetch queue: \(error.localizedDescription)")
             return
         }
         guard !albums.isEmpty else {
-            sLog("RETRY: embedded art — no pending retries")
+            scanLog("RETRY: embedded art — no pending retries")
             return
         }
 
-        sLog("RETRY: embedded art START — \(albums.count) albums")
+        scanLog("RETRY: embedded art START — \(albums.count) albums")
         var resolved = 0
         var stillFailing = 0
 
@@ -145,13 +154,13 @@ actor ScanRetryScheduler {
             try await client.login(username: source.username ?? "", password: source.password ?? "")
             try await client.connectShare(source.share)
         } catch {
-            sLog("RETRY: embedded art — SMB connect failed: \(error.localizedDescription)")
+            scanLog("RETRY: embedded art — SMB connect failed: \(error.localizedDescription)")
             return
         }
 
         for album in albums {
             let attemptNum = album.embeddedArtRetryCount + 1
-            sLog("RETRY: embedded art attempt \(attemptNum)/5 — \(album.artistName) · \(album.title)")
+            scanLog("RETRY: embedded art attempt \(attemptNum)/5 — \(album.artistName) · \(album.title)")
 
             let tracks = (try? SorrivaDatabase.shared.tracks(albumId: album.id)) ?? []
             var artFound = false
@@ -176,14 +185,14 @@ actor ScanRetryScheduler {
                         await MainActor.run {
                             NotificationCenter.default.post(name: .artworkDidUpdate, object: album.id)
                         }
-                        sLog("RETRY: embedded art RESOLVED (attempt \(attemptNum)) — \(album.artistName) · \(album.title)")
+                        scanLog("RETRY: embedded art RESOLVED (attempt \(attemptNum)) — \(album.artistName) · \(album.title)")
                         artFound = true
                         resolved += 1
                         break
                     }
                     // Read succeeded, no art in file — don't set readErrored
                 } catch {
-                    sLog("RETRY: embedded art read error — \((track.filePath as NSString).lastPathComponent): \(error.localizedDescription)")
+                    scanLog("RETRY: embedded art read error — \((track.filePath as NSString).lastPathComponent): \(error.localizedDescription)")
                     readErrored = true
                     // Reconnect
                     try? await client.disconnectShare()
@@ -191,7 +200,7 @@ actor ScanRetryScheduler {
                     client = SMBClient(host: source.host)
                     if (try? await client.login(username: source.username ?? "", password: source.password ?? "")) != nil,
                        (try? await client.connectShare(source.share)) != nil {
-                        sLog("RETRY: embedded art — reconnected")
+                        scanLog("RETRY: embedded art — reconnected")
                     }
                 }
             }
@@ -201,14 +210,14 @@ actor ScanRetryScheduler {
                     // Still erroring — increment retry count (markEmbeddedArtFailed handles the cap at 5)
                     try? SorrivaDatabase.shared.markEmbeddedArtFailed(albumId: album.id)
                     if attemptNum >= 5 {
-                        sLog("RETRY: embedded art PERMANENT FAIL after 5 attempts — \(album.artistName) · \(album.title)")
+                        scanLog("RETRY: embedded art PERMANENT FAIL after 5 attempts — \(album.artistName) · \(album.title)")
                     } else {
-                        sLog("RETRY: embedded art attempt \(attemptNum) failed — \(album.artistName) · \(album.title)")
+                        scanLog("RETRY: embedded art attempt \(attemptNum) failed — \(album.artistName) · \(album.title)")
                     }
                 } else {
                     // No read error but no art found — file genuinely has no embedded art, stop retrying
                     try? SorrivaDatabase.shared.markEmbeddedArtScanned(albumId: album.id)
-                    sLog("RETRY: embedded art — no art in file — \(album.artistName) · \(album.title)")
+                    scanLog("RETRY: embedded art — no art in file — \(album.artistName) · \(album.title)")
                 }
                 stillFailing += 1
             }
@@ -218,7 +227,7 @@ actor ScanRetryScheduler {
 
         try? await client.disconnectShare()
         try? await client.logoff()
-        sLog("RETRY: embedded art COMPLETE — \(resolved) resolved, \(stillFailing) still failing")
+        scanLog("RETRY: embedded art COMPLETE — \(resolved) resolved, \(stillFailing) still failing")
     }
 
     // MARK: - Artwork save helpers

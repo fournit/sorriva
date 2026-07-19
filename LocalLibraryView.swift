@@ -241,6 +241,20 @@ struct SMBServerDetailView: View {
                     .padding(.bottom, 16)
                     .onLongPressGesture { showServerActionSheet = true }
 
+                    // Scan status panel — visible during active scan, retries, or while messages remain
+                    let activeSource = sources.first(where: {
+                        $0.id == coordinator.activeScanSourceId ||
+                        $0.scanState == "retrying" ||
+                        $0.scanState == "scanning"
+                    }) ?? (coordinator.statusMessages.isEmpty ? nil : sources.first(where: {
+                        $0.host == host
+                    }))
+                    if let active = activeSource, !coordinator.statusMessages.isEmpty {
+                        ScanStatusPanel(sourceId: active.id, scanState: active.scanState)
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 8)
+                    }
+
                     // Shares
                     if !sources.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
@@ -269,7 +283,14 @@ struct SMBServerDetailView: View {
                 showScanConfirm = true
             }
         }
+        .onDisappear {
+            // Clear status messages when leaving the page
+            ScanCoordinator.shared.clearStatus()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .libraryDidUpdate)) { _ in
+            loadSources()
+        }
+        .onChange(of: coordinator.activeScanSourceId) { _ in
             loadSources()
         }
         // Hidden NavigationLinks for server actions
@@ -362,22 +383,6 @@ struct SMBServerDetailView: View {
         } message: {
             Text("Sorriva will read tags from every audio file on this share. On large libraries this can take several hours.\n\nDuring the scan, auto-lock will be disabled to keep the screen on. It will be re-enabled automatically when the scan completes.\n\nKeep Sorriva in the foreground — backgrounding the app will pause the scan.")
         }
-        // Interrupted scan alert
-        .alert("Scan Incomplete", isPresented: Binding(
-            get: { coordinator.interruptedScanSource != nil },
-            set: { if !$0 { coordinator.interruptedScanSource = nil } }
-        )) {
-            Button("Restart Scan") {
-                if let source = coordinator.interruptedScanSource {
-                    coordinator.confirmAndScanSource(source)
-                }
-            }
-            Button("Cancel", role: .cancel) {
-                coordinator.interruptedScanSource = nil
-            }
-        } message: {
-            Text("The previous scan of \(coordinator.interruptedScanSource?.displayName ?? "this share") did not complete. Would you like to restart it?")
-        }
         .onChange(of: coordinator.pendingFullScanSource) { source in
             if source != nil { showScanConfirm = true }
         }        // Remove share confirm
@@ -407,7 +412,6 @@ struct SMBServerDetailView: View {
 
 struct ShareDetailCard: View {
     @State private var source: LibrarySource
-    @ObservedObject private var coordinator = ScanCoordinator.shared
 
     init(source: LibrarySource) {
         _source = State(initialValue: source)
@@ -431,26 +435,17 @@ struct ShareDetailCard: View {
                     .lineLimit(1)
 
                 HStack(spacing: 6) {
-                    if isScanning, let p = coordinator.progress {
-                        // Live scan progress
-                        ProgressView()
-                            .scaleEffect(0.7)
-                        Text(scanProgressText(p))
+                    if source.trackCount > 0 {
+                        Text("\(source.trackCount) tracks")
                             .font(.system(size: 12))
-                            .foregroundColor(.sBrass)
-                    } else {
-                        if source.trackCount > 0 {
-                            Text("\(source.trackCount) tracks")
-                                .font(.system(size: 12))
-                                .foregroundColor(.sTextMuted)
-                            Text("·")
-                                .font(.system(size: 12))
-                                .foregroundColor(.sTextMuted)
-                        }
-                        Text(lastScannedText)
+                            .foregroundColor(.sTextSecondary)
+                        Text("·")
                             .font(.system(size: 12))
-                            .foregroundColor(.sTextMuted)
+                            .foregroundColor(.sTextSecondary)
                     }
+                    Text(lastScannedText)
+                        .font(.system(size: 12))
+                        .foregroundColor(.sTextSecondary)
                 }
             }
 
@@ -465,19 +460,6 @@ struct ShareDetailCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .onReceive(NotificationCenter.default.publisher(for: .libraryDidUpdate)) { _ in
             reloadSource()
-        }
-    }
-
-    private var isScanning: Bool {
-        coordinator.activeScanSourceId == source.id
-    }
-
-    private func scanProgressText(_ p: ScanProgress) -> String {
-        switch p.phase {
-        case .statting:   return "Listing files…"
-        case .scanning:   return "Scanning \(p.filesScanned) / \(p.filesFound)"
-        case .finalizing: return "Finalizing…"
-        case .complete:   return "Scan complete"
         }
     }
 
@@ -501,6 +483,72 @@ struct ShareDetailCard: View {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
+    }
+}
+
+// MARK: - ScanStatusPanel
+// Shows live log tail during any active scan pipeline phase.
+// Reads last N lines from sorriva-debug.log on a 1s timer.
+// No callbacks or dispatches in the scan hot path — purely observes the log file.
+
+struct ScanStatusPanel: View {
+    let sourceId: String
+    let scanState: String
+    @ObservedObject private var coordinator = ScanCoordinator.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                if scanState == "scanning" || scanState == "retrying" {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                        .tint(.sBrass)
+                } else {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(.sBrass)
+                }
+                Text(phaseLabel)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.sBrass)
+            }
+
+            if !coordinator.statusMessages.isEmpty {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(coordinator.statusMessages.indices, id: \.self) { i in
+                                Text(coordinator.statusMessages[i])
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundColor(.sTextSecondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                    .id(i)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 120)
+                    .onChange(of: coordinator.statusMessages.count) { _ in
+                        if let last = coordinator.statusMessages.indices.last {
+                            withAnimation { proxy.scrollTo(last, anchor: .bottom) }
+                        }
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.sCard)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var phaseLabel: String {
+        switch scanState {
+        case "scanning":  return "Scanning library…"
+        case "retrying":  return "Retrying skipped tracks…"
+        case "complete":  return "Scan complete"
+        default:          return "Processing…"
+        }
     }
 }
 
@@ -786,10 +834,18 @@ struct ScanReportSheet: View {
 
                 ScrollView {
                     VStack(spacing: 0) {
-                        ReportRow(label: "Files found", value: "\(report.totalFiles)")
-                        ReportRow(label: "Tracks indexed", value: "\(report.tracksIndexed)")
-                        ReportRow(label: "Albums", value: "\(report.albumsFound)")
-                        ReportRow(label: "Artists", value: "\(report.artistsFound)")
+                        ReportRow(label: "Files found",     value: "\(report.totalFiles)")
+                        ReportRow(label: "Tracks indexed",  value: "\(report.tracksIndexed)")
+                        ReportRow(label: "Albums",          value: "\(report.albumsFound)")
+                        ReportRow(label: "Artists",         value: "\(report.artistsFound)")
+                        ReportRow(label: "Artwork found",   value: "\(report.artworkFound)")
+                        if report.filesSkipped > 0 {
+                            ReportRow(label: "Tracks skipped",   value: "\(report.filesSkipped)", valueColor: .sBrass)
+                            ReportRow(label: "Tracks retried",   value: "\(report.tracksRetried)", valueColor: report.tracksRetried > 0 ? .green : .sTextSecondary)
+                            if report.permanentFailures > 0 {
+                                ReportRow(label: "Unresolvable",  value: "\(report.permanentFailures)", valueColor: .red)
+                            }
+                        }
                         ReportRow(label: "Completed", value: completedText, isLast: true)
                     }
                     .padding(.top, 8)

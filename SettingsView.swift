@@ -1,4 +1,5 @@
 import SwiftUI
+import GRDB
 
 // MARK: - SettingsView
 // Main settings screen. Single menu rows per section — tapping navigates deeper.
@@ -61,6 +62,17 @@ struct SettingsView: View {
                             }
                             .buttonStyle(.plain)
 
+                            // Library Management
+                            NavigationLink(destination: LibraryManagementView()) {
+                                SettingsMenuRow(
+                                    icon: "books.vertical",
+                                    iconColor: Color(hex: "#3D7A5A"),
+                                    title: "Library Management",
+                                    subtitle: "Stats, storage, and library tools"
+                                )
+                            }
+                            .buttonStyle(.plain)
+
                             // Zones (stub)
                             SettingsMenuRow(
                                 icon: "hifispeaker.2",
@@ -103,21 +115,6 @@ struct SettingsView: View {
                             .buttonStyle(.plain)
                             #endif
 
-                            // Separator before destructive action
-                            Divider()
-                                .background(Color.sSeparator)
-                                .padding(.vertical, 4)
-
-                            // Clear Local Library — isolated at bottom
-                            Button { showClearLibraryConfirm = true } label: {
-                                SettingsMenuRow(
-                                    icon: "trash",
-                                    iconColor: .red,
-                                    title: "Clear Local Library",
-                                    subtitle: "Remove all indexed tracks, albums and artists"
-                                )
-                            }
-                            .buttonStyle(.plain)
                         }
                         .padding(.horizontal, 16)
                     }
@@ -143,6 +140,182 @@ struct SettingsView: View {
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+    }
+}
+
+// MARK: - LibraryManagementView
+
+struct LibraryManagementView: View {
+    @State private var artistCount: Int = 0
+    @State private var albumCount: Int = 0
+    @State private var trackCount: Int = 0
+    @State private var dbSizeBytes: Int64 = 0
+    @State private var showClearConfirm = false
+    @State private var showClearDone = false
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color.sGradientTop, Color.sGradientMid, Color.sGradientBottom],
+                startPoint: .top, endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+
+                    // Stats cards
+                    VStack(alignment: .leading, spacing: 8) {
+                        SettingsSectionLabel(title: "Library")
+
+                        HStack(spacing: 10) {
+                            LibStatCard(value: "\(artistCount)", label: "Artists", icon: "music.mic")
+                            LibStatCard(value: "\(albumCount)", label: "Albums", icon: "square.stack")
+                            LibStatCard(value: "\(trackCount)", label: "Tracks", icon: "music.note")
+                        }
+                    }
+                    .padding(.horizontal, 16)
+
+                    // Storage card
+                    VStack(alignment: .leading, spacing: 8) {
+                        SettingsSectionLabel(title: "Storage")
+
+                        HStack(spacing: 12) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color.sAccent.opacity(0.15))
+                                    .frame(width: 40, height: 40)
+                                Image(systemName: "internaldrive")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(.sAccent)
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Database size")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.sTextPrimary)
+                                Text(formattedSize)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.sTextMuted)
+                            }
+                            Spacer()
+                        }
+                        .padding(14)
+                        .background(Color.sSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+                    .padding(.horizontal, 16)
+
+                    // Destructive section
+                    VStack(alignment: .leading, spacing: 8) {
+                        Divider()
+                            .background(Color.sSeparator)
+                            .padding(.horizontal, 16)
+
+                        Button { showClearConfirm = true } label: {
+                            HStack(spacing: 14) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(Color.red)
+                                        .frame(width: 36, height: 36)
+                                    Image(systemName: "trash")
+                                        .font(.system(size: 16))
+                                        .foregroundColor(.white)
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Clear Local Library")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundColor(.sTextPrimary)
+                                    Text("Remove all indexed tracks, albums and artists")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.sTextMuted)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.sTextMuted)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 14)
+                            .background(Color.sSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                            .padding(.horizontal, 16)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.bottom, 48)
+                }
+                .padding(.top, 16)
+            }
+        }
+        .navigationTitle("Library Management")
+        .navigationBarTitleDisplayMode(.large)
+        .onAppear { loadStats() }
+        .alert("Clear Local Library?", isPresented: $showClearConfirm) {
+            Button("Clear", role: .destructive) {
+                try? SorrivaDatabase.shared.clearLocalLibrary()
+                NotificationCenter.default.post(name: .libraryDidUpdate, object: nil)
+                loadStats()
+                showClearDone = true
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes all indexed tracks, albums, artists and scan history. Your actual music files are not affected. You will need to rescan to rebuild the library.")
+        }
+        .alert("Library Cleared", isPresented: $showClearDone) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("All indexed data has been removed. Open Local Library to rescan.")
+        }
+    }
+
+    private func loadStats() {
+        artistCount = (try? SorrivaDatabase.shared.dbQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM artists") ?? 0
+        }) ?? 0
+        albumCount = (try? SorrivaDatabase.shared.dbQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM albums") ?? 0
+        }) ?? 0
+        trackCount = (try? SorrivaDatabase.shared.dbQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM tracks") ?? 0
+        }) ?? 0
+
+        // DB file size — resolve from Documents directory
+        let docsDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let dbURL = docsDir.appendingPathComponent("sorriva.sqlite")
+        dbSizeBytes = (try? dbURL.resourceValues(forKeys: [.fileSizeKey]).fileSize.map { Int64($0) }) ?? 0
+    }
+
+    private var formattedSize: String {
+        let mb = Double(dbSizeBytes) / 1_048_576
+        if mb < 1 { return String(format: "%.0f KB", Double(dbSizeBytes) / 1024) }
+        return String(format: "%.1f MB", mb)
+    }
+}
+
+// MARK: - LibStatCard
+
+struct LibStatCard: View {
+    let value: String
+    let label: String
+    let icon: String
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 20))
+                .foregroundColor(.sBrass)
+            Text(value)
+                .font(.system(size: 24, weight: .bold))
+                .foregroundColor(.sTextPrimary)
+                .monospacedDigit()
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundColor(.sTextMuted)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
+        .background(Color.sSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 }
 

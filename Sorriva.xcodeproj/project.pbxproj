@@ -109,6 +109,9 @@
 		805A16EC30085C4000AF3100 /* CachedAsyncImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedAsyncImage.swift; sourceTree = "<group>"; };
 		805A16EE300A7D3D00AF3100 /* SorrivaLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SorrivaLogger.swift; sourceTree = "<group>"; };
 		805A170B300BB5E100AF3100 /* ScanRetryScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanRetryScheduler.swift; sourceTree = "<group>"; };
+		805A170F300C669600AF3100 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		805A1710300C669600AF3100 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		805A1711300C669600AF3100 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -151,6 +154,7 @@
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
+				805A1712300C669600AF3100 /* Sorriva */,
 				805A170B300BB5E100AF3100 /* ScanRetryScheduler.swift */,
 				805A16EE300A7D3D00AF3100 /* SorrivaLogger.swift */,
 				805A16EC30085C4000AF3100 /* CachedAsyncImage.swift */,
@@ -210,6 +214,16 @@
 			children = (
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		805A1712300C669600AF3100 /* Sorriva */ = {
+			isa = PBXGroup;
+			children = (
+				805A170F300C669600AF3100 /* Assets.xcassets */,
+				805A1710300C669600AF3100 /* Info.plist */,
+				805A1711300C669600AF3100 /* PrivacyInfo.xcprivacy */,
+			);
+			path = Sorriva;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
