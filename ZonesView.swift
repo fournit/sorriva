@@ -216,6 +216,7 @@ struct ZoneCard: View, Equatable {
     @State private var isExpanded = false
     @State private var showEQ = false
     @State private var showGroupPicker = false
+    @State private var showTransferPicker = false
     @State private var contextVersion: Int = 0
 
     private var liveZone: SonosZone? {
@@ -410,59 +411,50 @@ struct ZoneCard: View, Equatable {
                         }
                     }
 
-                    // Action row
-                    HStack(spacing: 10) {
-                        // Group button
+                    // Action row — icon only
+                    HStack(spacing: 0) {
+                        // Group
                         Button(action: { showGroupPicker = true }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "rectangle.3.group")
-                                    .font(.system(size: 13))
-                                Text("Group")
-                                    .font(.system(size: 13, weight: .medium))
-                            }
-                            .foregroundColor(.sHighlight)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.sSurface)
-                            .clipShape(Capsule())
+                            Image(systemName: "rectangle.3.group")
+                                .font(.system(size: 18))
+                                .foregroundColor(.sHighlight)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
                         }
                         .buttonStyle(.plain)
 
-                        // EQ button — disabled when grouped (ambiguous which zone)
+                        // Transfer
+                        Button(action: { showTransferPicker = true }) {
+                            Image(systemName: "arrow.left.arrow.right")
+                                .font(.system(size: 18))
+                                .foregroundColor(isPlaying && liveMembers.isEmpty ? .sHighlight : .sTextMuted)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!isPlaying || !liveMembers.isEmpty)
+
+                        // EQ
                         Button(action: { if liveMembers.isEmpty { showEQ = true } }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "slider.horizontal.3")
-                                    .font(.system(size: 13))
-                                Text("EQ")
-                                    .font(.system(size: 13, weight: .medium))
-                            }
-                            .foregroundColor(liveMembers.isEmpty ? .sHighlight : .sTextMuted)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.sSurface)
-                            .clipShape(Capsule())
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.system(size: 18))
+                                .foregroundColor(liveMembers.isEmpty ? .sHighlight : .sTextMuted)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
                         }
                         .buttonStyle(.plain)
 
-                        Spacer()
-
-                        // Now Playing button — active when playing, inactive when idle
+                        // Now Playing
                         Button(action: { if isPlaying { onNowPlaying(zone.id) } }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "music.note")
-                                    .font(.system(size: 13))
-                                Text("Now Playing")
-                                    .font(.system(size: 13, weight: .medium))
-                            }
-                            .foregroundColor(isPlaying ? .sBrass : .sTextMuted)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color.sSurface)
-                            .clipShape(Capsule())
+                            Image(systemName: "music.note")
+                                .font(.system(size: 18))
+                                .foregroundColor(isPlaying ? .sBrass : .sTextMuted)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
                         }
                         .buttonStyle(.plain)
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 8)
                     .padding(.bottom, 14)
                 }
             }
@@ -481,6 +473,11 @@ struct ZoneCard: View, Equatable {
         }
         .sheet(isPresented: $showGroupPicker) {
             GroupPickerSheet(coordinatorZone: zone, discovery: discovery)
+        }
+        .sheet(isPresented: $showTransferPicker) {
+            TransferZoneSheet(sourceZone: zone, discovery: discovery)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
         .onAppear {
             // Restore persisted state first
@@ -590,14 +587,8 @@ struct GroupPickerSheet: View {
 
                     Spacer()
 
-                    Button(action: applyChanges) {
-                        Text("Apply")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(hasChanges ? .white : .sTextMuted)
-                            .padding(12)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!hasChanges)
+                    // Placeholder to balance X button
+                    Color.clear.frame(width: 44, height: 44)
                 }
                 .padding(.top, 8)
 
@@ -668,8 +659,23 @@ struct GroupPickerSheet: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 16)
-                    .padding(.bottom, 32)
+                    .padding(.bottom, 16)
                 }
+
+                // Apply button — bottom centered
+                Button(action: applyChanges) {
+                    Text("Apply")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(hasChanges ? .white : .sTextMuted)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(hasChanges ? Color.sAccent : Color.sSurface)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(!hasChanges)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
             }
         }
         .onAppear {

@@ -610,24 +610,6 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         // Non-HDMI source — clear HDMI flag if it was previously set
         zones[idx].isHDMI = false
 
-        // Extract RelTime and TrackURI for position logging
-        let zoneName = zones[idx].name
-        if let relStart = raw.range(of: "<RelTime>"),
-           let relEnd = raw.range(of: "</RelTime>") {
-            let relTime = String(raw[relStart.upperBound..<relEnd.lowerBound])
-            // Only log for local HTTP tracks
-            if raw.contains(":8080/track/") {
-                if let uriStart = raw.range(of: "<TrackURI>"),
-                   let uriEnd = raw.range(of: "</TrackURI>") {
-                    let uri = String(raw[uriStart.upperBound..<uriEnd.lowerBound])
-                    let trackName = uri.components(separatedBy: "/").last ?? uri
-                    sLog("POSITION: \(zoneName) — \(trackName) @ \(relTime)")
-                } else {
-                    sLog("POSITION: \(zoneName) @ \(relTime)")
-                }
-            }
-        }
-
         // Parse current track from r:streamContent
         let decoded = raw
             .replacingOccurrences(of: "&amp;apos;", with: "'")
@@ -658,7 +640,6 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
     // MARK: - Station playback
 
     func playStation(streamID: Int, on zone: SonosZone) {
-        PlaybackContextService.shared.clearLocalContext(zoneID: zone.id)
         Task {
             print("SORRIVA: Fetching stream URL for station \(streamID)")
             guard let streamURL = await IHeartAPI.fetchStreamURL(streamID: streamID) else {
@@ -790,9 +771,9 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            sLog("SONOS: SetAVTransportURI \(host) status=\(status)")
+            print("SORRIVA: SetAVTransportURIWithMetadata \(host) status=\(status)")
         } catch {
-            sLog("SONOS: SetAVTransportURI error: \(error.localizedDescription)")
+            print("SORRIVA: SetAVTransportURIWithMetadata error: \(error.localizedDescription)")
         }
     }
 
@@ -818,12 +799,11 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         request.httpBody = bodyData
         request.timeoutInterval = 5
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (_, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            let body = String(data: data, encoding: .utf8) ?? ""
-            sLog("SONOS: RemoveAllTracksFromQueue \(host) status=\(status)\(status != 200 ? " body=\(body.prefix(200))" : "")")
+            print("SORRIVA: RemoveAllTracksFromQueue \(host) status=\(status)")
         } catch {
-            sLog("SONOS: RemoveAllTracksFromQueue error: \(error.localizedDescription)")
+            print("SORRIVA: RemoveAllTracksFromQueue error: \(error.localizedDescription)")
         }
     }
 
@@ -859,12 +839,11 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         request.httpBody = bodyData
         request.timeoutInterval = 10
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (_, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            let body = String(data: data, encoding: .utf8) ?? ""
-            sLog("SONOS: AddMultipleURIsToQueue \(host) \(uris.count) tracks status=\(status)\(status != 200 ? " body=\(body.prefix(300))" : "")")
+            print("SORRIVA: AddMultipleURIsToQueue \(host) \(uris.count) tracks status=\(status)")
         } catch {
-            sLog("SONOS: AddMultipleURIsToQueue error: \(error.localizedDescription)")
+            print("SORRIVA: AddMultipleURIsToQueue error: \(error.localizedDescription)")
         }
     }
 
@@ -918,9 +897,9 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            sLog("SONOS: \(action) \(host) status=\(status)")
+            print("SORRIVA: \(action) \(host) status=\(status)")
         } catch {
-            sLog("SONOS: \(action) error \(host): \(error.localizedDescription)")
+            print("SORRIVA: \(action) error \(host): \(error.localizedDescription)")
         }
     }
 
@@ -1100,6 +1079,46 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
 
         // Refresh topology after short delay to get new zone list
         Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if let host = zones.first?.host {
+                await fetchTopology(host: host)
+            }
+        }
+    }
+
+    /// Transfer playback from one zone to another.
+    /// 1. Destination joins source group (audio syncs)
+    /// 2. Source pauses
+    /// 3. Source goes standalone via BecomeCoordinatorOfStandaloneGroup
+    /// Destination continues playing as standalone coordinator.
+    func transferPlayback(fromZoneID: String, toZoneID: String) {
+        guard let sourceZone = zones.first(where: { $0.id == fromZoneID }),
+              let destZone = zones.first(where: { $0.id == toZoneID }) else { return }
+
+        let sourceHost = sourceZone.host
+        let destHost = destZone.host
+        let sourceID = fromZoneID
+
+        print("SORRIVA: transferPlayback — \(sourceZone.name) → \(destZone.name)")
+
+        Task {
+            // Step 1: destination joins source group — audio syncs
+            await ZoneDiscoveryService.addMember(
+                coordinatorHost: sourceHost,
+                memberHost: destHost,
+                memberUUID: sourceID
+            )
+            print("SORRIVA: Transfer step 1 — \(destZone.name) joined \(sourceZone.name)")
+
+            // Step 2: wait for audio to sync on destination
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+
+            // Step 3: source goes standalone — destination automatically becomes
+            // the new coordinator and inherits the queue
+            await ZoneDiscoveryService.becomeCoordinator(host: sourceHost)
+            print("SORRIVA: Transfer step 2 — \(sourceZone.name) released, \(destZone.name) is new coordinator")
+
+            // Refresh topology
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             if let host = zones.first?.host {
                 await fetchTopology(host: host)

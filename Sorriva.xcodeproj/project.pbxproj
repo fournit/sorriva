@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		80304054300EA74E0058B020 /* TransferZoneSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80304053300EA74E0058B020 /* TransferZoneSheet.swift */; };
 		80325AB62FFEE5DC00308486 /* DiscoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AB02FFEE5DC00308486 /* DiscoverView.swift */; };
 		80325AB72FFEE5DC00308486 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AB12FFEE5DC00308486 /* LibraryView.swift */; };
 		80325AB82FFEE5DC00308486 /* MiniPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AB22FFEE5DC00308486 /* MiniPlayerView.swift */; };
@@ -69,6 +70,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		80304053300EA74E0058B020 /* TransferZoneSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferZoneSheet.swift; sourceTree = "<group>"; };
 		80325AA02FFED8DE00308486 /* Sorriva.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Sorriva.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		80325AAE2FFEE5DC00308486 /* Color+Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Color+Theme.swift"; sourceTree = "<group>"; };
 		80325AAF2FFEE5DC00308486 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -156,6 +158,7 @@
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
+				80304053300EA74E0058B020 /* TransferZoneSheet.swift */,
 				805A1728300D16DF00AF3100 /* PlaybackContextService.swift */,
 				805A1712300C669600AF3100 /* Sorriva */,
 				805A170B300BB5E100AF3100 /* ScanRetryScheduler.swift */,
@@ -318,6 +321,7 @@
 				80325AD53000B03500308486 /* SplashView.swift in Sources */,
 				80325AE2300147C200308486 /* DatabaseModels.swift in Sources */,
 				80325AE3300147C200308486 /* SorrivaDatabase.swift in Sources */,
+				80304054300EA74E0058B020 /* TransferZoneSheet.swift in Sources */,
 				805A16BD3004886100AF3100 /* LocalFilesPickerView.swift in Sources */,
 				80325AD13000AC1800308486 /* EQSheet.swift in Sources */,
 				80325AB62FFEE5DC00308486 /* DiscoverView.swift in Sources */,
