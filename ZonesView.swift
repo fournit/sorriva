@@ -10,6 +10,28 @@ struct ZonesView: View {
     @EnvironmentObject private var tabState: SorrivaTabBarState
     @State private var scrollToZoneID: String? = nil
 
+    // Persisted expanded zone IDs — JSON-encoded set of zone IDs
+    @AppStorage("sorriva.expandedZoneIDs") private var expandedZoneIDsJSON: String = "[]"
+
+    private var expandedZoneIDs: Set<String> {
+        (try? JSONDecoder().decode(Set<String>.self, from: Data(expandedZoneIDsJSON.utf8))) ?? []
+    }
+
+    private func setExpanded(_ zoneID: String, _ expanded: Bool) {
+        var ids = expandedZoneIDs
+        if expanded { ids.insert(zoneID) } else { ids.remove(zoneID) }
+        expandedZoneIDsJSON = (try? String(data: JSONEncoder().encode(ids), encoding: .utf8)) ?? "[]"
+    }
+
+    private func expandAll() {
+        let ids = Set(discovery.zones.map { $0.id })
+        expandedZoneIDsJSON = (try? String(data: JSONEncoder().encode(ids), encoding: .utf8)) ?? "[]"
+    }
+
+    private func collapseAll() {
+        expandedZoneIDsJSON = "[]"
+    }
+
     var body: some View {
         VStack(spacing: 0) {
 
@@ -17,17 +39,35 @@ struct ZonesView: View {
             HStack {
                 SorrivaWordmark()
                 Spacer()
+                // Expand all
+                Button(action: expandAll) {
+                    Image(systemName: "arrow.up.and.line.horizontal.and.arrow.down")
+                        .font(.system(size: 16))
+                        .foregroundColor(.sHighlight)
+                }
+                .buttonStyle(.plain)
+                // Collapse all
+                Button(action: collapseAll) {
+                    Image(systemName: "arrow.down.and.line.horizontal.and.arrow.up")
+                        .font(.system(size: 16))
+                        .foregroundColor(.sHighlight)
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 14)
+                // Refresh
                 if discovery.isDiscovering {
                     ProgressView()
                         .progressViewStyle(.circular)
                         .tint(.sHighlight)
                         .scaleEffect(0.8)
+                        .padding(.leading, 14)
                 } else {
                     Button(action: { discovery.refresh() }) {
                         Image(systemName: "arrow.clockwise")
                             .font(.system(size: 18))
                             .foregroundColor(.sHighlight)
                     }
+                    .padding(.leading, 14)
                 }
             }
             .padding(.horizontal, 20)
@@ -46,8 +86,12 @@ struct ZonesView: View {
                                     discovery: discovery,
                                     playbackContext: playbackContext,
                                     autoExpand: expandZoneID == zone.id,
+                                    forceExpanded: expandedZoneIDs.contains(zone.id),
                                     onNowPlaying: { zoneID in
                                         onNowPlaying?(zoneID)
+                                    },
+                                    onExpandedChanged: { expanded in
+                                        setExpanded(zone.id, expanded)
                                     }
                                 ))
                                 .id(zone.id)
@@ -159,14 +203,16 @@ struct EQBarsView: View {
 
 struct ZoneCard: View, Equatable {
     static func == (lhs: ZoneCard, rhs: ZoneCard) -> Bool {
-        lhs.zone == rhs.zone && lhs.autoExpand == rhs.autoExpand
+        lhs.zone == rhs.zone && lhs.autoExpand == rhs.autoExpand && lhs.forceExpanded == rhs.forceExpanded
     }
 
     let zone: SonosZone
     @ObservedObject var discovery: ZoneDiscoveryService
     @ObservedObject var playbackContext: PlaybackContextService
     let autoExpand: Bool
+    let forceExpanded: Bool
     let onNowPlaying: (String) -> Void
+    var onExpandedChanged: ((Bool) -> Void)? = nil
     @State private var isExpanded = false
     @State private var showEQ = false
     @State private var showGroupPicker = false
@@ -265,6 +311,7 @@ struct ZoneCard: View, Equatable {
                 .onTapGesture {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                         isExpanded.toggle()
+                        onExpandedChanged?(isExpanded)
                     }
                 }
 
@@ -436,12 +483,23 @@ struct ZoneCard: View, Equatable {
             GroupPickerSheet(coordinatorZone: zone, discovery: discovery)
         }
         .onAppear {
+            // Restore persisted state first
+            if forceExpanded && !isExpanded {
+                isExpanded = true
+            }
+            // autoExpand from tab navigation overrides
             if autoExpand && !isExpanded {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                         isExpanded = true
+                        onExpandedChanged?(true)
                     }
                 }
+            }
+        }
+        .onChange(of: forceExpanded) { newValue in
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                isExpanded = newValue
             }
         }
         .onReceive(playbackContext.$contexts) { _ in

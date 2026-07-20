@@ -7,6 +7,7 @@ struct TracksView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var tabState: SorrivaTabBarState
     @State private var tracks: [Track] = []
+    @State private var albumsById: [String: Album] = [:]
     @State private var sortMode: TrackSortMode = .title
     @State private var trackToRemove: Track? = nil
     @State private var showRemoveConfirm = false
@@ -79,7 +80,11 @@ struct TracksView: View {
                     ScrollView {
                         LazyVStack(spacing: 8) {
                             ForEach(sortedTracks) { track in
-                                TrackCard(track: track, showAlbum: true)
+                                TrackCard(
+                                    track: track,
+                                    showAlbum: true,
+                                    album: albumsById[track.albumId]
+                                )
                                     .sorrivaContextMenu(
                                         title: track.title,
                                         subtitle: "\(track.artistName) · \(track.albumTitle)",
@@ -127,6 +132,8 @@ struct TracksView: View {
 
     private func loadTracks() {
         tracks = (try? SorrivaDatabase.shared.allTracks()) ?? []
+        let allAlbums = (try? SorrivaDatabase.shared.allAlbums()) ?? []
+        albumsById = Dictionary(uniqueKeysWithValues: allAlbums.map { ($0.id, $0) })
     }
 
     private func removeTrack(_ track: Track?) {

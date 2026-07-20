@@ -226,23 +226,29 @@ struct AlbumDetailView: View {
 struct TrackCard: View {
     let track: Track
     var showAlbum: Bool = true
+    var album: Album? = nil
 
     var body: some View {
         HStack(spacing: 12) {
-            // Track number or music note
-            ZStack {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.sCard)
-                    .frame(width: 44, height: 44)
-                if let num = track.trackNumber {
-                    Text("\(num)")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.sTextMuted)
-                } else {
-                    Image(systemName: "music.note")
-                        .font(.system(size: 14))
-                        .foregroundColor(.sTextMuted)
+            // Artwork (TracksView) or track number (AlbumDetailView)
+            if showAlbum, let album = album {
+                AlbumArtView(album: album, size: 44)
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.sCard)
+                        .frame(width: 44, height: 44)
+                    if let num = track.trackNumber {
+                        Text("\(num)")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.sTextMuted)
+                    } else {
+                        Image(systemName: "music.note")
+                            .font(.system(size: 14))
+                            .foregroundColor(.sTextMuted)
+                    }
                 }
+                .frame(width: 44, height: 44)
             }
 
             VStack(alignment: .leading, spacing: 2) {

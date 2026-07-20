@@ -98,8 +98,9 @@ struct LibraryView: View {
                 // Tracks
                 if !tracks.isEmpty {
                     LibraryRow(title: "Tracks", onSeeAll: { showTracks = true }) {
+                        let albumsById = Dictionary(uniqueKeysWithValues: albums.map { ($0.id, $0) })
                         LibraryMediaRow(items: Array(tracks.prefix(20).map {
-                            LibraryMediaItem(id: $0.id, title: $0.title, subtitle: $0.artistName, track: $0)
+                            LibraryMediaItem(id: $0.id, title: $0.title, subtitle: $0.artistName, album: albumsById[$0.albumId], track: $0)
                         }), onSeeAll: { showTracks = true })
                     }
                 }

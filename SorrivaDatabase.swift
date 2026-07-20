@@ -1569,6 +1569,27 @@ final class SorrivaDatabase {
         }
     }
 
+    /// Returns a dictionary mapping albumId → artPathThumb for the given album IDs.
+    /// Used by TracksView to display album art on track cards without per-row DB calls.
+    func artPathsByAlbumId(_ albumIds: Set<String>) throws -> [String: String] {
+        guard !albumIds.isEmpty else { return [:] }
+        return try dbQueue.read { db in
+            let placeholders = albumIds.map { _ in "?" }.joined(separator: ",")
+            let rows = try Row.fetchAll(
+                db,
+                sql: "SELECT id, artPathThumb FROM albums WHERE id IN (\(placeholders))",
+                arguments: StatementArguments(albumIds.sorted())
+            )
+            var result: [String: String] = [:]
+            for row in rows {
+                if let id: String = row["id"], let path: String = row["artPathThumb"] {
+                    result[id] = path
+                }
+            }
+            return result
+        }
+    }
+
     // MARK: - FolderStat operations
 
     /// Upsert a folder stat record after a successful folder scan.
