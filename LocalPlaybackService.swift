@@ -1,4 +1,5 @@
 import Foundation
+import SMBClient
 
 // MARK: - LocalPlaybackService
 // Orchestrates local library → Sonos/Bluesound playback.
@@ -7,6 +8,7 @@ import Foundation
 //   Sonos / Bluesound zones → x-file-cifs:// direct NAS playback
 //     - NAS share registered via CreateObject once per source
 //     - AddURIToQueue (single) in loop — AddMultipleURIsToQueue rejects x-file-cifs
+//     - DIDL with duration declared per track — prevents Sonos aggressive prefetch
 //     - Sonos manages its own queue; app not needed after queuing
 //     - Screen can be locked; phone calls do not interrupt
 //
@@ -78,9 +80,11 @@ final class LocalPlaybackService {
             PlaybackContextService.shared.setLocalContext(zoneID: zone.id, track: track, album: album)
         }
 
+        // Build DIDL with duration before entering detached task
+        let didl = await Self.buildTrackDIDL(track: track, uri: uri, source: source)
         let host = zone.host
         await Task.detached {
-            await ZoneDiscoveryService.setAVTransportURIWithMetadata(host: host, streamURL: uri, didl: "")
+            await ZoneDiscoveryService.setAVTransportURIWithMetadata(host: host, streamURL: uri, didl: didl)
             await ZoneDiscoveryService.sendTransportAction(host: host, action: "Play")
             sLog("LOCALPLAY: play command sent — \(track.title)")
         }.value
@@ -97,25 +101,33 @@ final class LocalPlaybackService {
             PlaybackContextService.shared.setLocalContext(zoneID: zone.id, track: firstTrack, album: album)
         }
 
+        // Pre-build URIs and DIDLs on MainActor before entering detached task
+        // DIDL with duration prevents Sonos aggressive prefetch on zero-duration tracks
+        var queueItems: [(uri: String, didl: String, title: String)] = []
+        for (track, source) in pairs {
+            let uri = xFileCIFSURI(track: track, source: source)
+            let didl = await Self.buildTrackDIDL(track: track, uri: uri, source: source)
+            queueItems.append((uri: uri, didl: didl, title: track.title))
+        }
+
         let host = zone.host
         let zoneID = zone.id
-        let uris = pairs.map { xFileCIFSURI(track: $0.0, source: $0.1) }
 
         await Task.detached {
             // Clear existing queue
             await ZoneDiscoveryService.removeAllTracksFromQueue(host: host)
 
             // AddURIToQueue in loop — x-file-cifs requires single-track calls
-            for (idx, uri) in uris.enumerated() {
-                await ZoneDiscoveryService.addURIToQueue(host: host, uri: uri)
-                sLog("LOCALPLAY: queued track \(idx + 1)/\(uris.count)")
+            for (idx, item) in queueItems.enumerated() {
+                await ZoneDiscoveryService.addURIToQueue(host: host, uri: item.uri, didl: item.didl)
+                sLog("LOCALPLAY: queued track \(idx + 1)/\(queueItems.count) — \(item.title)")
             }
 
             // Point transport at queue and play
             let queueURI = "x-rincon-queue:\(zoneID)#0"
             await ZoneDiscoveryService.setAVTransportURIWithMetadata(host: host, streamURL: queueURI, didl: "")
             await ZoneDiscoveryService.sendTransportAction(host: host, action: "Play")
-            sLog("LOCALPLAY: album queue started — \(uris.count) tracks")
+            sLog("LOCALPLAY: album queue started — \(queueItems.count) tracks")
         }.value
     }
 
@@ -154,15 +166,97 @@ final class LocalPlaybackService {
     /// source.share = "media"
     /// result = x-file-cifs://av-server/media/Music II/Artist/Album/01 Track.flac
     private func xFileCIFSURI(track: Track, source: LibrarySource) -> String {
-        // filePath starts with "/" and includes the share subfolder
-        // e.g. /Music II/Pat Metheny/...
-        // We need: x-file-cifs://host/share + filePath
-        // But filePath already includes the top-level folder that IS part of the registered path
-        // Registered path: //av-server/media/Music II
-        // filePath: /Music II/Pat Metheny/...
-        // So URI = x-file-cifs://av-server/media + filePath
-        // = x-file-cifs://av-server/media/Music II/Pat Metheny/...
         let path = track.filePath.hasPrefix("/") ? track.filePath : "/\(track.filePath)"
         return "x-file-cifs://\(source.host)/\(source.share)\(path)"
+    }
+
+    // MARK: - DIDL construction
+
+    /// Build DIDL-Lite metadata for a local track.
+    /// Includes duration when available — prevents Sonos aggressive prefetch.
+    /// For FLAC tracks with no duration in DB, attempts a quick SMB read of STREAMINFO.
+    /// For other formats with no duration, omits the duration attribute entirely —
+    /// Sonos handles missing duration better than zero duration.
+    private nonisolated static func buildTrackDIDL(track: Track, uri: String, source: LibrarySource) async -> String {
+        let escapedTitle = track.title
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+        let escapedURI = uri.replacingOccurrences(of: "&", with: "&amp;")
+
+        var seconds = track.duration ?? 0
+        let ext = (track.filePath as NSString).pathExtension.lowercased()
+
+        // For FLAC with missing duration — quick SMB read to parse STREAMINFO
+        if seconds == 0 && ext == "flac" {
+            if let fetched = await fetchFLACDuration(track: track, source: source) {
+                seconds = fetched
+                sLog("LOCALPLAY: FLAC duration fetched on-the-fly — \(track.title): \(Int(seconds))s")
+            }
+        }
+
+        // Omit duration attribute when unknown — zero duration causes Sonos to skip the track
+        let durationAttr = seconds > 0
+            ? " duration=&quot;\(formatDuration(Int(seconds)))&quot;"
+            : ""
+
+        return "&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;-1&quot; parentID=&quot;-1&quot; restricted=&quot;true&quot;&gt;&lt;dc:title&gt;\(escapedTitle)&lt;/dc:title&gt;&lt;upnp:class&gt;object.item.audioItem.musicTrack&lt;/upnp:class&gt;&lt;res\(durationAttr) protocolInfo=&quot;x-file-cifs:*:application/octet-stream:*&quot;&gt;\(escapedURI)&lt;/res&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;"
+    }
+
+    /// Quick SMB read of first 64KB to parse FLAC STREAMINFO for duration.
+    /// Only called for FLAC tracks where duration is missing from DB.
+    private nonisolated static func fetchFLACDuration(track: Track, source: LibrarySource) async -> Double? {
+        do {
+            let client = SMBClient(host: source.host)
+            try await client.login(username: source.username ?? "", password: source.password ?? "")
+            try await client.connectShare(source.share)
+            let reader = client.fileReader(path: track.filePath)
+            let data = try await reader.read(offset: 0, length: 65536)
+            try? await reader.close()
+            try? await client.disconnectShare()
+            try? await client.logoff()
+            return parseFLACStreamInfo(data: data)
+        } catch {
+            sLog("LOCALPLAY: FLAC duration fetch failed — \(track.title): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Parse FLAC STREAMINFO block to extract total duration in seconds.
+    private nonisolated static func parseFLACStreamInfo(data: Data) -> Double? {
+        guard data.count > 4,
+              data[0] == 0x66, data[1] == 0x4C,
+              data[2] == 0x61, data[3] == 0x43 else { return nil }
+        var offset = 4
+        while offset + 4 <= data.count {
+            let blockHeader = data[offset]
+            let blockType   = blockHeader & 0x7F
+            let blockSize   = Int(data[offset+1]) << 16 | Int(data[offset+2]) << 8 | Int(data[offset+3])
+            offset += 4
+            if blockType == 0 && blockSize >= 18 && offset + blockSize <= data.count {
+                let sampleRate   = (Int(data[offset+10]) << 12)
+                                 | (Int(data[offset+11]) << 4)
+                                 | (Int(data[offset+12]) >> 4)
+                let totalSamples = (Int(data[offset+13] & 0x0F) << 32)
+                                 | (Int(data[offset+14]) << 24)
+                                 | (Int(data[offset+15]) << 16)
+                                 | (Int(data[offset+16]) << 8)
+                                 |  Int(data[offset+17])
+                guard sampleRate > 0, totalSamples > 0 else { return nil }
+                return Double(totalSamples) / Double(sampleRate)
+            }
+            offset += blockSize
+            if (blockHeader & 0x80) != 0 { break }
+        }
+        return nil
+    }
+
+    /// Format seconds as h:mm:ss for DIDL duration attribute.
+    private nonisolated static func formatDuration(_ seconds: Int) -> String {
+        let h = seconds / 3600
+        let m = (seconds % 3600) / 60
+        let s = seconds % 60
+        return String(format: "%d:%02d:%02d", h, m, s)
     }
 }
