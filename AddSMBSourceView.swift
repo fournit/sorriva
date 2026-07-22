@@ -385,7 +385,13 @@ struct SMBSharePickerView: View {
 }
 
 // MARK: - SMBFolderBrowserView
-// Step 3 — Browse folders on the share and select the music folder.
+// Step 3 — Browse folders on the share and select the target folder.
+//
+// Modes:
+//   Library mode (onFolderSelected == nil): "Select This Folder" navigates to SMBConfigureSourceView
+//     to name and save a new LibrarySource. No folder creation.
+//   Backup mode (onFolderSelected != nil): "Select This Folder" calls the callback directly
+//     with the chosen path. allowCreateFolder=true shows "New Folder" button.
 
 struct SMBFolderBrowserView: View {
     let device: SMBDevice
@@ -394,10 +400,18 @@ struct SMBFolderBrowserView: View {
     let password: String
     let currentPath: String
     let onSaved: (LibrarySource?) -> Void
+    /// Backup mode callback — when set, "Select This Folder" calls this instead of navigating to SMBConfigureSourceView.
+    var onFolderSelected: ((String) -> Void)? = nil
+    /// Show "New Folder" button — for backup mode only.
+    var allowCreateFolder: Bool = false
 
-    @State private var folders: [String] = []
-    @State private var isLoading = false
-    @State private var error: String? = nil
+    @State private var folders:         [String] = []
+    @State private var isLoading        = false
+    @State private var error:           String?  = nil
+    @State private var showNewFolder    = false
+    @State private var newFolderName    = ""
+    @State private var isCreatingFolder = false
+    @State private var createError:     String?  = nil
 
     var body: some View {
         ZStack {
@@ -410,7 +424,7 @@ struct SMBFolderBrowserView: View {
                             Image(systemName: "folder.fill")
                                 .font(.system(size: 16))
                                 .foregroundColor(.sBrass)
-                            Text(currentPath)
+                            Text(currentPath.isEmpty || currentPath == "/" ? "/ (root)" : currentPath)
                                 .font(.system(size: 14))
                                 .foregroundColor(.sTextPrimary)
                                 .lineLimit(2)
@@ -420,23 +434,59 @@ struct SMBFolderBrowserView: View {
                         .background(Color.sSurface)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
 
-                        NavigationLink(destination: SMBConfigureSourceView(
-                            device: device,
-                            share: share,
-                            username: username,
-                            password: password,
-                            prefillRootPath: currentPath,
-                            onSaved: onSaved
-                        )) {
-                            Text("Select This Folder")
-                                .font(.system(size: 15, weight: .semibold))
+                        // Select This Folder — behavior depends on mode
+                        if let onFolderSelected {
+                            // Backup mode — call callback directly
+                            Button {
+                                onFolderSelected(currentPath)
+                            } label: {
+                                Text("Select This Folder")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 13)
+                                    .background(Color.sAccent)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            // Library mode — navigate to configure source
+                            NavigationLink(destination: SMBConfigureSourceView(
+                                device: device,
+                                share: share,
+                                username: username,
+                                password: password,
+                                prefillRootPath: currentPath,
+                                onSaved: onSaved
+                            )) {
+                                Text("Select This Folder")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 13)
+                                    .background(Color.sAccent)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        // New Folder — backup mode only
+                        if allowCreateFolder {
+                            Button { showNewFolder = true } label: {
+                                HStack {
+                                    Image(systemName: "folder.badge.plus")
+                                        .font(.system(size: 14))
+                                    Text("New Folder")
+                                        .font(.system(size: 15, weight: .semibold))
+                                }
                                 .foregroundColor(.white)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 13)
-                                .background(Color.sAccent)
+                                .background(Color.sBrass)
                                 .clipShape(RoundedRectangle(cornerRadius: 10))
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 24)
@@ -455,7 +505,9 @@ struct SMBFolderBrowserView: View {
                                     NavigationLink(destination: SMBFolderBrowserView(
                                         device: device, share: share,
                                         username: username, password: password,
-                                        currentPath: childPath, onSaved: onSaved
+                                        currentPath: childPath, onSaved: onSaved,
+                                        onFolderSelected: onFolderSelected,
+                                        allowCreateFolder: allowCreateFolder
                                     )) {
                                         HStack {
                                             Image(systemName: "folder")
@@ -487,6 +539,19 @@ struct SMBFolderBrowserView: View {
         .navigationTitle("Select Folder")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { loadFolders() }
+        .alert("New Folder", isPresented: $showNewFolder) {
+            TextField("Folder name", text: $newFolderName)
+                .autocorrectionDisabled()
+            Button("Create") { createFolder() }
+                .disabled(newFolderName.trimmingCharacters(in: .whitespaces).isEmpty)
+            Button("Cancel", role: .cancel) { newFolderName = "" }
+        } message: {
+            if let err = createError {
+                Text(err)
+            } else {
+                Text("Enter a name for the new folder in \(currentPath == "/" ? "the root" : currentPath).")
+            }
+        }
     }
 
     private func loadFolders() {
@@ -509,6 +574,34 @@ struct SMBFolderBrowserView: View {
                 await MainActor.run {
                     self.error = "Could not load folders: \(error.localizedDescription)"
                     self.isLoading = false
+                }
+            }
+        }
+    }
+
+    private func createFolder() {
+        let name = newFolderName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        let newPath = currentPath == "/" ? "/\(name)" : "\(currentPath)/\(name)"
+        isCreatingFolder = true
+        createError = nil
+        Task {
+            do {
+                let client = SMBClient(host: device.host)
+                try await client.login(username: username.isEmpty ? "guest" : username, password: password)
+                try await client.connectShare(share)
+                try await client.createDirectory(path: newPath)
+                try? await client.disconnectShare()
+                try? await client.logoff()
+                await MainActor.run {
+                    newFolderName    = ""
+                    isCreatingFolder = false
+                    loadFolders()
+                }
+            } catch {
+                await MainActor.run {
+                    createError      = "Could not create folder: \(error.localizedDescription)"
+                    isCreatingFolder = false
                 }
             }
         }

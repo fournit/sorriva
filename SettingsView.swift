@@ -73,6 +73,17 @@ struct SettingsView: View {
                             }
                             .buttonStyle(.plain)
 
+                            // Backup & Restore
+                            NavigationLink(destination: BackupView()) {
+                                SettingsMenuRow(
+                                    icon: "externaldrive.badge.timemachine",
+                                    iconColor: Color(hex: "#5A6A8A"),
+                                    title: "Backup & Restore",
+                                    subtitle: "Save and restore your library database"
+                                )
+                            }
+                            .buttonStyle(.plain)
+
                             // Zones (stub)
                             SettingsMenuRow(
                                 icon: "hifispeaker.2",

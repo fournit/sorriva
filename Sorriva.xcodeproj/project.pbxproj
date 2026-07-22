@@ -54,6 +54,8 @@
 		805A16EF300A7D3D00AF3100 /* SorrivaLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16EE300A7D3D00AF3100 /* SorrivaLogger.swift */; };
 		805A170C300BB5E100AF3100 /* ScanRetryScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A170B300BB5E100AF3100 /* ScanRetryScheduler.swift */; };
 		805A1729300D16DF00AF3100 /* PlaybackContextService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A1728300D16DF00AF3100 /* PlaybackContextService.swift */; };
+		80E293E2301143DB0031E31D /* BackupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E293E1301143DB0031E31D /* BackupView.swift */; };
+		80E293E530114DAA0031E31D /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 80E293E430114DAA0031E31D /* ZIPFoundation */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -116,6 +118,7 @@
 		805A1710300C669600AF3100 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		805A1711300C669600AF3100 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		805A1728300D16DF00AF3100 /* PlaybackContextService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackContextService.swift; sourceTree = "<group>"; };
+		80E293E1301143DB0031E31D /* BackupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -149,6 +152,7 @@
 				805A16D93006BD4D00AF3100 /* SMBClient in Frameworks */,
 				80325AD83001436B00308486 /* GRDB in Frameworks */,
 				805A16E53007403E00AF3100 /* Telegraph in Frameworks */,
+				80E293E530114DAA0031E31D /* ZIPFoundation in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -158,6 +162,7 @@
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
+				80E293E1301143DB0031E31D /* BackupView.swift */,
 				80304053300EA74E0058B020 /* TransferZoneSheet.swift */,
 				805A1728300D16DF00AF3100 /* PlaybackContextService.swift */,
 				805A1712300C669600AF3100 /* Sorriva */,
@@ -258,6 +263,7 @@
 				805A16D53006BAE200AF3100 /* SMBClient */,
 				805A16D83006BD4D00AF3100 /* SMBClient */,
 				805A16E43007403E00AF3100 /* Telegraph */,
+				80E293E430114DAA0031E31D /* ZIPFoundation */,
 			);
 			productName = Sorriva;
 			productReference = 80325AA02FFED8DE00308486 /* Sorriva.app */;
@@ -291,6 +297,7 @@
 				80325AD63001436B00308486 /* XCRemoteSwiftPackageReference "GRDB" */,
 				805A16D73006BD4D00AF3100 /* XCRemoteSwiftPackageReference "SMBClient" */,
 				805A16E33007403E00AF3100 /* XCRemoteSwiftPackageReference "Telegraph" */,
+				80E293E330114DAA0031E31D /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 80325AA12FFED8DE00308486 /* Products */;
@@ -343,6 +350,7 @@
 				80325ACB3000860000308486 /* NowPlayingView.swift in Sources */,
 				80325ABA2FFEE5DC00308486 /* SettingsView.swift in Sources */,
 				80325ACD3000948400308486 /* VolumeControlView.swift in Sources */,
+				80E293E2301143DB0031E31D /* BackupView.swift in Sources */,
 				805A16CD3005DC1600AF3100 /* SorrivaContextMenu.swift in Sources */,
 				80325B023003D51000308486 /* LocalLibraryView.swift in Sources */,
 				805A16C83005AEC600AF3100 /* ArtistsView.swift in Sources */,
@@ -602,6 +610,14 @@
 				minimumVersion = 0.40.0;
 			};
 		};
+		80E293E330114DAA0031E31D /* XCRemoteSwiftPackageReference "ZIPFoundation" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/weichsel/ZIPFoundation";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.9.20;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -627,6 +643,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 805A16E33007403E00AF3100 /* XCRemoteSwiftPackageReference "Telegraph" */;
 			productName = Telegraph;
+		};
+		80E293E430114DAA0031E31D /* ZIPFoundation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 80E293E330114DAA0031E31D /* XCRemoteSwiftPackageReference "ZIPFoundation" */;
+			productName = ZIPFoundation;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

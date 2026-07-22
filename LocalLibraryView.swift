@@ -171,6 +171,8 @@ struct ServerLibraryCard: View {
 struct SMBServerDetailView: View {
     let host: String
     let onChanged: () -> Void
+    /// Backup mode — when set, share cards navigate to folder picker with this callback instead of showing library management UI.
+    var onFolderSelected: ((LibrarySource, String) -> Void)? = nil
 
     @State private var sources: [LibrarySource] = []
     @State private var actionSource: LibrarySource? = nil
@@ -261,10 +263,30 @@ struct SMBServerDetailView: View {
                             SettingsSectionLabel(title: "Shares")
                             VStack(spacing: 8) {
                                 ForEach(sources) { source in
-                                    ShareDetailCard(source: source)
-                                        .onLongPressGesture {
-                                            actionSource = source
+                                    if let onFolderSelected {
+                                        // Backup mode — tap navigates to folder picker
+                                        NavigationLink(destination: SMBFolderBrowserView(
+                                            device: SMBDevice(id: host, name: serverName, host: host, port: 445),
+                                            share: source.share,
+                                            username: source.username ?? "",
+                                            password: source.password ?? "",
+                                            currentPath: "/",
+                                            onSaved: { _ in },
+                                            onFolderSelected: { path in
+                                                onFolderSelected(source, path)
+                                            },
+                                            allowCreateFolder: true
+                                        )) {
+                                            ShareDetailCard(source: source)
                                         }
+                                        .buttonStyle(.plain)
+                                    } else {
+                                        // Library mode — long press for actions
+                                        ShareDetailCard(source: source)
+                                            .onLongPressGesture {
+                                                actionSource = source
+                                            }
+                                    }
                                 }
                             }
                         }
