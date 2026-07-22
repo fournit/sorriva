@@ -257,6 +257,10 @@ final class ScanCoordinator: ObservableObject {
                 self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] SKIP no folder path — \(album.title)")
                 continue
             }
+            guard album.artPathFull == nil || album.artPathFull!.isEmpty else {
+                self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] SKIP has art — \(album.title)")
+                continue
+            }
 
             self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] checking — \(album.artistName) · \(album.title)")
 
