@@ -847,6 +847,93 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         }
     }
 
+    /// Add a single URI to the Sonos queue — required for x-file-cifs:// URIs
+    /// (AddMultipleURIsToQueue rejects x-file-cifs:// with error 402)
+    nonisolated static func addURIToQueue(host: String, uri: String, didl: String = "") async {
+        let escapedURI = uri.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+        let body = """
+        <u:AddURIToQueue xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+          <InstanceID>0</InstanceID>
+          <EnqueuedURI>\(escapedURI)</EnqueuedURI>
+          <EnqueuedURIMetaData>\(didl)</EnqueuedURIMetaData>
+          <DesiredFirstTrackNumberEnqueued>0</DesiredFirstTrackNumberEnqueued>
+          <EnqueueAsNext>0</EnqueueAsNext>
+        </u:AddURIToQueue>
+        """
+        let soapBody = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+          <s:Body>
+            \(body)
+          </s:Body>
+        </s:Envelope>
+        """
+        guard let url = URL(string: "http://\(host):1400/MediaRenderer/AVTransport/Control") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("\"urn:schemas-upnp-org:service:AVTransport:1#AddURIToQueue\"",
+                         forHTTPHeaderField: "SOAPACTION")
+        request.httpBody = soapBody.data(using: .utf8)
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            sLog("SONOS: AddURIToQueue \(host) status=\(status)")
+            if status != 200, let resp = String(data: data, encoding: .utf8) {
+                sLog("SONOS: AddURIToQueue error body — \(resp)")
+            }
+        } catch {
+            sLog("SONOS: AddURIToQueue error: \(error.localizedDescription)")
+        }
+    }
+
+    /// Register a NAS share with Sonos via ContentDirectory CreateObject.
+    /// Must be called once per share before x-file-cifs:// URIs will play.
+    /// path format: //hostname/share  e.g. //av-server/media/Music II
+    nonisolated static func createObject(host: String, nasPath: String) async {
+        let encodedPath = nasPath.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? nasPath
+        let escapedPath = nasPath
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+        let didl = "&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;container id=&quot;&quot; parentID=&quot;S:&quot; restricted=&quot;false&quot;&gt;&lt;dc:title&gt;\(escapedPath)&lt;/dc:title&gt;&lt;upnp:class&gt;object.container&lt;/upnp:class&gt;&lt;/container&gt;&lt;/DIDL-Lite&gt;"
+        let body = """
+        <u:CreateObject xmlns:u="urn:schemas-upnp-org:service:ContentDirectory:1">
+          <ContainerID>S:</ContainerID>
+          <Elements>\(didl)</Elements>
+        </u:CreateObject>
+        """
+        let soapBody = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+          <s:Body>
+            \(body)
+          </s:Body>
+        </s:Envelope>
+        """
+        guard let url = URL(string: "http://\(host):1400/MediaServer/ContentDirectory/Control") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("\"urn:schemas-upnp-org:service:ContentDirectory:1#CreateObject\"",
+                         forHTTPHeaderField: "SOAPACTION")
+        request.httpBody = soapBody.data(using: .utf8)
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            sLog("SONOS: CreateObject \(host) nasPath=\(nasPath) status=\(status)")
+            if let resp = String(data: data, encoding: .utf8) {
+                sLog("SONOS: CreateObject response — \(resp.prefix(200))")
+            }
+        } catch {
+            sLog("SONOS: CreateObject error: \(error.localizedDescription)")
+        }
+        _ = encodedPath // suppress unused warning
+    }
+
     // MARK: - Transport control
 
     func togglePlayPause(zoneID: String) {
