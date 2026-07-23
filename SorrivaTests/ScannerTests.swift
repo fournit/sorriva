@@ -198,6 +198,22 @@ final class ScannerTests: XCTestCase {
         XCTAssertNil(try db.track(filePath: track2.filePath), "Deleted track must not remain")
     }
 
+    // MARK: - WP-07 Test
+    // SorrivaAppEnvironment constructs all services without crashing.
+
+    @MainActor
+    func testAppEnvironmentConstructsSuccessfully() throws {
+        // Environment construction must not throw or crash
+        // Services must be accessible after init
+        let env = SorrivaAppEnvironment()
+        XCTAssertNotNil(env.database)
+        XCTAssertNotNil(env.credentials)
+        XCTAssertNotNil(env.discovery)
+        XCTAssertNotNil(env.playbackContext)
+        XCTAssertNotNil(env.scanCoordinator)
+        XCTAssertNotNil(env.tabState)
+    }
+
     // MARK: - WP-06 Test
     // Zone elapsed/duration populated from GetPositionInfo — no view-level polling.
 
