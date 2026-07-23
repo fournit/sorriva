@@ -11,9 +11,6 @@ struct NowPlayingView: View {
     @ObservedObject private var playbackContext = PlaybackContextService.shared
     let onTapZone: () -> Void
 
-    @State private var pollTask: Task<Void, Never>? = nil
-    @State private var elapsed: Int = 0
-    @State private var duration: Int = 0
     @State private var cachedTrack: String = ""
     @State private var cachedArtist: String = ""
 
@@ -47,6 +44,20 @@ struct NowPlayingView: View {
     private var stationName: String {
         if localContext != nil { return "" }
         return zone?.stationName ?? ""
+    }
+    // Position from ZoneDiscoveryService — single source of truth, no local polling
+    private var elapsed: Int {
+        if let ctx = localContext, ctx.duration > 0 {
+            // For local tracks, use zone elapsed + DB duration
+            return zone?.elapsedSeconds ?? 0
+        }
+        return zone?.elapsedSeconds ?? 0
+    }
+    private var duration: Int {
+        if let ctx = localContext, ctx.duration > 0 {
+            return Int(ctx.duration)
+        }
+        return zone?.durationSeconds ?? 0
     }
     private var progress: Double { duration > 0 ? Double(elapsed) / Double(duration) : 0 }
 
@@ -250,16 +261,11 @@ struct NowPlayingView: View {
                 if !z.currentTrack.isEmpty { cachedTrack = z.currentTrack }
                 if !z.currentArtist.isEmpty { cachedArtist = z.currentArtist }
             }
-            startPolling()
         }
-        .onDisappear { pollTask?.cancel() }
         .onChange(of: selectedZoneID) { _ in
-            // Reset cache and restart polling when zone changes
+            // Reset cache when zone changes
             cachedTrack = ""
             cachedArtist = ""
-            elapsed = 0
-            duration = 0
-            startPolling()
         }
         .onChange(of: zone?.currentTrack ?? "") { track in
             if !track.isEmpty { cachedTrack = track }
@@ -269,36 +275,13 @@ struct NowPlayingView: View {
         }
     }
 
-    // MARK: - Polling
-
-    private func startPolling() {
-        pollTask?.cancel()
-        pollTask = Task {
-            // Immediate fetch of progress info
-            if isPlaying, !zoneHost.isEmpty {
-                await fetchProgress(host: zoneHost)
-            }
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
-                guard !Task.isCancelled else { break }
-                let host = zoneHost
-                guard !host.isEmpty, isPlaying else { continue }
-                await fetchProgress(host: host)
-            }
-        }
-    }
-
-    private func fetchProgress(host: String) async {
-        guard let info = await NowPlayingView.fetchTrackInfo(host: host) else { return }
-        elapsed = info.elapsedSeconds
-        duration = info.durationSeconds
-    }
+    // MARK: - Helpers
 
     private func formatTime(_ secs: Int) -> String {
         String(format: "%d:%02d", secs / 60, secs % 60)
     }
 
-    // MARK: - UPnP fetch
+    // MARK: - UPnP fetch (retained for external callers — not used for polling)
 
     static func fetchTrackInfo(host: String) async -> SonosTrackInfo? {
         let soapBody = """

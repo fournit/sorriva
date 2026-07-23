@@ -12,29 +12,105 @@ final class SorrivaDatabase {
 
     let dbQueue: DatabaseQueue
 
-    private init() {
-        let appSupport = try! FileManager.default
-            .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-        let dbURL = appSupport.appendingPathComponent("sorriva.sqlite")
+    // MARK: - Migration event — observed by UI to surface alerts post-launch
 
-        var queue = try! DatabaseQueue(path: dbURL.path)
-        var migrationSucceeded = false
+    enum MigrationEvent {
+        case backupFailed(error: String)
+        case migrationFailed(error: String, restored: Bool)
+    }
+
+    /// Set during init if a migration problem occurs. Observed by ContentView to
+    /// surface the appropriate alert after the UI is ready.
+    private(set) static var pendingMigrationEvent: MigrationEvent? = nil
+
+    private init() {
+        let fm = FileManager.default
+        let appSupport = try! fm
+            .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        let dbURL     = appSupport.appendingPathComponent("sorriva.sqlite")
+        let walURL    = appSupport.appendingPathComponent("sorriva.sqlite-wal")
+        let shmURL    = appSupport.appendingPathComponent("sorriva.sqlite-shm")
+
+        // ── Step 1: attempt backup before any migration ───────────────────────
+        let ts = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+            .replacingOccurrences(of: ".", with: "-")
+        let backupURL = appSupport.appendingPathComponent("sorriva-backup-\(ts).sqlite")
+        let backupWAL = appSupport.appendingPathComponent("sorriva-backup-\(ts).sqlite-wal")
+        let backupSHM = appSupport.appendingPathComponent("sorriva-backup-\(ts).sqlite-shm")
+
+        var backupMade = false
+        if fm.fileExists(atPath: dbURL.path) {
+            do {
+                try fm.copyItem(at: dbURL, to: backupURL)
+                if fm.fileExists(atPath: walURL.path) { try? fm.copyItem(at: walURL, to: backupWAL) }
+                if fm.fileExists(atPath: shmURL.path) { try? fm.copyItem(at: shmURL, to: backupSHM) }
+                backupMade = true
+                print("SORRIVA DB: Backup created at \(backupURL.lastPathComponent)")
+            } catch {
+                // Cannot back up — hard stop. Do not attempt migration.
+                print("SORRIVA DB: Backup FAILED (\(error)) — migration aborted, opening existing DB")
+                Self.pendingMigrationEvent = .backupFailed(error: error.localizedDescription)
+                dbQueue = try! DatabaseQueue(path: dbURL.path)
+                return
+            }
+        }
+
+        // ── Step 2: open DB and attempt migration ─────────────────────────────
+        let queue = try! DatabaseQueue(path: dbURL.path)
         do {
             try Self.runMigrations(on: queue)
-            migrationSucceeded = true
+            // Success — delete backup, it is no longer needed
+            if backupMade {
+                try? fm.removeItem(at: backupURL)
+                try? fm.removeItem(at: backupWAL)
+                try? fm.removeItem(at: backupSHM)
+                print("SORRIVA DB: Migration succeeded — backup removed")
+            }
+            dbQueue = queue
+            print("SORRIVA DB: Initialized at \(dbURL.path)")
         } catch {
-            print("SORRIVA DB: Migration failed (\(error)) — wiping DB and retrying")
+            // ── Step 3: migration failed — restore from backup ────────────────
+            print("SORRIVA DB: Migration FAILED (\(error)) — restoring backup")
+            var restored = false
+            if backupMade {
+                do {
+                    // Close the queue before replacing files
+                    // (DatabaseQueue deinit closes the connection)
+                    _ = queue  // retain until after copy
+                    try fm.replaceItem(at: dbURL, withItemAt: backupURL,
+                                       backupItemName: nil, options: [], resultingItemURL: nil)
+                    if fm.fileExists(atPath: backupWAL.path) {
+                        try? fm.replaceItem(at: walURL, withItemAt: backupWAL,
+                                            backupItemName: nil, options: [], resultingItemURL: nil)
+                    }
+                    if fm.fileExists(atPath: backupSHM.path) {
+                        try? fm.replaceItem(at: shmURL, withItemAt: backupSHM,
+                                            backupItemName: nil, options: [], resultingItemURL: nil)
+                    }
+                    restored = true
+                    print("SORRIVA DB: Backup restored successfully")
+                } catch let restoreError {
+                    print("SORRIVA DB: Restore FAILED (\(restoreError)) — opening whatever DB exists")
+                }
+            }
+            Self.pendingMigrationEvent = .migrationFailed(
+                error: error.localizedDescription,
+                restored: restored
+            )
+            // Open whatever database exists — may be pre-migration schema, still usable
+            dbQueue = try! DatabaseQueue(path: dbURL.path)
         }
-        if !migrationSucceeded {
-            try? FileManager.default.removeItem(at: dbURL)
-            queue = try! DatabaseQueue(path: dbURL.path)
-            try! Self.runMigrations(on: queue)
-        }
-        dbQueue = queue
-        print("SORRIVA DB: Initialized at \(dbURL.path)")
     }
 
     // MARK: - Migrations
+
+    // MARK: - Testing support
+
+    /// Exposed for test target only — runs full migration suite on a provided queue.
+    static func runMigrationsForTesting(on dbQueue: DatabaseQueue) throws {
+        try runMigrations(on: dbQueue)
+    }
 
     private static func runMigrations(on dbQueue: DatabaseQueue) throws {
         var migrator = DatabaseMigrator()
@@ -616,6 +692,40 @@ final class SorrivaDatabase {
             print("SORRIVA DB: v11 scan retry infrastructure added")
         }
 
+        // v12 — move SMB credentials from SQLite to Keychain
+        migrator.registerMigration("v12_keychain_credentials") { db in
+            // Add credentialRef column
+            let cols = try db.columns(in: "library_sources").map { $0.name }
+            if !cols.contains("credentialRef") {
+                try db.alter(table: "library_sources") { t in
+                    t.add(column: "credentialRef", .text)
+                }
+            }
+
+            // Migrate existing plaintext credentials to Keychain
+            let sources = try Row.fetchAll(db, sql: "SELECT id, username, password FROM library_sources")
+            for row in sources {
+                let sourceId: String = row["id"]
+                let username: String? = row["username"]
+                let password: String? = row["password"]
+                guard let u = username, !u.isEmpty else { continue }
+                let ref = KeychainCredentialStore.shared.migrateFromPlaintext(
+                    sourceId: sourceId, username: u, password: password
+                )
+                if ref != nil {
+                    // Verified migration — clear plaintext
+                    try db.execute(
+                        sql: "UPDATE library_sources SET credentialRef = ?, username = NULL, password = NULL WHERE id = ?",
+                        arguments: [sourceId, sourceId]
+                    )
+                    print("SORRIVA DB: v12 migrated credentials for \(sourceId)")
+                } else {
+                    print("SORRIVA DB: v12 WARNING — could not migrate credentials for \(sourceId)")
+                }
+            }
+            print("SORRIVA DB: v12 credential migration complete")
+        }
+
         try migrator.migrate(dbQueue)
         print("SORRIVA DB: Migrations complete")
     }
@@ -1071,12 +1181,25 @@ final class SorrivaDatabase {
 
     func updateServerCredentials(host: String, displayName: String, username: String?, password: String?) throws {
         let now = Int(Date().timeIntervalSince1970)
+        // Fetch affected source IDs so we can update Keychain
+        let sourceIds = try dbQueue.read { db in
+            try String.fetchAll(db, sql: "SELECT id FROM library_sources WHERE host = ?", arguments: [host])
+        }
+        // Update Keychain credentials for each source on this host
+        for sourceId in sourceIds {
+            if let u = username, !u.isEmpty {
+                try KeychainCredentialStore.shared.set(
+                    sourceId: sourceId, username: u, password: password ?? ""
+                )
+            }
+        }
+        // Update display name only — credentials no longer stored in SQLite
         try dbQueue.write { db in
             try db.execute(sql: """
                 UPDATE library_sources
-                SET displayName = ?, username = ?, password = ?, updatedAt = ?
+                SET displayName = ?, username = NULL, password = NULL, updatedAt = ?
                 WHERE host = ?
-            """, arguments: [displayName, username, password, now, host])
+            """, arguments: [displayName, now, host])
         }
     }
 
@@ -1202,6 +1325,33 @@ final class SorrivaDatabase {
             try Track
                 .filter(Track.Columns.filePath == filePath)
                 .fetchOne(db)
+        }
+    }
+
+    /// Look up a track by file path — the WP-02 idempotency key.
+    func track(sourceId: String, filePath: String) throws -> Track? {
+        try dbQueue.read { db in
+            try Track
+                .filter(Track.Columns.sourceId == sourceId)
+                .filter(Track.Columns.filePath == filePath)
+                .fetchOne(db)
+        }
+    }
+
+    /// Idempotent track upsert keyed on filePath.
+    /// Reuses existing id and createdAt on rescan. Throws on failure.
+    func upsertTrackIdempotent(_ track: Track) throws {
+        try dbQueue.write { db in
+            if let existing = try Track
+                .filter(Track.Columns.filePath == track.filePath)
+                .fetchOne(db) {
+                var updated = track
+                updated.id = existing.id
+                updated.createdAt = existing.createdAt
+                try updated.save(db)
+            } else {
+                try track.save(db)
+            }
         }
     }
 

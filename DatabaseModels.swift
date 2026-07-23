@@ -219,8 +219,9 @@ struct LibrarySource: Codable, FetchableRecord, PersistableRecord, Identifiable,
     var host: String
     var share: String
     var rootPath: String
-    var username: String?
-    var password: String?
+    var username: String?       // Retained during migration window — nil after v12 migration
+    var password: String?       // Retained during migration window — nil after v12 migration
+    var credentialRef: String?  // Keychain reference key (== sourceId) — set after v12 migration
     var lastScanned: Int?
     var trackCount: Int
     var scanState: String           // "idle" | "scanning" | "error" | "retrying" | "complete"
@@ -240,6 +241,7 @@ struct LibrarySource: Codable, FetchableRecord, PersistableRecord, Identifiable,
         static let rootPath           = Column(CodingKeys.rootPath)
         static let trackCount         = Column(CodingKeys.trackCount)
         static let scanState          = Column(CodingKeys.scanState)
+        static let credentialRef      = Column(CodingKeys.credentialRef)
         static let lastScanned        = Column(CodingKeys.lastScanned)
         static let lastScanFileCount  = Column(CodingKeys.lastScanFileCount)
         static let lastScanTotalBytes = Column(CodingKeys.lastScanTotalBytes)

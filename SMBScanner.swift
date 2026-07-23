@@ -81,7 +81,8 @@ actor SMBScanner {
     /// Used by ScanCoordinator for incremental change detection.
     func statFolders(source: LibrarySource) async throws -> [FolderScanResult] {
         let client = SMBClient(host: source.host)
-        try await client.login(username: source.username ?? "", password: source.password ?? "")
+        let creds0 = source.resolvedCredentials
+        try await client.login(username: creds0.username.isEmpty ? "guest" : creds0.username, password: creds0.password)
         defer { Task { try? await client.logoff() } }
         try await client.connectShare(source.share)
         defer { Task { try? await client.disconnectShare() } }
@@ -127,7 +128,8 @@ actor SMBScanner {
         ))
 
         let walkClient = SMBClient(host: source.host)
-        try await walkClient.login(username: source.username ?? "", password: source.password ?? "")
+        let creds1 = source.resolvedCredentials
+        try await walkClient.login(username: creds1.username.isEmpty ? "guest" : creds1.username, password: creds1.password)
         defer { Task { try? await walkClient.logoff() } }
         try await walkClient.connectShare(source.share)
         defer { Task { try? await walkClient.disconnectShare() } }
@@ -185,8 +187,8 @@ actor SMBScanner {
             let headerData = await readFileWithFreshConnection(
                 host: source.host,
                 share: source.share,
-                username: source.username ?? "",
-                password: source.password ?? "",
+                username: source.resolvedCredentials.username,
+                password: source.resolvedCredentials.password,
                 path: file.path,
                 fileSize: Int(file.size)
             )
@@ -1021,8 +1023,8 @@ actor SMBScanner {
             let headerData = await readFileWithFreshConnection(
                 host: source.host,
                 share: source.share,
-                username: source.username?.isEmpty == false ? source.username! : "guest",
-                password: source.password ?? "",
+                username: source.resolvedCredentials.username.isEmpty ? "guest" : source.resolvedCredentials.username,
+                password: source.resolvedCredentials.password,
                 path: skip.filePath,
                 fileSize: fileSize
             )

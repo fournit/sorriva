@@ -56,7 +56,19 @@
 		805A1729300D16DF00AF3100 /* PlaybackContextService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A1728300D16DF00AF3100 /* PlaybackContextService.swift */; };
 		80E293E2301143DB0031E31D /* BackupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E293E1301143DB0031E31D /* BackupView.swift */; };
 		80E293E530114DAA0031E31D /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 80E293E430114DAA0031E31D /* ZIPFoundation */; };
+		80E293F830127B0E0031E31D /* MigrationAlert.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E293F730127B0E0031E31D /* MigrationAlert.swift */; };
+		80E293FA301281A80031E31D /* CredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E293F9301281A80031E31D /* CredentialStore.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		80E293EE301272B80031E31D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 80325A982FFED8DE00308486 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 80325A9F2FFED8DE00308486;
+			remoteInfo = Sorriva;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
 		80325B1E3004402100308486 /* Embed Frameworks */ = {
@@ -119,6 +131,9 @@
 		805A1711300C669600AF3100 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		805A1728300D16DF00AF3100 /* PlaybackContextService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackContextService.swift; sourceTree = "<group>"; };
 		80E293E1301143DB0031E31D /* BackupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupView.swift; sourceTree = "<group>"; };
+		80E293EA301272B80031E31D /* SorrivaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SorrivaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		80E293F730127B0E0031E31D /* MigrationAlert.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MigrationAlert.swift; sourceTree = "<group>"; };
+		80E293F9301281A80031E31D /* CredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -140,6 +155,11 @@
 			path = Sorriva;
 			sourceTree = "<group>";
 		};
+		80E293EB301272B80031E31D /* SorrivaTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = SorrivaTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -156,12 +176,21 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		80E293E7301272B80031E31D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
+				80E293F9301281A80031E31D /* CredentialStore.swift */,
+				80E293F730127B0E0031E31D /* MigrationAlert.swift */,
 				80E293E1301143DB0031E31D /* BackupView.swift */,
 				80304053300EA74E0058B020 /* TransferZoneSheet.swift */,
 				805A1728300D16DF00AF3100 /* PlaybackContextService.swift */,
@@ -207,6 +236,7 @@
 				80325AB42FFEE5DC00308486 /* SorrivaApp.swift */,
 				80325AB52FFEE5DC00308486 /* ZonesView.swift */,
 				80325AA22FFED8DE00308486 /* Sorriva */,
+				80E293EB301272B80031E31D /* SorrivaTests */,
 				80325ADB3001461600308486 /* Frameworks */,
 				80325AA12FFED8DE00308486 /* Products */,
 			);
@@ -216,6 +246,7 @@
 			isa = PBXGroup;
 			children = (
 				80325AA02FFED8DE00308486 /* Sorriva.app */,
+				80E293EA301272B80031E31D /* SorrivaTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -269,6 +300,29 @@
 			productReference = 80325AA02FFED8DE00308486 /* Sorriva.app */;
 			productType = "com.apple.product-type.application";
 		};
+		80E293E9301272B80031E31D /* SorrivaTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 80E293F0301272B80031E31D /* Build configuration list for PBXNativeTarget "SorrivaTests" */;
+			buildPhases = (
+				80E293E6301272B80031E31D /* Sources */,
+				80E293E7301272B80031E31D /* Frameworks */,
+				80E293E8301272B80031E31D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				80E293EF301272B80031E31D /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				80E293EB301272B80031E31D /* SorrivaTests */,
+			);
+			name = SorrivaTests;
+			packageProductDependencies = (
+			);
+			productName = SorrivaTests;
+			productReference = 80E293EA301272B80031E31D /* SorrivaTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -281,6 +335,10 @@
 				TargetAttributes = {
 					80325A9F2FFED8DE00308486 = {
 						CreatedOnToolsVersion = 26.6;
+					};
+					80E293E9301272B80031E31D = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = 80325A9F2FFED8DE00308486;
 					};
 				};
 			};
@@ -305,12 +363,20 @@
 			projectRoot = "";
 			targets = (
 				80325A9F2FFED8DE00308486 /* Sorriva */,
+				80E293E9301272B80031E31D /* SorrivaTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		80325A9E2FFED8DE00308486 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		80E293E8301272B80031E31D /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -349,6 +415,7 @@
 				805A16BF3005292E00AF3100 /* SMBScanner.swift in Sources */,
 				80325ACB3000860000308486 /* NowPlayingView.swift in Sources */,
 				80325ABA2FFEE5DC00308486 /* SettingsView.swift in Sources */,
+				80E293F830127B0E0031E31D /* MigrationAlert.swift in Sources */,
 				80325ACD3000948400308486 /* VolumeControlView.swift in Sources */,
 				80E293E2301143DB0031E31D /* BackupView.swift in Sources */,
 				805A16CD3005DC1600AF3100 /* SorrivaContextMenu.swift in Sources */,
@@ -359,6 +426,7 @@
 				805A1729300D16DF00AF3100 /* PlaybackContextService.swift in Sources */,
 				805A16CA3005AEC600AF3100 /* AlbumDetailView.swift in Sources */,
 				805A16CB3005AEC600AF3100 /* TracksView.swift in Sources */,
+				80E293FA301281A80031E31D /* CredentialStore.swift in Sources */,
 				805A16EB300840D800AF3100 /* SorrivaTabBar.swift in Sources */,
 				80325ABB2FFEE5DC00308486 /* SorrivaApp.swift in Sources */,
 				805A16C130052B0B00AF3100 /* ScanCoordinator.swift in Sources */,
@@ -370,7 +438,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		80E293E6301272B80031E31D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		80E293EF301272B80031E31D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 80325A9F2FFED8DE00308486 /* Sorriva */;
+			targetProxy = 80E293EE301272B80031E31D /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		80325AA92FFED8DF00308486 /* Debug */ = {
@@ -562,6 +645,48 @@
 			};
 			name = Release;
 		};
+		80E293F1301272B80031E31D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RXKPBV2A4D;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.lumvara.SorrivaTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Sorriva.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Sorriva";
+			};
+			name = Debug;
+		};
+		80E293F2301272B80031E31D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RXKPBV2A4D;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.lumvara.SorrivaTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Sorriva.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Sorriva";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -579,6 +704,15 @@
 			buildConfigurations = (
 				80325AAC2FFED8DF00308486 /* Debug */,
 				80325AAD2FFED8DF00308486 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		80E293F0301272B80031E31D /* Build configuration list for PBXNativeTarget "SorrivaTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				80E293F1301272B80031E31D /* Debug */,
+				80E293F2301272B80031E31D /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

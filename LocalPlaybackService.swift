@@ -95,20 +95,23 @@ final class LocalPlaybackService {
     private func playQueue(_ pairs: [(Track, LibrarySource)], on zone: SonosZone) async {
         sLog("LOCALPLAY: queueing \(pairs.count) tracks on \(zone.name)")
 
-        // Set context for first track
-        let firstTrack = pairs[0].0
-        if let album = try? SorrivaDatabase.shared.album(id: firstTrack.albumId) {
-            PlaybackContextService.shared.setLocalContext(zoneID: zone.id, track: firstTrack, album: album)
-        }
-
         // Pre-build URIs and DIDLs on MainActor before entering detached task
         // DIDL with duration prevents Sonos aggressive prefetch on zero-duration tracks
         var queueItems: [(uri: String, didl: String, title: String)] = []
+        var contextItems: [(uri: String, track: Track, album: Album)] = []
+
         for (track, source) in pairs {
             let uri = xFileCIFSURI(track: track, source: source)
             let didl = await Self.buildTrackDIDL(track: track, uri: uri, source: source)
             queueItems.append((uri: uri, didl: didl, title: track.title))
+            // Build context queue for PlaybackContextService URI-based advancement
+            if let album = try? SorrivaDatabase.shared.album(id: track.albumId) {
+                contextItems.append((uri: uri, track: track, album: album))
+            }
         }
+
+        // Register full queue so context advances as Sonos moves through tracks
+        PlaybackContextService.shared.setLocalQueue(zoneID: zone.id, items: contextItems)
 
         let host = zone.host
         let zoneID = zone.id
@@ -209,7 +212,8 @@ final class LocalPlaybackService {
     private nonisolated static func fetchFLACDuration(track: Track, source: LibrarySource) async -> Double? {
         do {
             let client = SMBClient(host: source.host)
-            try await client.login(username: source.username ?? "", password: source.password ?? "")
+            let creds = source.resolvedCredentials
+            try await client.login(username: creds.username.isEmpty ? "guest" : creds.username, password: creds.password)
             try await client.connectShare(source.share)
             let reader = client.fileReader(path: track.filePath)
             let data = try await reader.read(offset: 0, length: 65536)

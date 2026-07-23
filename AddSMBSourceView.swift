@@ -764,15 +764,27 @@ struct SMBConfigureSourceView: View {
     private func saveSource() {
         let cleanHost = device.host.hasSuffix(".") ? String(device.host.dropLast()) : device.host
         let now = Int(Date().timeIntervalSince1970)
+        let sourceId = UUID().uuidString
+
+        // Store credentials in Keychain — never in SQLite
+        if !username.isEmpty {
+            try? KeychainCredentialStore.shared.set(
+                sourceId: sourceId,
+                username: username,
+                password: password
+            )
+        }
+
         let source = LibrarySource(
-            id: UUID().uuidString,
+            id: sourceId,
             type: "smb",
             displayName: displayName,
             host: cleanHost,
             share: share,
             rootPath: rootPath.isEmpty ? "/" : rootPath,
-            username: username.isEmpty ? nil : username,
-            password: password.isEmpty ? nil : password,
+            username: nil,          // never stored in DB
+            password: nil,          // never stored in DB
+            credentialRef: username.isEmpty ? nil : sourceId,
             lastScanned: nil,
             trackCount: 0,
             scanState: "idle",

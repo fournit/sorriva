@@ -101,6 +101,7 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .environmentObject(tabState)
         .environmentObject(discovery)
+        .migrationAlert()
         .onAppear {
             discovery.startDiscovery()
             playbackContext.observe(discovery)
