@@ -1532,6 +1532,14 @@ final class SorrivaDatabase {
             """)
             print("SORRIVA DB: Local library cleared")
         }
+
+        // Delete all cached artwork files — prevents orphaned files accumulating after each clear
+        let docsDir  = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let artDir   = docsDir.appendingPathComponent("artwork")
+        if FileManager.default.fileExists(atPath: artDir.path) {
+            try? FileManager.default.removeItem(at: artDir)
+            print("SORRIVA DB: Artwork directory cleared")
+        }
     }
 
     /// All albums sorted by sortTitle — for Albums row and See All grid.

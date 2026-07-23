@@ -626,12 +626,27 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         if let scStart = decoded.range(of: "<r:streamContent>"),
            let scEnd = decoded.range(of: "</r:streamContent>") {
             let content = String(decoded[scStart.upperBound..<scEnd.lowerBound])
+                .trimmingCharacters(in: .whitespaces)
             var track = ""
             var artist = ""
+
+            // Format 1: pipe-delimited "TITLE xxx|ARTIST xxx" (iHeart, most stations)
             for part in content.components(separatedBy: "|") {
                 if part.hasPrefix("TITLE ") { track = String(part.dropFirst(6)).trimmingCharacters(in: .whitespaces) }
                 else if part.hasPrefix("ARTIST ") { artist = String(part.dropFirst(7)).trimmingCharacters(in: .whitespaces) }
             }
+
+            // Format 2: "Artist - Title" (Soma FM and similar)
+            // Only attempt if pipe-delimited parse found nothing
+            if track.isEmpty && artist.isEmpty && content.contains(" - ") {
+                let parts = content.components(separatedBy: " - ")
+                if parts.count >= 2 {
+                    artist = parts[0].trimmingCharacters(in: .whitespaces)
+                    // Rejoin remaining parts in case track title itself contains " - "
+                    track  = parts.dropFirst().joined(separator: " - ").trimmingCharacters(in: .whitespaces)
+                }
+            }
+
             if !track.isEmpty { zones[idx].currentTrack = track }
             if !artist.isEmpty { zones[idx].currentArtist = artist }
         }

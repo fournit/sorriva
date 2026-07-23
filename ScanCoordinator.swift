@@ -103,6 +103,8 @@ final class ScanCoordinator: ObservableObject {
                     if pendingSkips.isEmpty && pendingArt.isEmpty {
                         sLog("SCAN: retrying state but queues empty — marking complete for \(source.displayName)")
                         try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "complete")
+                    } else if await ScanRetryScheduler.shared.isRunning {
+                        sLog("SCAN: retry scheduler already running — skipping restart for \(source.displayName)")
                     } else {
                         sLog("SCAN: resuming retry scheduler for \(source.displayName)")
                         await ScanRetryScheduler.shared.start(source: source, scanner: scanner)
@@ -223,11 +225,6 @@ final class ScanCoordinator: ObservableObject {
 
     // MARK: - Folder artwork pass
 
-    private static let artCandidates = [
-        "AlbumArtLarge.jpg", "folder.jpg", "cover.jpg", "front.jpg", "AlbumArtSmall.jpg",
-        "AlbumArtLarge.png", "folder.png", "cover.png", "front.png"
-    ]
-
     @discardableResult
     private func runFolderArtPass(source: LibrarySource) async -> Int {
         let albums = (try? SorrivaDatabase.shared.albums(sourceId: source.id)) ?? []
@@ -237,8 +234,7 @@ final class ScanCoordinator: ObservableObject {
         }
         var found = 0
 
-        // One persistent connection for the entire pass — same architecture as embedded art pass.
-        // Per-album fresh connections flood the NAS and exhaust the socket pool.
+        // One persistent connection for the entire pass.
         var client = SMBClient(host: source.host)
         do {
             try await client.login(username: source.username ?? "", password: source.password ?? "")
@@ -268,21 +264,36 @@ final class ScanCoordinator: ObservableObject {
 
             do {
                 let entries = try await client.listDirectory(path: album.folderPath)
-                let entryNames = Set(entries.map { $0.name })
 
-                var artFilePath: String? = nil
-                for candidate in ScanCoordinator.artCandidates {
-                    if entryNames.contains(candidate) {
-                        artFilePath = album.folderPath == "/"
-                            ? "/\(candidate)"
-                            : "\(album.folderPath)/\(candidate)"
-                        break
+                // Find all image files in the folder, sorted by file size descending.
+                // Largest file is most likely to be the highest quality artwork.
+                // Skip files with thumbnail indicators in their name.
+                let imageExts  = Set(["jpg", "jpeg", "png"])
+                let thumbWords = ["small", "thumb", "mini", "tiny"]
+                let candidates = entries
+                    .filter { entry in
+                        let ext  = (entry.name as NSString).pathExtension.lowercased()
+                        let name = entry.name.lowercased()
+                        guard imageExts.contains(ext) else { return false }
+                        guard !thumbWords.contains(where: { name.contains($0) }) else { return false }
+                        return true
                     }
+                    .sorted { $0.size > $1.size }  // largest first
+
+                if candidates.isEmpty {
+                    self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] no image files found")
                 }
 
-                if let artPath = artFilePath {
-                    self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] downloading \((artPath as NSString).lastPathComponent)")
-                    imageData = await withCheckedContinuation { continuation in
+                // Try candidates in order until we find one that decodes to ≥300px
+                for candidate in candidates {
+                    let artPath = album.folderPath == "/"
+                        ? "/\(candidate.name)"
+                        : "\(album.folderPath)/\(candidate.name)"
+
+                    self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] trying \(candidate.name) (\(candidate.size / 1024)KB)")
+
+                    var downloaded: Data? = nil
+                    downloaded = await withCheckedContinuation { continuation in
                         let semaphore = DispatchSemaphore(value: 0)
                         var result: Data? = nil
                         Task.detached {
@@ -291,26 +302,38 @@ final class ScanCoordinator: ObservableObject {
                         }
                         DispatchQueue.global(qos: .utility).async {
                             if semaphore.wait(timeout: .now() + 20) == .timedOut {
-                                self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] TIMEOUT 20s — \(album.title)")
+                                self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] TIMEOUT — \(candidate.name)")
                             }
                             continuation.resume(returning: result)
                         }
                     }
-                    if imageData == nil {
-                        // Timeout/failure — connection in bad state, create fresh client without disconnecting
-                        scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] — creating fresh connection after timeout")
+
+                    if downloaded == nil {
+                        // Timeout — reconnect and try next candidate
+                        scanLog("ARTWORK: folder — reconnecting after timeout")
                         client = SMBClient(host: source.host)
                         if (try? await client.login(username: source.username ?? "", password: source.password ?? "")) != nil,
                            (try? await client.connectShare(source.share)) != nil {
-                            scanLog("ARTWORK: folder — reconnected after timeout")
+                            scanLog("ARTWORK: folder — reconnected")
+                        }
+                        continue
+                    }
+
+                    // Decode and check minimum dimensions
+                    if let data = downloaded, let img = UIImage(data: data) {
+                        let w = Int(img.size.width)
+                        let h = Int(img.size.height)
+                        if w >= 300 || h >= 300 {
+                            imageData = data
+                            self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] selected \(candidate.name) (\(w)×\(h)px)")
+                            break
+                        } else {
+                            self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] SKIP \(candidate.name) — too small (\(w)×\(h)px)")
                         }
                     }
-                } else {
-                    self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] no art file found")
                 }
             } catch {
                 self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] error — \(error.localizedDescription)")
-                // Reconnect and continue to next album
                 try? await client.disconnectShare()
                 try? await client.logoff()
                 client = SMBClient(host: source.host)
@@ -324,7 +347,7 @@ final class ScanCoordinator: ObservableObject {
 
             if let data = imageData, let image = UIImage(data: data) {
                 let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                let artDir = docsDir.appendingPathComponent("artwork", isDirectory: true)
+                let artDir  = docsDir.appendingPathComponent("artwork", isDirectory: true)
                 try? FileManager.default.createDirectory(at: artDir, withIntermediateDirectories: true)
                 let fullURL  = artDir.appendingPathComponent("\(album.id)_full.jpg")
                 let thumbURL = artDir.appendingPathComponent("\(album.id)_thumb.jpg")
@@ -335,7 +358,7 @@ final class ScanCoordinator: ObservableObject {
                     try? SorrivaDatabase.shared.updateAlbumArtwork(
                         albumId: album.id,
                         thumbPath: "artwork/\(album.id)_thumb.jpg",
-                        fullPath: "artwork/\(album.id)_full.jpg"
+                        fullPath:  "artwork/\(album.id)_full.jpg"
                     )
                     found += 1
                     self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] SAVED — \(album.artistName) · \(album.title)")

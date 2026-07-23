@@ -25,6 +25,8 @@ import SMBClient
 //
 // On app kill + relaunch: ScanCoordinator.checkForChanges() detects pending rows
 // in DB and calls start() again to resume from the current attempt count.
+// checkForChanges() checks isRunning before calling start() — prevents duplicate
+// scheduler instances when app foregrounds mid-run.
 
 actor ScanRetryScheduler {
 
@@ -37,15 +39,23 @@ actor ScanRetryScheduler {
 
     private init() {}
 
+    // MARK: - Public API
+
+    /// True when the scheduler has an active, non-cancelled task in flight.
+    /// Used by ScanCoordinator.checkForChanges() to avoid restarting a running scheduler.
+    var isRunning: Bool {
+        guard let task = schedulerTask else { return false }
+        return !task.isCancelled
+    }
+
     private func scanLog(_ message: String) {
         sLog(message)
         ScanCoordinator.shared.appendStatus(message)
     }
 
-    // MARK: - Public API
-
     /// Start (or restart) the retry scheduler for a source.
-    /// Safe to call multiple times — cancels any in-flight task first.
+    /// Cancels any in-flight task before starting — call isRunning first
+    /// to avoid unnecessary restarts when the scheduler is already running.
     func start(source: LibrarySource, scanner: SMBScanner) async {
         schedulerTask?.cancel()
 
@@ -85,9 +95,9 @@ actor ScanRetryScheduler {
             }
 
             // Final state summary
-            let tracksPending  = (try? SorrivaDatabase.shared.pendingScanSkips(sourceId: source.id))?.count ?? 0
+            let tracksPending   = (try? SorrivaDatabase.shared.pendingScanSkips(sourceId: source.id))?.count ?? 0
             let tracksPermanent = (try? SorrivaDatabase.shared.permanentScanSkipCount(sourceId: source.id)) ?? 0
-            let artPending     = (try? SorrivaDatabase.shared.albumsNeedingEmbeddedArtRetry())?.count ?? 0
+            let artPending      = (try? SorrivaDatabase.shared.albumsNeedingEmbeddedArtRetry())?.count ?? 0
             scanLog("RETRY: scheduler COMPLETE — \(tracksPending) tracks still pending, \(tracksPermanent) tracks permanent, \(artPending) art still pending")
             try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "complete")
             scanLog("SCAN: state = complete for \(source.displayName)")
@@ -120,7 +130,6 @@ actor ScanRetryScheduler {
     }
 
     /// Sleep using wall-clock polling so backgrounding doesn't extend the interval.
-    /// Logs every 15 seconds so we can trace scheduler state in the debug log.
     private func wallClockSleep(seconds: TimeInterval, passNumber: Int) async {
         let target = Date().addingTimeInterval(seconds)
         while Date() < target {
@@ -190,11 +199,9 @@ actor ScanRetryScheduler {
                         resolved += 1
                         break
                     }
-                    // Read succeeded, no art in file — don't set readErrored
                 } catch {
                     scanLog("RETRY: embedded art read error — \((track.filePath as NSString).lastPathComponent): \(error.localizedDescription)")
                     readErrored = true
-                    // Reconnect
                     try? await client.disconnectShare()
                     try? await client.logoff()
                     client = SMBClient(host: source.host)
@@ -207,7 +214,6 @@ actor ScanRetryScheduler {
 
             if !artFound {
                 if readErrored {
-                    // Still erroring — increment retry count (markEmbeddedArtFailed handles the cap at 5)
                     try? SorrivaDatabase.shared.markEmbeddedArtFailed(albumId: album.id)
                     if attemptNum >= 5 {
                         scanLog("RETRY: embedded art PERMANENT FAIL after 5 attempts — \(album.artistName) · \(album.title)")
@@ -215,14 +221,13 @@ actor ScanRetryScheduler {
                         scanLog("RETRY: embedded art attempt \(attemptNum) failed — \(album.artistName) · \(album.title)")
                     }
                 } else {
-                    // No read error but no art found — file genuinely has no embedded art, stop retrying
                     try? SorrivaDatabase.shared.markEmbeddedArtScanned(albumId: album.id)
                     scanLog("RETRY: embedded art — no art in file — \(album.artistName) · \(album.title)")
                 }
                 stillFailing += 1
             }
 
-            try? await Task.sleep(nanoseconds: 500_000_000) // 500ms between albums
+            try? await Task.sleep(nanoseconds: 500_000_000)
         }
 
         try? await client.disconnectShare()
