@@ -33,6 +33,10 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
     private var lastTopologyHost: String? = nil
     private var topologyLastFetched: Date? = nil
 
+    // B-001: Volume command debounce — suppress poll overwrites for 3s after command
+    private var volumeCommandTimes: [String: Date] = [:]  // zoneID → last command time
+    private let volumeDebounceInterval: TimeInterval = 3.0
+
     // MARK: - Compatibility shim for ZonesView (uses devices/activeGroups/availableDevices)
 
     var devices: [String: SonosDevice] {
@@ -290,7 +294,16 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                 }
 
                 zones[idx].isPlaying = finalPlaying
-                zones[idx].volume = vol
+                // B-001: Skip volume update from poll if a command was issued recently
+                let zid = zones[idx].id
+                let isDebouncing = volumeCommandTimes[zid].map {
+                    Date().timeIntervalSince($0) < volumeDebounceInterval
+                } ?? false
+                if !isDebouncing {
+                    zones[idx].volume = vol
+                } else {
+                    sLog("ZONES: volume debounce active for \(zones[idx].name) — skipping poll update (cmd age: \(String(format: "%.1f", volumeCommandTimes[zid].map { Date().timeIntervalSince($0) } ?? -1))s)")
+                }
 
                 // Clear stale track info when zone stops (only outside grace period)
                 if !finalPlaying && !inGracePeriod {
@@ -316,9 +329,10 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             }
         }
 
-        // Fetch GetPositionInfo for ALL playing zones (track/artist updates every ~3min)
+        // Fetch GetPositionInfo for ALL zones — playing AND idle
+        // Idle zones need URI resolution to show last loaded content on launch
         let positionResults: [(String, Data)] = await withTaskGroup(of: (String, Data?).self) { group in
-            for zone in zones.filter({ $0.isPlaying }) {
+            for zone in zones {
                 let id = zone.id
                 let host = zone.host
                 group.addTask {
@@ -724,6 +738,11 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         }
 
         // Parse playback position and duration
+        // B-001: Only update volume from poll if no recent volume command
+        let volumeIsDebouncing = volumeCommandTimes[zoneID].map {
+            Date().timeIntervalSince($0) < volumeDebounceInterval
+        } ?? false
+
         if let relStart = raw.range(of: "<RelTime>"),
            let relEnd = raw.range(of: "</RelTime>") {
             let t = String(raw[relStart.upperBound..<relEnd.lowerBound]).trimmingCharacters(in: .whitespaces)
@@ -772,9 +791,33 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                 }
             }
 
-            if !track.isEmpty { zones[idx].currentTrack = track }
-            if !artist.isEmpty { zones[idx].currentArtist = artist }
+            // B-005: Filter raw stream metadata (commercials, promos, jingles)
+            // Patterns that indicate non-music content: date stamps, raw IDs, numeric-heavy strings
+            let isRawMetadata = isRawStreamContent(track) || isRawStreamContent(artist)
+
+            if !track.isEmpty && !isRawMetadata { zones[idx].currentTrack = track }
+            if !artist.isEmpty && !isRawMetadata { zones[idx].currentArtist = artist }
+            // If raw metadata detected, preserve last known track/artist (or clear if never set)
         }
+    }
+
+    /// B-005: Detect raw/non-music stream metadata patterns.
+    private func isRawStreamContent(_ s: String) -> Bool {
+        guard !s.isEmpty else { return false }
+        // Date patterns: "04-17-", "2024-", timestamps
+        let datePattern = #"\d{2}-\d{2}-"#
+        // Raw ID patterns: "IHD-", "SHD-", all-caps with dashes
+        let rawIDPattern = #"^[A-Z]+-[A-Z]+"#
+        // Numeric prefix: starts with digits like "09 - "
+        let numericPrefix = #"^\d{2}\s*-\s*"#
+
+        for pattern in [datePattern, rawIDPattern, numericPrefix] {
+            if s.range(of: pattern, options: .regularExpression) != nil { return true }
+        }
+        // Too many digits relative to length (promo codes, timestamps)
+        let digitCount = s.filter { $0.isNumber }.count
+        if s.count > 0 && Double(digitCount) / Double(s.count) > 0.4 { return true }
+        return false
     }
 
     // MARK: - Station playback
@@ -911,9 +954,9 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            print("SORRIVA: SetAVTransportURIWithMetadata \(host) status=\(status)")
+            sLog("LOCALPLAY: SetAVTransportURIWithMetadata \(host) status=\(status) url=\(streamURL.prefix(60))")
         } catch {
-            print("SORRIVA: SetAVTransportURIWithMetadata error: \(error.localizedDescription)")
+            sLog("LOCALPLAY: SetAVTransportURIWithMetadata error \(host): \(error.localizedDescription)")
         }
     }
 
@@ -1086,7 +1129,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         Task {
             let action = isPlaying ? "Pause" : "Play"
             do {
-                try await SonosEndpointDriver.shared.sendTransportAction(host: zone.host, action: action)
+                await ZoneDiscoveryService.sendTransportAction(host: zone.host, action: action)
             } catch {
                 sLog("ZONES: \(action) failed on \(zone.name): \(error.localizedDescription)")
                 // Revert optimistic update on failure
@@ -1132,9 +1175,9 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            print("SORRIVA: \(action) \(host) status=\(status)")
+            sLog("LOCALPLAY: \(action) \(host) status=\(status)")
         } catch {
-            print("SORRIVA: \(action) error \(host): \(error.localizedDescription)")
+            sLog("LOCALPLAY: \(action) error \(host): \(error.localizedDescription)")
         }
     }
 
@@ -1142,6 +1185,8 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         guard let zone = zones.first(where: { $0.id == zoneID }) else { return }
         let clamped = max(0, min(100, volume))
         let delta = clamped - zone.volume
+        // B-001: Record command time to prevent poll from snapping volume back
+        volumeCommandTimes[zoneID] = Date()
 
         if let idx = zones.firstIndex(where: { $0.id == zoneID }) {
             zones[idx].volume = clamped
@@ -1150,10 +1195,10 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                 let newVol = max(0, min(100, zones[idx].groupMembers[memberIdx].volume + delta))
                 zones[idx].groupMembers[memberIdx].volume = newVol
                 let host = zones[idx].groupMembers[memberIdx].host
-                Task { try? await SonosEndpointDriver.shared.sendSetVolume(host: host, volume: newVol) }
+                Task { await ZoneDiscoveryService.sendSetVolume(host: host, volume: newVol) }
             }
         }
-        Task { try? await SonosEndpointDriver.shared.sendSetVolume(host: zone.host, volume: clamped) }
+        Task { await ZoneDiscoveryService.sendSetVolume(host: zone.host, volume: clamped) }
     }
 
     func muteGroup(zoneID: String, mute: Bool, restoreVolumes: [String: Int] = [:]) {
@@ -1287,9 +1332,9 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            print("SORRIVA: AddMember \(memberHost) → \(memberUUID) status=\(status)")
+            sLog("TRANSFER: AddMember \(memberHost) → \(memberUUID) status=\(status)")
         } catch {
-            print("SORRIVA: AddMember error: \(error.localizedDescription)")
+            sLog("TRANSFER: AddMember error: \(error.localizedDescription)")
         }
     }
 
@@ -1337,6 +1382,20 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         print("SORRIVA: transferPlayback — \(sourceZone.name) → \(destZone.name)")
 
         Task {
+            // Step 0: register NAS shares with destination before transfer
+            // so x-file-cifs:// URIs work immediately when dest becomes coordinator
+            if let sources = try? SorrivaDatabase.shared.allLibrarySources(), !sources.isEmpty {
+                for source in sources {
+                    let nasPath = "//\(source.host)/\(source.share)"
+                    await ZoneDiscoveryService.createObject(host: destHost, nasPath: nasPath)
+                    sLog("TRANSFER: createObject called for \(nasPath) on \(destZone.name) (\(destHost))")
+                }
+            }
+
+            // Clear destination queue/transport before joining
+            await ZoneDiscoveryService.removeAllTracksFromQueue(host: destHost)
+            sLog("TRANSFER: destination queue cleared")
+
             // Step 1: destination joins source group — audio syncs
             await ZoneDiscoveryService.addMember(
                 coordinatorHost: sourceHost,
@@ -1348,10 +1407,14 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             // Step 2: wait for audio to sync on destination
             try? await Task.sleep(nanoseconds: 2_000_000_000)
 
-            // Step 3: source goes standalone — destination automatically becomes
-            // the new coordinator and inherits the queue
+            // Step 3: source goes standalone — destination inherits the queue
             await ZoneDiscoveryService.becomeCoordinator(host: sourceHost)
-            print("SORRIVA: Transfer step 2 — \(sourceZone.name) released, \(destZone.name) is new coordinator")
+            sLog("TRANSFER: Step 2 — \(sourceZone.name) released, \(destZone.name) is new coordinator")
+
+            // Step 4: destination needs explicit Play to resume
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            await ZoneDiscoveryService.sendTransportAction(host: destHost, action: "Play")
+            sLog("TRANSFER: Step 3 — Play sent to \(destZone.name)")
 
             // Refresh topology
             try? await Task.sleep(nanoseconds: 1_500_000_000)
@@ -1383,13 +1446,14 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            print("SORRIVA: BecomeCoordinator \(host) status=\(status)")
+            sLog("TRANSFER: BecomeCoordinator \(host) status=\(status)")
         } catch {
-            print("SORRIVA: BecomeCoordinator error: \(error.localizedDescription)")
+            sLog("TRANSFER: BecomeCoordinator error: \(error.localizedDescription)")
         }
     }
 
     func setMemberVolume(zoneID: String, memberID: String, volume: Int) {
+        volumeCommandTimes[memberID] = Date()
         let clamped = max(0, min(100, volume))
 
         // Coordinator case — set directly without delta

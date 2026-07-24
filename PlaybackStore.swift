@@ -82,52 +82,36 @@ enum PlaybackStateReducer {
             let ctx = contexts[zone.id]
             let isLocal = ctx?.isLocal == true
 
-            // Track display — local context wins over zone metadata
-            let trackTitle: String
-            let artistName: String
-            let albumName: String
-            let sourceLabel: String
-            let artAlbum: Album?
-            let artURL: String?
-
-            if isLocal, let ctx {
-                trackTitle  = ctx.track
-                artistName  = ctx.artist
-                albumName   = ctx.albumName
-                sourceLabel = "Local Library"
-                artAlbum    = ctx.artAlbum
-                artURL      = nil
-            } else {
-                trackTitle  = zone.currentTrack
-                artistName  = zone.currentArtist
-                albumName   = zone.stationName
-                sourceLabel = ""
-                artAlbum    = nil
-                artURL      = zone.stationLogoURL.isEmpty ? nil : zone.stationLogoURL
-            }
+            // Display state — always from PlaybackContextService.
+            // PlaybackStore is the single authority: one path for all sources.
+            let trackTitle  = ctx?.track    ?? ""
+            let artistName  = ctx?.artist   ?? ""
+            let albumName   = ctx?.albumName ?? ""
+            let artAlbum    = ctx?.artAlbum
+            let artURL      = ctx?.artURL
+            let sourceLabel = isLocal ? "Local Library" : ""
+            let duration    = isLocal ? Int(ctx?.duration ?? 0) : zone.durationSeconds
 
             return ZonePlaybackSnapshot(
-                id:             zone.id,
-                name:           zone.name,
-                host:           zone.host,
-                isPlaying:      zone.isPlaying,
-                volume:         zone.volume,
-                isHDMI:         zone.isHDMI,
-                idleState:      zone.idleState,
-                trackTitle:     trackTitle,
-                artistName:     artistName,
-                albumName:      albumName,
-                sourceLabel:    sourceLabel,
-                isLocal:        isLocal,
-                elapsedSeconds: zone.elapsedSeconds,
-                durationSeconds: isLocal && ctx != nil
-                    ? Int(ctx!.duration)
-                    : zone.durationSeconds,
-                artAlbum:       artAlbum,
-                artURL:         artURL,
-                groupMembers:   zone.groupMembers,
-                coordinatorID:  nil,
-                isAvailable:    !zone.idleState || zone.isPlaying
+                id:              zone.id,
+                name:            zone.name,
+                host:            zone.host,
+                isPlaying:       zone.isPlaying,
+                volume:          zone.volume,
+                isHDMI:          zone.isHDMI,
+                idleState:       zone.idleState,
+                trackTitle:      trackTitle,
+                artistName:      artistName,
+                albumName:       albumName,
+                sourceLabel:     sourceLabel,
+                isLocal:         isLocal,
+                elapsedSeconds:  zone.elapsedSeconds,
+                durationSeconds: duration,
+                artAlbum:        artAlbum,
+                artURL:          artURL,
+                groupMembers:    zone.groupMembers,
+                coordinatorID:   nil,
+                isAvailable:     !zone.idleState || zone.isPlaying
             )
         }
     }

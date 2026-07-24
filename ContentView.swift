@@ -157,6 +157,7 @@ struct ContentView: View {
                 title: "Select Zone",
                 subtitle: "Choose a zone to control",
                 discovery: discovery,
+                store: store,
                 selectedZoneID: selectedZoneID
             ) { zone in
                 selectedZoneID = zone.id

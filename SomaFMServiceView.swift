@@ -153,7 +153,7 @@ struct SomaFMServiceView: View {
             Text("This removes the station from your Sorriva library.")
         }
         .sheet(item: $zonePickerStation) { rs in
-            ZonePickerSheet(title: rs.name, subtitle: "SomaFM", discovery: discovery) { zone in
+            ZonePickerSheet(title: rs.name, subtitle: "SomaFM", discovery: discovery, store: PlaybackStore.shared) { zone in
                 zonePickerStation = nil
                 Task {
                     var streamURL = try? SorrivaDatabase.shared.cachedStreamURL(stationId: rs.id)

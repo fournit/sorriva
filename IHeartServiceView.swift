@@ -177,7 +177,7 @@ struct IHeartServiceView: View {
         }
         // Zone picker
         .sheet(item: $zonePickerStation) { rs in
-            ZonePickerSheet(title: rs.name, subtitle: "iHeartRADIO", discovery: discovery) { zone in
+            ZonePickerSheet(title: rs.name, subtitle: "iHeartRADIO", discovery: discovery, store: PlaybackStore.shared) { zone in
                 zonePickerStation = nil
                 Task {
                     var streamURL = try? SorrivaDatabase.shared.cachedStreamURL(stationId: rs.id)

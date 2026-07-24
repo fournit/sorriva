@@ -14,6 +14,7 @@ struct ZonePickerSheet: View {
     let title: String
     let subtitle: String
     @ObservedObject var discovery: ZoneDiscoveryService
+    @ObservedObject var store: PlaybackStore
     let onPick: (SonosZone) -> Void
 
     // Optional: pre-highlight a zone as "currently selected"
@@ -70,7 +71,8 @@ struct ZonePickerSheet: View {
                                     print("ZONEPICKER: tapped zone — \(zone.name)")
                                     dismiss()
                                     onPick(zone)
-                                }
+                                },
+                                store: store
                             )
                             Divider()
                                 .background(Color.sSeparator)
@@ -154,6 +156,7 @@ private struct ZoneRow: View {
     let zone: SonosZone
     let isSelected: Bool
     let onTap: () -> Void
+    let store: PlaybackStore
 
     var body: some View {
         Button(action: onTap) {
@@ -175,20 +178,20 @@ private struct ZoneRow: View {
                         .font(.system(size: 15, weight: isSelected ? .semibold : .regular))
                         .foregroundColor(isSelected ? .sTextPrimary : .sTextPrimary)
 
-                    if zone.isPlaying {
+                    if let snap = store.snapshot(for: zone.id) {
                         let context: String = {
-                            if !zone.currentTrack.isEmpty {
-                                return zone.stationName.isEmpty
-                                    ? zone.currentTrack
-                                    : "\(zone.stationName) · \(zone.currentTrack)"
-                            } else if !zone.stationName.isEmpty {
-                                return zone.stationName
+                            if !snap.trackTitle.isEmpty {
+                                return snap.albumName.isEmpty
+                                    ? snap.trackTitle
+                                    : "\(snap.albumName) · \(snap.trackTitle)"
+                            } else if !snap.albumName.isEmpty {
+                                return snap.albumName
                             }
-                            return "Playing"
+                            return snap.isPlaying ? "Playing" : "Idle"
                         }()
                         Text(context)
                             .font(.system(size: 12))
-                            .foregroundColor(.sHighlight)
+                            .foregroundColor(snap.isPlaying ? .sHighlight : .sTextMuted)
                             .lineLimit(1)
                     } else {
                         Text("Idle")

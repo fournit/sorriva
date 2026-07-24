@@ -64,7 +64,7 @@ final class LocalPlaybackService {
         // Build (track, source) pairs — each track knows its sourceId
         var trackSourcePairs: [(Track, LibrarySource)] = []
         for track in tracks {
-            guard let source = try? SorrivaDatabase.shared.librarySource(id: track.sourceId) else {
+            guard let source = (try? SorrivaDatabase.shared.allLibrarySources())?.first(where: { $0.id == track.sourceId }) else {
                 sLog("LOCALPLAY: skipping \(track.title) — source not found")
                 continue
             }
@@ -101,6 +101,8 @@ final class LocalPlaybackService {
         let didl = await Self.buildTrackDIDL(track: track, uri: uri, source: source)
         let host = zone.host
         await Task.detached {
+            // Clear queue/transport state before single track playback
+            await ZoneDiscoveryService.removeAllTracksFromQueue(host: host)
             await ZoneDiscoveryService.setAVTransportURIWithMetadata(host: host, streamURL: uri, didl: didl)
             await ZoneDiscoveryService.sendTransportAction(host: host, action: "Play")
             sLog("LOCALPLAY: play command sent — \(track.title)")
@@ -112,39 +114,37 @@ final class LocalPlaybackService {
     private func playQueue(_ pairs: [(Track, LibrarySource)], on zone: SonosZone) async {
         sLog("LOCALPLAY: queueing \(pairs.count) tracks on \(zone.name)")
 
-
-
-        // Pre-build URIs and DIDLs on MainActor before entering detached task
-        // DIDL with duration prevents Sonos aggressive prefetch on zero-duration tracks
-        var queueItems: [(uri: String, didl: String, title: String)] = []
+        // Register full queue for context advancement
+        var contextItems: [(uri: String, track: Track, album: Album)] = []
         for (track, source) in pairs {
             let uri = xFileCIFSURI(track: track, source: source)
-            let didl = await Self.buildTrackDIDL(track: track, uri: uri, source: source)
-            queueItems.append((uri: uri, didl: didl, title: track.title))
+            if let album = try? SorrivaDatabase.shared.album(id: track.albumId) {
+                contextItems.append((uri: uri, track: track, album: album))
+            }
         }
+        PlaybackContextService.shared.setLocalQueue(zoneID: zone.id, items: contextItems)
 
         let host = zone.host
         let zoneID = zone.id
+        let uris = pairs.map { xFileCIFSURI(track: $0.0, source: $0.1) }
 
-        // Use SonosEndpointDriver — typed results, failures propagate
-        let driver = SonosEndpointDriver.shared
-        let queueResult = try? await driver.addAlbumToQueue(host: host, items: queueItems)
+        await Task.detached {
+            // Clear existing queue first
+            await ZoneDiscoveryService.removeAllTracksFromQueue(host: host)
 
-        switch queueResult {
-        case .success, .none:
-            sLog("LOCALPLAY: queued \(queueItems.count) tracks on \(zone.name)")
-        case .partialQueue(let added, let requested):
-            sLog("LOCALPLAY: partial queue \(added)/\(requested) on \(zone.name)")
-            await MainActor.run {
-                PlaybackStore.shared.setIssue(.partialQueue(added: added, requested: requested))
+            // AddURIToQueue in loop — x-file-cifs requires single-track calls
+            // No DIDL needed — Sonos reads metadata directly from the file
+            for (idx, uri) in uris.enumerated() {
+                await ZoneDiscoveryService.addURIToQueue(host: host, uri: uri)
+                sLog("LOCALPLAY: queued track \(idx + 1)/\(uris.count)")
             }
-        }
 
-        // Point transport at queue and play
-        let queueURI = "x-rincon-queue:\(zoneID)#0"
-        try? await driver.setAVTransportURI(host: host, uri: queueURI, metadata: "")
-        try? await driver.sendTransportAction(host: host, action: "Play")
-        sLog("LOCALPLAY: album queue started — \(queueItems.count) tracks")
+            // Point transport at queue and play
+            let queueURI = "x-rincon-queue:\(zoneID)#0"
+            await ZoneDiscoveryService.setAVTransportURIWithMetadata(host: host, streamURL: queueURI, didl: "")
+            await ZoneDiscoveryService.sendTransportAction(host: host, action: "Play")
+            sLog("LOCALPLAY: album queue started — \(uris.count) tracks")
+        }.value
     }
 
     // MARK: - NAS share registration

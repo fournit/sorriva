@@ -406,14 +406,25 @@ final class SonosEndpointDriver {
         var request = URLRequest(url: url, timeoutInterval: timeout)
         request.httpMethod = "POST"
         request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.setValue("\"\(action)\"", forHTTPHeaderField: "SOAPACTION")
+        // Build full SOAPACTION URN from short action name
+        let soapAction: String
+        if action.hasPrefix("AVTransport#") {
+            soapAction = "\"urn:schemas-upnp-org:service:AVTransport:1#\(action.dropFirst("AVTransport#".count))\""
+        } else if action.hasPrefix("RenderingControl#") {
+            soapAction = "\"urn:schemas-upnp-org:service:RenderingControl:1#\(action.dropFirst("RenderingControl#".count))\""
+        } else if action.hasPrefix("ContentDirectory#") {
+            soapAction = "\"urn:schemas-upnp-org:service:ContentDirectory:1#\(action.dropFirst("ContentDirectory#".count))\""
+        } else {
+            soapAction = "\"\(action)\""
+        }
+        request.setValue(soapAction, forHTTPHeaderField: "SOAPACTION")
         request.httpBody = bodyData
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
 
-            if status == 200 { return data }
+            if status == 200 || status == 207 { return data }
 
             // Parse UPnP error from response body
             let responseText = String(data: data, encoding: .utf8) ?? ""

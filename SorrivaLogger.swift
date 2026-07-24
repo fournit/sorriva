@@ -2,9 +2,8 @@ import Foundation
 
 // MARK: - SorrivaLogger
 // Debug log facility for playback diagnostics.
-// Active in DEBUG builds only — no-ops in release.
 // Writes timestamped entries to Documents/sorriva-debug.log.
-// Rotates to sorriva-debug-prev.log at 5MB.
+// Rotates to sorriva-debug-prev.log at 1MB — keeps total under 2MB.
 // Export via Settings → Debug → Share Log.
 
 #if DEBUG
@@ -13,11 +12,12 @@ final class SorrivaLogger {
 
     static let shared = SorrivaLogger()
 
-    private let logFileName = "sorriva-debug.log"
+    private let logFileName     = "sorriva-debug.log"
     private let prevLogFileName = "sorriva-debug-prev.log"
-    private let maxBytes = 5 * 1024 * 1024  // 5MB
-    private let queue = DispatchQueue(label: "sorriva.logger", qos: .utility)
+    private let maxBytes        = 1 * 1024 * 1024  // 1MB — keeps log accessible
+    private let queue           = DispatchQueue(label: "sorriva.logger", qos: .utility)
     private var fileHandle: FileHandle?
+
     private lazy var logURL: URL = {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(logFileName)
@@ -28,17 +28,15 @@ final class SorrivaLogger {
     }()
 
     private init() {
-        openLog()
+        queue.async { [weak self] in self?.openLog() }
     }
 
     // MARK: - Public
 
     func log(_ message: String) {
         let line = "[\(timestamp())] \(message)\n"
-        print(message)  // Still print to Xcode console
-        queue.async { [weak self] in
-            self?.write(line)
-        }
+        print(message)
+        queue.async { [weak self] in self?.write(line) }
     }
 
     var logFileURL: URL { logURL }
@@ -46,35 +44,40 @@ final class SorrivaLogger {
     func clearLog() {
         queue.async { [weak self] in
             guard let self else { return }
-            self.fileHandle?.closeFile()
-            self.fileHandle = nil
-            try? FileManager.default.removeItem(at: self.logURL)
-            try? FileManager.default.removeItem(at: self.prevLogURL)
-            self.openLog()
-            self.write("[\(self.timestamp())] Log cleared\n")
+            fileHandle?.closeFile()
+            fileHandle = nil
+            try? FileManager.default.removeItem(at: logURL)
+            try? FileManager.default.removeItem(at: prevLogURL)
+            openLog()
         }
     }
 
     // MARK: - Private
 
     private func openLog() {
+        // Truncate on open if already over limit — prevents lock on export
+        if let size = try? logURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+           size > maxBytes {
+            rotate()
+            return
+        }
         if !FileManager.default.fileExists(atPath: logURL.path) {
             FileManager.default.createFile(atPath: logURL.path, contents: nil)
         }
         fileHandle = try? FileHandle(forWritingTo: logURL)
         fileHandle?.seekToEndOfFile()
-        write("[\(timestamp())] --- Sorriva log opened ---\n")
+        if let data = "[\(timestamp())] --- Sorriva log opened ---\n".data(using: .utf8) {
+            fileHandle?.write(data)
+        }
     }
 
     private func write(_ line: String) {
         guard let data = line.data(using: .utf8) else { return }
-
-        // Rotate if over 5MB — non-recursive to prevent stack overflow
+        // Rotate if over limit — non-recursive
         if let size = try? logURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
            size > maxBytes {
             rotate()
         }
-
         fileHandle?.write(data)
     }
 
@@ -83,21 +86,11 @@ final class SorrivaLogger {
         fileHandle = nil
         try? FileManager.default.removeItem(at: prevLogURL)
         try? FileManager.default.moveItem(at: logURL, to: prevLogURL)
-
-        // Ensure directory exists before creating file
         let dir = logURL.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-
-        let created = FileManager.default.createFile(atPath: logURL.path, contents: nil)
-        guard created else {
-            // Cannot create log file — open without rotation marker to avoid recursion
-            fileHandle = try? FileHandle(forWritingTo: logURL)
-            fileHandle?.seekToEndOfFile()
-            return
-        }
+        guard FileManager.default.createFile(atPath: logURL.path, contents: nil) else { return }
         fileHandle = try? FileHandle(forWritingTo: logURL)
         fileHandle?.seekToEndOfFile()
-        // Write rotation marker directly to avoid recursive write call
         if let data = "[\(timestamp())] --- Log rotated ---\n".data(using: .utf8) {
             fileHandle?.write(data)
         }
@@ -118,7 +111,6 @@ func sLog(_ message: String) {
 
 #else
 
-// No-ops in release builds
 func sLog(_ message: String) {}
 
 #endif

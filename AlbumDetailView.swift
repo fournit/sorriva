@@ -178,6 +178,7 @@ struct AlbumDetailView: View {
                     title: track.title,
                     subtitle: "\(track.artistName) · \(album.title)",
                     discovery: discovery,
+                    store: PlaybackStore.shared,
                     selectedZoneID: nil
                 ) { zone in
                     activeSheet = nil
@@ -193,6 +194,7 @@ struct AlbumDetailView: View {
                     title: album.title,
                     subtitle: album.artistName,
                     discovery: discovery,
+                    store: PlaybackStore.shared,
                     selectedZoneID: selectedZoneID.isEmpty ? nil : selectedZoneID
                 ) { zone in
                     activeSheet = nil
