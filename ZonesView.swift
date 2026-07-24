@@ -74,7 +74,9 @@ struct ZonesView: View {
             .padding(.top, 60)
             .padding(.bottom, 16)
 
-            if let error = discovery.discoveryError {
+            // Only show error if we have no zones — transient errors after foreground
+            // shouldn't hide a working zone list
+            if let error = discovery.discoveryError, discovery.zones.isEmpty {
                 errorView(message: error)
             } else {
                 ScrollViewReader { proxy in

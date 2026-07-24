@@ -3,10 +3,24 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var env: SorrivaAppEnvironment
 
-    private var discovery: ZoneDiscoveryService { env.discovery }
-    private var tabState: SorrivaTabBarState { env.tabState }
-    private var playbackContext: PlaybackContextService { env.playbackContext }
-    private var store: PlaybackStore { env.playbackStore }
+    // Direct observation of env sub-objects that drive tab switching and playback UI.
+    // @EnvironmentObject alone won't re-render when nested ObservableObjects change.
+    @ObservedObject private var tabStateObs: SorrivaTabBarState
+    @ObservedObject private var discoveryObs: ZoneDiscoveryService
+    @ObservedObject private var storeObs: PlaybackStore
+    @ObservedObject private var playbackContextObs: PlaybackContextService
+
+    init(env: SorrivaAppEnvironment) {
+        _tabStateObs        = ObservedObject(wrappedValue: env.tabState)
+        _discoveryObs       = ObservedObject(wrappedValue: env.discovery)
+        _storeObs           = ObservedObject(wrappedValue: env.playbackStore)
+        _playbackContextObs = ObservedObject(wrappedValue: env.playbackContext)
+    }
+
+    private var discovery: ZoneDiscoveryService { discoveryObs }
+    private var tabState: SorrivaTabBarState    { tabStateObs }
+    private var playbackContext: PlaybackContextService { playbackContextObs }
+    private var store: PlaybackStore            { storeObs }
 
     @State private var selectedZoneID: String? = UserDefaults.standard.string(forKey: "sorriva.selectedZoneID")
     @State private var showNowPlaying = false
@@ -160,6 +174,8 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView()
+    let env = SorrivaAppEnvironment()
+    ContentView(env: env)
+        .environmentObject(env)
         .preferredColorScheme(.dark)
 }

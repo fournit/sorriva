@@ -5,13 +5,15 @@ import SwiftUI
 // Displays Sorriva wordmark + app icon concept (soundwave dot).
 
 struct SplashView: View {
+    @EnvironmentObject private var env: SorrivaAppEnvironment
     @State private var opacity: Double = 0
     @State private var scale: Double = 0.92
     @State private var isDone = false
 
     var body: some View {
         if isDone {
-            ContentView()
+            ContentView(env: env)
+                .environmentObject(env)
                 .transition(.opacity)
         } else {
             ZStack {

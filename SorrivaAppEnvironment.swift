@@ -65,6 +65,8 @@ final class SorrivaAppEnvironment: ObservableObject {
         resetStaleScanStates()
 
         // Wire playback context to discovery.
+        // Note: startDiscovery() is called from ContentView.onAppear — not here.
+        // This prevents discovery running on every app init (e.g. background fetch).
         playbackContext.observe(discovery)
 
         // Wire SonosEndpointDriver to discovery for host lookup.

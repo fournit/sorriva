@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import Combine
+import SystemConfiguration
 
 // MARK: - ZoneDiscoveryService
 // Discovers the full Sonos household topology via a single SOAP call to any speaker.
@@ -25,6 +26,13 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
     private var topologyFetched = false
     private var refreshTask: Task<Void, Never>?
 
+    // WP-14: Candidate host pool for topology failover (S-008)
+    private var candidateHosts: [String] = []
+    private var candidateIndex: Int = 0
+    private var pathMonitor: NWPathMonitor?
+    private var lastTopologyHost: String? = nil
+    private var topologyLastFetched: Date? = nil
+
     // MARK: - Compatibility shim for ZonesView (uses devices/activeGroups/availableDevices)
 
     var devices: [String: SonosDevice] {
@@ -47,18 +55,76 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
 
     func startDiscovery() {
         guard serviceBrowser == nil else { return }
-        print("SORRIVA: startDiscovery — looking for any Sonos speaker")
+        sLog("ZONES: startDiscovery — looking for Sonos speakers")
         isDiscovering = true
         discoveryError = nil
         topologyFetched = false
+        candidateHosts = []
+        candidateIndex = 0
+
+        // Restore cached zones immediately — gives instant UI while Bonjour runs in background
+        if zones.isEmpty {
+            restoreZonesFromCache()
+        }
 
         let browser = NetServiceBrowser()
         browser.delegate = self
         browser.searchForServices(ofType: "_sonos._tcp", inDomain: "local.")
         self.serviceBrowser = browser
+
+        // WP-14: Network path monitor — restart discovery on network change
+        startNetworkMonitor()
+
+        // WP-14: Subscribe to foreground notification for topology refresh
+        NotificationCenter.default.addObserver(
+            forName: .sorrivaAppDidBecomeActive,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                // Use handleNetworkRestored which correctly distinguishes
+                // empty zones (full restart) from known zones (lightweight refresh)
+                self.handleNetworkRestored()
+            }
+        }
+    }
+
+    private func startNetworkMonitor() {
+        pathMonitor?.cancel()
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard let self else { return }
+            if path.status == .satisfied {
+                Task { @MainActor in
+                    sLog("ZONES: Network restored — triggering rediscovery")
+                    self.handleNetworkRestored()
+                }
+            }
+        }
+        monitor.start(queue: DispatchQueue.global(qos: .background))
+        pathMonitor = monitor
+    }
+
+    private func handleNetworkRestored() {
+        // Always clear any stale error on foreground
+        discoveryError = nil
+        if zones.isEmpty {
+            sLog("ZONES: foreground with no zones — restarting discovery")
+            stopDiscovery()
+            startDiscovery()
+        } else {
+            // Zones exist — restart polling only. Do NOT re-fetch topology.
+            // fetchTopology would replace zones[] and risk clearing them on timeout.
+            // The polling loop will update transport state (playing/paused/volume).
+            sLog("ZONES: foreground with \(zones.count) zones — restarting poll")
+            startPolling()
+        }
     }
 
     func stopDiscovery() {
+        pathMonitor?.cancel()
+        pathMonitor = nil
         serviceBrowser?.stop()
         serviceBrowser = nil
         pendingServices.forEach { $0.stop() }
@@ -67,6 +133,8 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         refreshTask = nil
         isDiscovering = false
         topologyFetched = false
+        candidateHosts = []
+        candidateIndex = 0
     }
 
     func refresh() {
@@ -85,34 +153,29 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
     // MARK: - Private
 
     fileprivate func serviceResolved(_ service: NetService) {
-        guard !topologyFetched else { return }
-
         // Extract IPv4 address
         guard let addresses = service.addresses else { return }
         var host: String? = nil
-
         for data in addresses {
-            if let ip = ipv4String(from: data) {
-                host = ip
-                break
-            }
+            if let ip = ipv4String(from: data) { host = ip; break }
         }
-
         guard let host else {
-            print("SORRIVA: Could not extract IPv4 from \(service.name)")
+            sLog("ZONES: Could not extract IPv4 from \(service.name)")
             return
         }
 
-        print("SORRIVA: Got speaker at \(host) — fetching household topology")
-        topologyFetched = true  // Only need one topology fetch
-
-        // Stop browsing — we have what we need
-        serviceBrowser?.stop()
-        serviceBrowser = nil
-
-        Task {
-            await self.fetchTopology(host: host)
+        // WP-14: Collect all candidates for failover pool
+        if !candidateHosts.contains(host) {
+            candidateHosts.append(host)
+            sLog("ZONES: Candidate speaker at \(host) (\(candidateHosts.count) total)")
         }
+
+        // Only fetch topology once — from the first resolved speaker
+        guard !topologyFetched else { return }
+        topologyFetched = true
+
+        sLog("ZONES: Fetching topology from \(host)")
+        Task { await self.fetchTopology(host: host) }
     }
 
     private func fetchTopology(host: String) async {
@@ -138,33 +201,55 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            print("SORRIVA: Topology response status=\(status) bytes=\(data.count)")
+            sLog("ZONES: Topology response status=\(status) bytes=\(data.count)")
 
             if let parsed = parseTopology(data: data) {
                 zones = parsed.sorted { $0.name < $1.name }
-                print("SORRIVA: Parsed \(zones.count) zones: \(zones.map(\.name).joined(separator: ", "))")
-                // Sync topology to DB — upsert household + devices, load capabilities
+                lastTopologyHost = host
+                topologyLastFetched = Date()
+                sLog("ZONES: Parsed \(zones.count) zones: \(zones.map(\.name).joined(separator: ", "))")
+                // Cache zone topology for instant restore on next launch
+                saveZonesToCache()
                 await syncTopologyToDB(host: host)
-                // Fetch transport state for all coordinators concurrently
                 await fetchTransportStates()
-                // Fetch station metadata for ALL zones on startup — repopulates stationName/art
                 await fetchAllStationMetadata()
-                // Restore last-used station from DB for idle zones
                 restoreZoneStateFromDB()
-                // Start 5-second transport poll cycle
                 startPolling()
             } else {
-                print("SORRIVA: Failed to parse topology")
-                if let str = String(data: data.prefix(500), encoding: .utf8) {
-                    print("SORRIVA: Raw: \(str)")
-                }
+                sLog("ZONES: Failed to parse topology from \(host) — trying next candidate")
+                await tryNextCandidate(failedHost: host)
             }
         } catch {
-            print("SORRIVA: Topology fetch error: \(error.localizedDescription)")
-            discoveryError = error.localizedDescription
+            sLog("ZONES: Topology fetch error from \(host): \(error.localizedDescription)")
+            // Only surface error to UI if we have no zones — transient failures
+            // after foreground shouldn't clear a working zone list
+            if zones.isEmpty {
+                discoveryError = error.localizedDescription
+            }
+            await tryNextCandidate(failedHost: host)
         }
 
         isDiscovering = false
+    }
+
+    /// WP-14 S-008: Try next candidate host when current one fails.
+    private func tryNextCandidate(failedHost: String) async {
+        let nextCandidates = candidateHosts.filter { $0 != failedHost }
+        if let next = nextCandidates.first {
+            sLog("ZONES: Failing over to candidate \(next)")
+            await fetchTopology(host: next)
+        } else {
+            // No more candidates — restart Bonjour in 5 seconds
+            sLog("ZONES: No candidates left — restarting Bonjour in 5s")
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            topologyFetched = false
+            candidateHosts = []
+            candidateIndex = 0
+            let browser = NetServiceBrowser()
+            browser.delegate = self
+            browser.searchForServices(ofType: "_sonos._tcp", inDomain: "local.")
+            self.serviceBrowser = browser
+        }
     }
 
     private func fetchTransportStates() async {
@@ -1470,6 +1555,56 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             return String(cString: buf)
         }
     }
+}
+
+// MARK: - Zone topology cache
+// Saves minimal zone info (id, name, host) to UserDefaults for instant restore on launch.
+// Full topology is confirmed/updated by Bonjour discovery running in background.
+
+extension ZoneDiscoveryService {
+
+    private static let cacheKey = "sorriva.cachedZones"
+
+    private struct CachedZone: Codable {
+        let id: String
+        let name: String
+        let host: String
+        let capabilities: [String]
+    }
+
+    func saveZonesToCache() {
+        let cached = zones.map { CachedZone(id: $0.id, name: $0.name, host: $0.host, capabilities: $0.capabilities) }
+        if let data = try? JSONEncoder().encode(cached) {
+            UserDefaults.standard.set(data, forKey: Self.cacheKey)
+            sLog("ZONES: Cached \(cached.count) zones to UserDefaults")
+        }
+    }
+
+    func restoreZonesFromCache() {
+        guard let data = UserDefaults.standard.data(forKey: Self.cacheKey),
+              let cached = try? JSONDecoder().decode([CachedZone].self, from: data),
+              !cached.isEmpty else { return }
+
+        zones = cached.map { c in
+            var z = SonosZone(id: c.id, name: c.name, host: c.host, isPlaying: false, volume: 0)
+            z.capabilities = c.capabilities
+            return z
+        }.sorted { $0.name < $1.name }
+
+        sLog("ZONES: Restored \(zones.count) zones from cache")
+
+        // Immediately poll transport state so cached zones show real play/pause status
+        Task {
+            await fetchTransportStates()
+            restoreZoneStateFromDB()
+        }
+    }
+}
+
+// MARK: - Foreground notification
+
+extension Notification.Name {
+    static let sorrivaAppDidBecomeActive = Notification.Name("sorrivaAppDidBecomeActive")
 }
 
 // MARK: - NetServiceBrowserDelegate

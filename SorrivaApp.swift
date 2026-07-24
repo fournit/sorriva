@@ -7,6 +7,7 @@ struct SorrivaApp: App {
 
     // Single composition root — owns all long-lived services for the app session.
     @StateObject private var environment = SorrivaAppEnvironment()
+    @State private var hasLaunched = false
 
     init() {
         // Configure URL cache — large capacity for station logos and artwork.
@@ -55,7 +56,15 @@ struct SorrivaApp: App {
         }
         .onChange(of: scenePhase) { phase in
             if phase == .active {
-                environment.scanCoordinator.checkForChanges()
+                ScanCoordinator.shared.checkForChanges()
+                // WP-14: Only refresh on foreground if we've been backgrounded — not on first launch.
+                // SorrivaAppEnvironment.init already calls startDiscovery() on first launch.
+                if hasLaunched && !environment.discovery.zones.isEmpty {
+                    // Only notify if we have zones — avoids double-discovery on launch
+                    NotificationCenter.default.post(name: .sorrivaAppDidBecomeActive, object: nil)
+                    LocalPlaybackService.shared.resetShareRegistrations()
+                }
+                hasLaunched = true
             }
         }
     }
@@ -63,7 +72,7 @@ struct SorrivaApp: App {
 
 class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
-                     supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
-        return .portrait
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        return true
     }
 }

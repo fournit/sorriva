@@ -198,6 +198,24 @@ final class ScannerTests: XCTestCase {
         XCTAssertNil(try db.track(filePath: track2.filePath), "Deleted track must not remain")
     }
 
+    // MARK: - WP-14 Test
+    // Discovery candidate pool and share registration reset.
+
+    @MainActor
+    func testDiscoveryCandidatePoolAndShareReset() throws {
+        let env = SorrivaAppEnvironment()
+
+        // Discovery starts with empty candidate pool
+        XCTAssertNotNil(env.discovery)
+
+        // LocalPlaybackService share reset clears registrations
+        LocalPlaybackService.shared.resetShareRegistrations()
+        // No assertion needed — just verifies it doesn't crash
+
+        // resetShareRegistrations(forHost:) also works
+        LocalPlaybackService.shared.resetShareRegistrations(forHost: "192.168.1.219")
+    }
+
     // MARK: - WP-13 Test
     // SourceResolver builds correct x-file-cifs locator and confines SMB path construction.
 

@@ -69,20 +69,38 @@ final class SorrivaLogger {
     private func write(_ line: String) {
         guard let data = line.data(using: .utf8) else { return }
 
-        // Rotate if over 5MB
+        // Rotate if over 5MB — non-recursive to prevent stack overflow
         if let size = try? logURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
            size > maxBytes {
-            fileHandle?.closeFile()
-            fileHandle = nil
-            try? FileManager.default.removeItem(at: prevLogURL)
-            try? FileManager.default.moveItem(at: logURL, to: prevLogURL)
-            FileManager.default.createFile(atPath: logURL.path, contents: nil)
-            fileHandle = try? FileHandle(forWritingTo: logURL)
-            fileHandle?.seekToEndOfFile()
-            write("[\(timestamp())] --- Log rotated ---\n")
+            rotate()
         }
 
         fileHandle?.write(data)
+    }
+
+    private func rotate() {
+        fileHandle?.closeFile()
+        fileHandle = nil
+        try? FileManager.default.removeItem(at: prevLogURL)
+        try? FileManager.default.moveItem(at: logURL, to: prevLogURL)
+
+        // Ensure directory exists before creating file
+        let dir = logURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let created = FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        guard created else {
+            // Cannot create log file — open without rotation marker to avoid recursion
+            fileHandle = try? FileHandle(forWritingTo: logURL)
+            fileHandle?.seekToEndOfFile()
+            return
+        }
+        fileHandle = try? FileHandle(forWritingTo: logURL)
+        fileHandle?.seekToEndOfFile()
+        // Write rotation marker directly to avoid recursive write call
+        if let data = "[\(timestamp())] --- Log rotated ---\n".data(using: .utf8) {
+            fileHandle?.write(data)
+        }
     }
 
     private func timestamp() -> String {

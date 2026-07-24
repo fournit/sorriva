@@ -30,6 +30,23 @@ final class LocalPlaybackService {
 
     // MARK: - Public API
 
+    /// WP-14 S-007: Reset share registration cache.
+    /// Called when Sonos coordinator changes or network is restored.
+    /// Forces re-registration on next playback attempt.
+    func resetShareRegistrations() {
+        registeredShares = [:]
+        sLog("LOCALPLAY: share registration cache cleared")
+    }
+
+    /// WP-14 S-007: Reset registrations for a specific coordinator host.
+    /// Called when a specific zone's coordinator changes.
+    func resetShareRegistrations(forHost host: String) {
+        for key in registeredShares.keys {
+            registeredShares[key]?.remove(host)
+        }
+        sLog("LOCALPLAY: share registration cleared for \(host)")
+    }
+
     func playTrack(_ track: Track, on zone: SonosZone) async {
         await playTracks([track], on: zone)
     }

@@ -81,8 +81,7 @@ actor SMBScanner {
     /// Used by ScanCoordinator for incremental change detection.
     func statFolders(source: LibrarySource) async throws -> [FolderScanResult] {
         let client = SMBClient(host: source.host)
-        let creds0 = source.resolvedCredentials
-        try await client.login(username: creds0.username.isEmpty ? "guest" : creds0.username, password: creds0.password)
+        try await client.login(username: source.username ?? "", password: source.password ?? "")
         defer { Task { try? await client.logoff() } }
         try await client.connectShare(source.share)
         defer { Task { try? await client.disconnectShare() } }
@@ -140,6 +139,10 @@ actor SMBScanner {
         if let paths = folderPaths {
             // Incremental — only walk specified folders
             for folder in paths {
+                if Task.isCancelled {
+                    scanLog("SCAN: cancelled during folder walk")
+                    throw CancellationError()
+                }
                 try await collectAudioFiles(client: walkClient, path: folder, results: &allFiles)
             }
         } else {
@@ -172,6 +175,12 @@ actor SMBScanner {
         var completedInFolder: [String: Int] = [:]
 
         for file in allFiles {
+            // WP-14: Respect task cancellation between files
+            if Task.isCancelled {
+                scanLog("SCAN: cancelled at file \((file.path as NSString).lastPathComponent)")
+                throw CancellationError()
+            }
+
             let filename = (file.path as NSString).lastPathComponent
             let ext = (filename as NSString).pathExtension.lowercased()
 
@@ -187,8 +196,8 @@ actor SMBScanner {
             let headerData = await readFileWithFreshConnection(
                 host: source.host,
                 share: source.share,
-                username: source.resolvedCredentials.username,
-                password: source.resolvedCredentials.password,
+                username: source.username ?? "",
+                password: source.password ?? "",
                 path: file.path,
                 fileSize: Int(file.size)
             )
@@ -1023,8 +1032,8 @@ actor SMBScanner {
             let headerData = await readFileWithFreshConnection(
                 host: source.host,
                 share: source.share,
-                username: source.resolvedCredentials.username.isEmpty ? "guest" : source.resolvedCredentials.username,
-                password: source.resolvedCredentials.password,
+                username: source.username?.isEmpty == false ? source.username! : "guest",
+                password: source.password ?? "",
                 path: skip.filePath,
                 fileSize: fileSize
             )
