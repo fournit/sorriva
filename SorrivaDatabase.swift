@@ -12,26 +12,21 @@ final class SorrivaDatabase {
 
     let dbQueue: DatabaseQueue
 
-    // MARK: - Migration event — observed by UI to surface alerts post-launch
-
     enum MigrationEvent {
         case backupFailed(error: String)
         case migrationFailed(error: String, restored: Bool)
     }
 
-    /// Set during init if a migration problem occurs. Observed by ContentView to
-    /// surface the appropriate alert after the UI is ready.
     private(set) static var pendingMigrationEvent: MigrationEvent? = nil
 
     private init() {
         let fm = FileManager.default
         let appSupport = try! fm
             .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-        let dbURL     = appSupport.appendingPathComponent("sorriva.sqlite")
-        let walURL    = appSupport.appendingPathComponent("sorriva.sqlite-wal")
-        let shmURL    = appSupport.appendingPathComponent("sorriva.sqlite-shm")
+        let dbURL  = appSupport.appendingPathComponent("sorriva.sqlite")
+        let walURL = appSupport.appendingPathComponent("sorriva.sqlite-wal")
+        let shmURL = appSupport.appendingPathComponent("sorriva.sqlite-shm")
 
-        // ── Step 1: attempt backup before any migration ───────────────────────
         let ts = ISO8601DateFormatter().string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
             .replacingOccurrences(of: ".", with: "-")
@@ -48,36 +43,29 @@ final class SorrivaDatabase {
                 backupMade = true
                 print("SORRIVA DB: Backup created at \(backupURL.lastPathComponent)")
             } catch {
-                // Cannot back up — hard stop. Do not attempt migration.
-                print("SORRIVA DB: Backup FAILED (\(error)) — migration aborted, opening existing DB")
+                print("SORRIVA DB: Backup FAILED (\(error)) — migration aborted")
                 Self.pendingMigrationEvent = .backupFailed(error: error.localizedDescription)
                 dbQueue = try! DatabaseQueue(path: dbURL.path)
                 return
             }
         }
 
-        // ── Step 2: open DB and attempt migration ─────────────────────────────
         let queue = try! DatabaseQueue(path: dbURL.path)
         do {
             try Self.runMigrations(on: queue)
-            // Success — delete backup, it is no longer needed
             if backupMade {
                 try? fm.removeItem(at: backupURL)
                 try? fm.removeItem(at: backupWAL)
                 try? fm.removeItem(at: backupSHM)
-                print("SORRIVA DB: Migration succeeded — backup removed")
             }
             dbQueue = queue
             print("SORRIVA DB: Initialized at \(dbURL.path)")
         } catch {
-            // ── Step 3: migration failed — restore from backup ────────────────
             print("SORRIVA DB: Migration FAILED (\(error)) — restoring backup")
             var restored = false
             if backupMade {
                 do {
-                    // Close the queue before replacing files
-                    // (DatabaseQueue deinit closes the connection)
-                    _ = queue  // retain until after copy
+                    _ = queue
                     try fm.replaceItem(at: dbURL, withItemAt: backupURL,
                                        backupItemName: nil, options: [], resultingItemURL: nil)
                     if fm.fileExists(atPath: backupWAL.path) {
@@ -89,16 +77,14 @@ final class SorrivaDatabase {
                                             backupItemName: nil, options: [], resultingItemURL: nil)
                     }
                     restored = true
-                    print("SORRIVA DB: Backup restored successfully")
                 } catch let restoreError {
-                    print("SORRIVA DB: Restore FAILED (\(restoreError)) — opening whatever DB exists")
+                    print("SORRIVA DB: Restore FAILED (\(restoreError))")
                 }
             }
             Self.pendingMigrationEvent = .migrationFailed(
                 error: error.localizedDescription,
                 restored: restored
             )
-            // Open whatever database exists — may be pre-migration schema, still usable
             dbQueue = try! DatabaseQueue(path: dbURL.path)
         }
     }
@@ -106,8 +92,6 @@ final class SorrivaDatabase {
     // MARK: - Migrations
 
     // MARK: - Testing support
-
-    /// Exposed for test target only — runs full migration suite on a provided queue.
     static func runMigrationsForTesting(on dbQueue: DatabaseQueue) throws {
         try runMigrations(on: dbQueue)
     }
@@ -694,14 +678,12 @@ final class SorrivaDatabase {
 
         // v12 — move SMB credentials from SQLite to Keychain
         migrator.registerMigration("v12_keychain_credentials") { db in
-            // Add credentialRef column
             let cols = try db.columns(in: "library_sources").map { $0.name }
             if !cols.contains("credentialRef") {
                 try db.alter(table: "library_sources") { t in
                     t.add(column: "credentialRef", .text)
                 }
             }
-
             // Migrate existing plaintext credentials to Keychain
             let sources = try Row.fetchAll(db, sql: "SELECT id, username, password FROM library_sources")
             for row in sources {
@@ -713,17 +695,122 @@ final class SorrivaDatabase {
                     sourceId: sourceId, username: u, password: password
                 )
                 if ref != nil {
-                    // Verified migration — clear plaintext
                     try db.execute(
                         sql: "UPDATE library_sources SET credentialRef = ?, username = NULL, password = NULL WHERE id = ?",
                         arguments: [sourceId, sourceId]
                     )
-                    print("SORRIVA DB: v12 migrated credentials for \(sourceId)")
-                } else {
-                    print("SORRIVA DB: v12 WARNING — could not migrate credentials for \(sourceId)")
                 }
             }
             print("SORRIVA DB: v12 credential migration complete")
+        }
+
+        // v13 — canonical music identity tables (additive — no existing rows removed)
+        migrator.registerMigration("v13_canonical_identity") { db in
+            // Canonical artists
+            try db.create(table: "music_artists", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()
+                t.column("name", .text).notNull()
+                t.column("sort_name", .text).notNull()
+                t.column("created_at", .integer).notNull()
+            }
+
+            // Canonical albums
+            try db.create(table: "music_albums", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()
+                t.column("title", .text).notNull()
+                t.column("sort_title", .text).notNull()
+                t.column("artist_id", .text)
+                t.column("year", .integer)
+                t.column("genre", .text)
+                t.column("created_at", .integer).notNull()
+            }
+
+            // Canonical tracks
+            try db.create(table: "music_tracks", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()
+                t.column("title", .text).notNull()
+                t.column("album_id", .text)
+                t.column("artist_id", .text)
+                t.column("track_number", .integer)
+                t.column("disc_number", .integer)
+                t.column("duration", .double)
+                t.column("sort_title", .text)
+                t.column("created_at", .integer).notNull()
+            }
+
+            // Track representations — one per physical file / streaming reference
+            try db.create(table: "track_representations", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()
+                t.column("track_id", .text).notNull()
+                t.column("source_id", .text).notNull()
+                t.column("household_id", .text)
+                t.column("kind", .text).notNull()
+                t.column("locator", .text).notNull()
+                t.column("normalized_locator", .text).notNull()
+                t.column("file_size", .integer)
+                t.column("modified_at", .datetime)
+                t.column("duration", .double)
+                t.column("availability", .text).notNull().defaults(to: "unknown")
+                t.column("last_verified_at", .datetime)
+                t.uniqueKey(["source_id", "normalized_locator"])
+            }
+
+            // Legacy ID mapping — bridges legacy Track.id to canonical track ID
+            try db.create(table: "legacy_track_map", ifNotExists: true) { t in
+                t.column("legacy_id", .text).primaryKey()    // Track.id
+                t.column("canonical_id", .text).notNull()    // music_tracks.id
+            }
+
+            // Backfill: one canonical track per existing Track row
+            let now = Int(Date().timeIntervalSince1970)
+            let tracks = try Row.fetchAll(db, sql: "SELECT id, title, albumId, primaryArtistId, trackNumber, discNumber, duration, sourceId, filePath, fileSize FROM tracks")
+            for row in tracks {
+                let legacyID: String  = row["id"]
+                let canonicalID = UUID().uuidString
+
+                // Insert canonical track
+                try db.execute(sql: """
+                    INSERT OR IGNORE INTO music_tracks
+                    (id, title, album_id, artist_id, track_number, disc_number, duration, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    canonicalID,
+                    row["title"] as String,
+                    row["albumId"] as String?,
+                    row["primaryArtistId"] as String?,
+                    row["trackNumber"] as Int?,
+                    row["discNumber"] as Int?,
+                    row["duration"] as Double?,
+                    now
+                ])
+
+                // Insert legacy → canonical mapping
+                try db.execute(sql: """
+                    INSERT OR IGNORE INTO legacy_track_map (legacy_id, canonical_id)
+                    VALUES (?, ?)
+                """, arguments: [legacyID, canonicalID])
+
+                // Insert SMB representation
+                let filePath: String = row["filePath"] ?? ""
+                let normalized = filePath.lowercased()
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                let sourceId: String = row["sourceId"] ?? ""
+                let reprID = UUID().uuidString
+
+                try db.execute(sql: """
+                    INSERT OR IGNORE INTO track_representations
+                    (id, track_id, source_id, kind, locator, normalized_locator, file_size, duration, availability)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    reprID, canonicalID, sourceId,
+                    "smbFile", filePath, normalized,
+                    row["fileSize"] as Int?,
+                    row["duration"] as Double?,
+                    "unknown"
+                ])
+            }
+
+            print("SORRIVA DB: v13 canonical identity tables created, \(tracks.count) tracks backfilled")
         }
 
         try migrator.migrate(dbQueue)
@@ -1181,19 +1268,14 @@ final class SorrivaDatabase {
 
     func updateServerCredentials(host: String, displayName: String, username: String?, password: String?) throws {
         let now = Int(Date().timeIntervalSince1970)
-        // Fetch affected source IDs so we can update Keychain
         let sourceIds = try dbQueue.read { db in
             try String.fetchAll(db, sql: "SELECT id FROM library_sources WHERE host = ?", arguments: [host])
         }
-        // Update Keychain credentials for each source on this host
         for sourceId in sourceIds {
             if let u = username, !u.isEmpty {
-                try KeychainCredentialStore.shared.set(
-                    sourceId: sourceId, username: u, password: password ?? ""
-                )
+                try KeychainCredentialStore.shared.set(sourceId: sourceId, username: u, password: password ?? "")
             }
         }
-        // Update display name only — credentials no longer stored in SQLite
         try dbQueue.write { db in
             try db.execute(sql: """
                 UPDATE library_sources
@@ -1338,8 +1420,7 @@ final class SorrivaDatabase {
         }
     }
 
-    /// Idempotent track upsert keyed on filePath.
-    /// Reuses existing id and createdAt on rescan. Throws on failure.
+    /// Idempotent track upsert keyed on filePath. Reuses existing id on rescan.
     func upsertTrackIdempotent(_ track: Track) throws {
         try dbQueue.write { db in
             if let existing = try Track

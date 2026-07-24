@@ -39,6 +39,10 @@ final class SorrivaAppEnvironment: ObservableObject {
     /// Constitution reference: I-005, ADR-007, ADR-008.
     let sonosDriver: SonosEndpointDriver = .shared
 
+    /// Source resolver — resolves canonical track identity to playable representation.
+    /// Constitution reference: I-006, ADR-006, WP-13.
+    let sourceResolver: SourceResolver = .shared
+
     /// Library service — application-level library use cases.
     /// Constitution reference: LibraryService section, I-003.
     let libraryService: LibraryService = .shared

@@ -219,9 +219,9 @@ struct LibrarySource: Codable, FetchableRecord, PersistableRecord, Identifiable,
     var host: String
     var share: String
     var rootPath: String
-    var username: String?       // Retained during migration window — nil after v12 migration
-    var password: String?       // Retained during migration window — nil after v12 migration
-    var credentialRef: String?  // Keychain reference key (== sourceId) — set after v12 migration
+    var username: String?       // Migration window only — nil after v12
+    var password: String?       // Migration window only — nil after v12
+    var credentialRef: String?  // Keychain reference key — set after v12
     var lastScanned: Int?
     var trackCount: Int
     var scanState: String           // "idle" | "scanning" | "error" | "retrying" | "complete"

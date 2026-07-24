@@ -198,6 +198,88 @@ final class ScannerTests: XCTestCase {
         XCTAssertNil(try db.track(filePath: track2.filePath), "Deleted track must not remain")
     }
 
+    // MARK: - WP-13 Test
+    // SourceResolver builds correct x-file-cifs locator and confines SMB path construction.
+
+    @MainActor
+    func testSourceResolverBuildsXFileCIFSLocator() throws {
+        let source = TestDatabase.makeSource(
+            id: "src-1",
+            host: "av-server",
+            share: "media"
+        )
+        let artist = TestDatabase.makeArtist(id: "a1", name: "Miles Davis")
+        let album  = TestDatabase.makeAlbum(id: "alb1", title: "Kind of Blue",
+                                             artistId: artist.id, sourceId: source.id)
+        let track  = TestDatabase.makeTrack(
+            id: "t1", title: "So What",
+            albumId: album.id, artistId: artist.id,
+            sourceId: source.id,
+            filePath: "/Jazz/Kind of Blue/01 So What.flac"
+        )
+
+        // SourceResolver.xFileCIFSLocator is the single location for SMB path construction
+        let locator = SourceResolver.xFileCIFSLocator(track: track, source: source)
+        XCTAssertEqual(locator, "x-file-cifs://av-server/media/Jazz/Kind of Blue/01 So What.flac")
+
+        // Path without leading slash also works
+        var trackNoSlash = track
+        trackNoSlash.filePath = "Jazz/Kind of Blue/01 So What.flac"
+        let locator2 = SourceResolver.xFileCIFSLocator(track: trackNoSlash, source: source)
+        XCTAssertEqual(locator2, "x-file-cifs://av-server/media/Jazz/Kind of Blue/01 So What.flac")
+
+        // PlayableSource carries the right metadata
+        let resolver = SourceResolver(database: .shared)
+        // SourceResolver.resolve requires DB — test the static locator only
+        XCTAssertTrue(locator.hasPrefix("x-file-cifs://"))
+        XCTAssertTrue(locator.contains("av-server"))
+        XCTAssertTrue(locator.contains("media"))
+    }
+
+    // MARK: - WP-12 Test
+    // Canonical identity types are distinct and map correctly from legacy IDs.
+
+    func testCanonicalIdentityTypes() throws {
+        // Each ID type is independently typed — no accidental mixing
+        let trackID  = CanonicalTrackID()
+        let albumID  = CanonicalAlbumID()
+        let artistID = CanonicalArtistID()
+
+        XCTAssertNotEqual(trackID.rawValue, albumID.rawValue)
+
+        // Round-trip through string
+        let trackStr = trackID.description
+        let recovered = CanonicalTrackID(string: trackStr)
+        XCTAssertEqual(recovered?.rawValue, trackID.rawValue)
+
+        // Invalid string returns nil
+        XCTAssertNil(CanonicalTrackID(string: "not-a-uuid"))
+
+        // LegacyMusicMapper produces correct domain objects
+        let source = TestDatabase.makeSource()
+        let artist = TestDatabase.makeArtist(id: "a1", name: "Radiohead")
+        let album  = TestDatabase.makeAlbum(id: "alb1", title: "OK Computer",
+                                             artistId: artist.id, sourceId: source.id)
+        let track  = TestDatabase.makeTrack(id: "t1", title: "Paranoid Android",
+                                             albumId: album.id, artistId: artist.id,
+                                             sourceId: source.id,
+                                             filePath: "/Music/OK Computer/01.flac",
+                                             duration: 386.0)
+
+        let canonicalID = CanonicalTrackID()
+        let musicTrack = LegacyMusicMapper.musicTrack(from: track, canonicalID: canonicalID)
+        XCTAssertEqual(musicTrack.id.rawValue, canonicalID.rawValue)
+        XCTAssertEqual(musicTrack.title, "Paranoid Android")
+        XCTAssertEqual(musicTrack.duration, 386.0)
+
+        let reprID = RepresentationID()
+        let repr = LegacyMusicMapper.smbRepresentation(
+            from: track, canonicalTrackID: canonicalID, representationID: reprID)
+        XCTAssertEqual(repr.kind, .smbFile)
+        XCTAssertEqual(repr.locator, "/Music/OK Computer/01.flac")
+        XCTAssertEqual(repr.normalizedLocator, "music/ok computer/01.flac")
+    }
+
     // MARK: - WP-11 Test
     // LibraryService reads through GRDBLibraryRepository — no direct DB access from views.
 

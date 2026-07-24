@@ -162,16 +162,11 @@ final class LocalPlaybackService {
     }
 
     // MARK: - URI construction
+    // SMB path construction is confined to SourceResolver (WP-13).
+    // LocalPlaybackService delegates to SourceResolver.xFileCIFSLocator.
 
-    /// Build x-file-cifs:// URI for a track.
-    /// Format: x-file-cifs://[host]/[share]/[filePath]
-    /// filePath from DB is relative to share root, starts with /
-    /// e.g. filePath = "/Music II/Artist/Album/01 Track.flac"
-    /// source.share = "media"
-    /// result = x-file-cifs://av-server/media/Music II/Artist/Album/01 Track.flac
     private func xFileCIFSURI(track: Track, source: LibrarySource) -> String {
-        let path = track.filePath.hasPrefix("/") ? track.filePath : "/\(track.filePath)"
-        return "x-file-cifs://\(source.host)/\(source.share)\(path)"
+        SourceResolver.xFileCIFSLocator(track: track, source: source)
     }
 
     // MARK: - DIDL construction

@@ -69,6 +69,9 @@
 		80E2940E3012F0210031E31D /* GRDBLibraryRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E2940B3012F0210031E31D /* GRDBLibraryRepository.swift */; };
 		80E2940F3012F0210031E31D /* LibraryRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E2940C3012F0210031E31D /* LibraryRepository.swift */; };
 		80E294103012F0210031E31D /* LibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E2940D3012F0210031E31D /* LibraryService.swift */; };
+		80E294133012F36D0031E31D /* MusicDomain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294123012F36D0031E31D /* MusicDomain.swift */; };
+		80E294143012F36D0031E31D /* LegacyMusicMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294113012F36D0031E31D /* LegacyMusicMapper.swift */; };
+		80E294163012F60E0031E31D /* SourceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294153012F60E0031E31D /* SourceResolver.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -156,6 +159,9 @@
 		80E2940B3012F0210031E31D /* GRDBLibraryRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GRDBLibraryRepository.swift; sourceTree = "<group>"; };
 		80E2940C3012F0210031E31D /* LibraryRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryRepository.swift; sourceTree = "<group>"; };
 		80E2940D3012F0210031E31D /* LibraryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryService.swift; sourceTree = "<group>"; };
+		80E294113012F36D0031E31D /* LegacyMusicMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyMusicMapper.swift; sourceTree = "<group>"; };
+		80E294123012F36D0031E31D /* MusicDomain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicDomain.swift; sourceTree = "<group>"; };
+		80E294153012F60E0031E31D /* SourceResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceResolver.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -211,6 +217,9 @@
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
+				80E294153012F60E0031E31D /* SourceResolver.swift */,
+				80E294113012F36D0031E31D /* LegacyMusicMapper.swift */,
+				80E294123012F36D0031E31D /* MusicDomain.swift */,
 				80E2940B3012F0210031E31D /* GRDBLibraryRepository.swift */,
 				80E2940C3012F0210031E31D /* LibraryRepository.swift */,
 				80E2940D3012F0210031E31D /* LibraryService.swift */,
@@ -437,6 +446,8 @@
 				80325AB72FFEE5DC00308486 /* LibraryView.swift in Sources */,
 				805A16ED30085C4000AF3100 /* CachedAsyncImage.swift in Sources */,
 				80325AB82FFEE5DC00308486 /* MiniPlayerView.swift in Sources */,
+				80E294133012F36D0031E31D /* MusicDomain.swift in Sources */,
+				80E294143012F36D0031E31D /* LegacyMusicMapper.swift in Sources */,
 				805A16E73007B30400AF3100 /* ZonePickerSheet.swift in Sources */,
 				805A16DD30073D9200AF3100 /* SorrivaDatabase+HTTPServer.swift in Sources */,
 				805A16DE30073D9200AF3100 /* SorrivaHTTPServer.swift in Sources */,
@@ -479,6 +490,7 @@
 				80325ABD2FFEE5DC00308486 /* ZonesView.swift in Sources */,
 				80E294093012EE5D0031E31D /* PlaybackCoordinator.swift in Sources */,
 				80E2940A3012EE5D0031E31D /* PlaybackIntent.swift in Sources */,
+				80E294163012F60E0031E31D /* SourceResolver.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
