@@ -198,6 +198,82 @@ final class ScannerTests: XCTestCase {
         XCTAssertNil(try db.track(filePath: track2.filePath), "Deleted track must not remain")
     }
 
+    // MARK: - WP-09 Test
+    // SonosEndpointDriver surfaces typed errors — no silent swallowing.
+
+    func testEndpointCommandErrorTyping() throws {
+        let fault = EndpointCommandError.soapFault(code: 402, description: "Invalid Args")
+        XCTAssertEqual(fault.errorDescription, "Sonos error 402: Invalid Args")
+
+        let partial = EndpointCommandError.partialQueue(added: 3, requested: 10)
+        XCTAssertEqual(partial.errorDescription, "Only 3 of 10 tracks were queued.")
+
+        let unavail = EndpointCommandError.endpointUnavailable(id: EndpointID(rawValue: "RINCON_TEST"))
+        XCTAssertNotNil(unavail.errorDescription)
+
+        let issue = PlaybackIssue.partialQueue(added: 3, requested: 10)
+        if case .partialQueue(let a, let r) = issue {
+            XCTAssertEqual(a, 3)
+            XCTAssertEqual(r, 10)
+        } else {
+            XCTFail("Expected partialQueue issue")
+        }
+    }
+
+    // MARK: - WP-08 Test
+    // PlaybackStore reduces SonosZone + PlaybackContext into ZonePlaybackSnapshot.
+
+    @MainActor
+    func testPlaybackStoreReducesZoneAndContext() throws {
+        let store = PlaybackStore.shared
+
+        // Build a mock zone
+        let zone = SonosZone(
+            id: "RINCON_TEST08",
+            name: "Kitchen",
+            host: "192.168.1.50",
+            isPlaying: true,
+            volume: 30
+        )
+
+        // Build a local context
+        let artist = TestDatabase.makeArtist(id: "a1", name: "Tame Impala")
+        let source = TestDatabase.makeSource()
+        let album  = TestDatabase.makeAlbum(id: "alb1", title: "Currents",
+                                             artistId: artist.id, sourceId: source.id)
+        let track  = TestDatabase.makeTrack(id: "t1", title: "Let It Happen",
+                                             albumId: album.id, artistId: artist.id,
+                                             sourceId: source.id,
+                                             filePath: "/Music/Currents/01.flac",
+                                             duration: 467.0)
+        let ctx = PlaybackContext(
+            track: track.title,
+            artist: artist.name,
+            albumName: album.title,
+            duration: track.duration ?? 0,
+            artAlbum: album,
+            artURL: nil,
+            isLocal: true
+        )
+
+        // Reduce
+        let snapshots = PlaybackStateReducer.reduce(
+            sonosZones: [zone],
+            contexts: ["RINCON_TEST08": ctx]
+        )
+
+        XCTAssertEqual(snapshots.count, 1)
+        let snap = snapshots[0]
+        XCTAssertEqual(snap.id, "RINCON_TEST08")
+        XCTAssertEqual(snap.trackTitle, "Let It Happen")
+        XCTAssertEqual(snap.artistName, "Tame Impala")
+        XCTAssertEqual(snap.albumName, "Currents")
+        XCTAssertEqual(snap.durationSeconds, 467)
+        XCTAssertTrue(snap.isLocal)
+        XCTAssertNotNil(snap.artAlbum)
+        XCTAssertNil(snap.artURL)
+    }
+
     // MARK: - WP-07 Test
     // SorrivaAppEnvironment constructs all services without crashing.
 

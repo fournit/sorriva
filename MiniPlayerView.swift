@@ -11,42 +11,29 @@ import SwiftUI
 struct MiniPlayerView: View {
     @Binding var selectedZoneID: String?
     @ObservedObject var discovery: ZoneDiscoveryService
-    @ObservedObject var playbackContext: PlaybackContextService
+    @ObservedObject var store: PlaybackStore
     let onTapTrack: () -> Void
     let onTapZone: () -> Void
-    @State private var contextVersion: Int = 0
 
-    private var zone: SonosZone? {
+    private var snapshot: ZonePlaybackSnapshot? {
         guard let id = selectedZoneID else { return nil }
-        return discovery.zones.first(where: { $0.id == id })
+        return store.snapshot(for: id)
     }
 
-    private var isPlaying: Bool { zone?.isPlaying ?? false }
+    private var isPlaying: Bool { snapshot?.isPlaying ?? false }
 
     private var trackName: String {
-        if let ctx = localContext { return ctx.track }
-        if let z = zone {
-            if !z.currentTrack.isEmpty { return z.currentTrack }
-            if !z.stationName.isEmpty { return z.stationName }
-            if isPlaying { return "Playing" }
-        }
+        guard let s = snapshot else { return "Nothing playing" }
+        if !s.trackTitle.isEmpty { return s.trackTitle }
+        if !s.albumName.isEmpty { return s.albumName }
+        if s.isPlaying { return "Playing" }
         return "Nothing playing"
     }
 
     private var artistName: String {
-        if let ctx = localContext { return ctx.artist }
-        if let z = zone {
-            if !z.currentArtist.isEmpty { return z.currentArtist }
-            if !z.currentTrack.isEmpty, !z.stationName.isEmpty { return z.stationName }
-        }
-        return zone?.name ?? "Select a zone"
-    }
-
-    private var artURL: String { zone?.stationLogoURL ?? "" }
-    private var localContext: PlaybackContext? {
-        guard let id = selectedZoneID else { return nil }
-        let ctx = playbackContext.contexts[id]
-        return ctx?.isLocal == true ? ctx : nil
+        guard let s = snapshot else { return "Select a zone" }
+        if !s.artistName.isEmpty { return s.artistName }
+        return s.name
     }
 
     var body: some View {
@@ -67,13 +54,13 @@ struct MiniPlayerView: View {
 
                 // Art — spans full height
                 Button(action: onTapTrack) {
-                    let isLocalNow = localContext?.artAlbum != nil
-                    let artKey = "\(isLocalNow)-\(localContext?.artAlbum?.id ?? "")-\(artURL)-\(contextVersion)"
+                    let s = snapshot
+                    let artKey = "\(s?.artAlbum?.id ?? "")-\(s?.artURL ?? "")"
                     Group {
-                        if let album = localContext?.artAlbum {
+                        if let album = s?.artAlbum {
                             AlbumArtView(album: album, size: 44)
                                 .id(album.id)
-                        } else if !artURL.isEmpty, let url = URL(string: artURL) {
+                        } else if let urlStr = s?.artURL, !urlStr.isEmpty, let url = URL(string: urlStr) {
                             CachedAsyncImage(url: url) { phase in
                                 switch phase {
                                 case .success(let img):
@@ -122,7 +109,7 @@ struct MiniPlayerView: View {
                     if let id = selectedZoneID {
                         discovery.togglePlayPause(zoneID: id)
                     }
-                }) {
+                }) {  // command still routed through discovery — PlaybackCoordinator in WP-10
                     Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 18))
                         .foregroundColor(.sTextPrimary)
@@ -136,9 +123,7 @@ struct MiniPlayerView: View {
             .padding(.bottom, 28)
             .background(Color.sGradientBottom.opacity(0.97))
         }
-        .onReceive(playbackContext.$contexts) { _ in
-            contextVersion += 1
-        }
+        // Store updates trigger view refresh automatically via @ObservedObject
     }
 
     private var artPlaceholder: some View {

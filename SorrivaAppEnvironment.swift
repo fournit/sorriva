@@ -35,6 +35,14 @@ final class SorrivaAppEnvironment: ObservableObject {
     /// Tab bar state — owns selected tab and navigation state.
     @Published var tabState: SorrivaTabBarState = SorrivaTabBarState()
 
+    /// Sonos endpoint driver — typed command execution for all Sonos zones.
+    /// Constitution reference: I-005, ADR-007, ADR-008.
+    let sonosDriver: SonosEndpointDriver = .shared
+
+    /// Authoritative playback state store — single source of truth for all UI.
+    /// Constitution reference: I-002, ADR-005.
+    @Published var playbackStore: PlaybackStore = .shared
+
     // MARK: - Init
 
     init() {
@@ -46,6 +54,12 @@ final class SorrivaAppEnvironment: ObservableObject {
 
         // Wire playback context to discovery.
         playbackContext.observe(discovery)
+
+        // Wire SonosEndpointDriver to discovery for host lookup.
+        sonosDriver.discovery = discovery
+
+        // Wire PlaybackStore to both upstream sources.
+        playbackStore.observe(discovery: discovery, playbackContext: playbackContext)
 
         // Prefetch station logos into URLCache so Library loads instantly.
         prefetchStationLogos()

@@ -3,10 +3,10 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var env: SorrivaAppEnvironment
 
-    // Convenience accessors — views downstream receive these via environmentObject
     private var discovery: ZoneDiscoveryService { env.discovery }
     private var tabState: SorrivaTabBarState { env.tabState }
     private var playbackContext: PlaybackContextService { env.playbackContext }
+    private var store: PlaybackStore { env.playbackStore }
 
     @State private var selectedZoneID: String? = UserDefaults.standard.string(forKey: "sorriva.selectedZoneID")
     @State private var showNowPlaying = false
@@ -51,7 +51,7 @@ struct ContentView: View {
                     NavigationStack {
                         ZonesView(
                             discovery: discovery,
-                            playbackContext: playbackContext,
+                            store: store,
                             expandZoneID: $expandZoneID,
                             onNowPlaying: { zoneID in
                                 selectedZoneID = zoneID
@@ -91,7 +91,7 @@ struct ContentView: View {
             MiniPlayerView(
                 selectedZoneID: $selectedZoneID,
                 discovery: discovery,
-                playbackContext: playbackContext,
+                store: store,
                 onTapTrack: { showNowPlaying = true },
                 onTapZone: { showZonePicker = true }
             )
@@ -108,7 +108,7 @@ struct ContentView: View {
         .migrationAlert()
         .onAppear {
             discovery.startDiscovery()
-            // playbackContext.observe wired in SorrivaAppEnvironment.init
+            // playbackContext.observe and playbackStore.observe wired in SorrivaAppEnvironment.init
         }
         .onChange(of: discovery.zones) { zones in
             if selectedZoneID == nil {
@@ -127,6 +127,7 @@ struct ContentView: View {
                 NowPlayingView(
                     selectedZoneID: $selectedZoneID,
                     discovery: discovery,
+                    store: store,
                     onTapZone: {
                         showNowPlaying = false
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {

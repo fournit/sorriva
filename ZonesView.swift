@@ -4,7 +4,7 @@ import SwiftUI
 
 struct ZonesView: View {
     @ObservedObject var discovery: ZoneDiscoveryService
-    @ObservedObject var playbackContext: PlaybackContextService
+    @ObservedObject var store: PlaybackStore
     @Binding var expandZoneID: String?
     var onNowPlaying: ((String) -> Void)? = nil
     @EnvironmentObject private var tabState: SorrivaTabBarState
@@ -24,7 +24,7 @@ struct ZonesView: View {
     }
 
     private func expandAll() {
-        let ids = Set(discovery.zones.map { $0.id })
+        let ids = Set(store.zones.map { $0.id })
         expandedZoneIDsJSON = (try? String(data: JSONEncoder().encode(ids), encoding: .utf8)) ?? "[]"
     }
 
@@ -80,21 +80,20 @@ struct ZonesView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(spacing: 10) {
-                            ForEach(discovery.zones) { zone in
+                            ForEach(store.zones) { snap in
                                 EquatableView(content: ZoneCard(
-                                    zone: zone,
+                                    snapshot: snap,
                                     discovery: discovery,
-                                    playbackContext: playbackContext,
-                                    autoExpand: expandZoneID == zone.id,
-                                    forceExpanded: expandedZoneIDs.contains(zone.id),
+                                    autoExpand: expandZoneID == snap.id,
+                                    forceExpanded: expandedZoneIDs.contains(snap.id),
                                     onNowPlaying: { zoneID in
                                         onNowPlaying?(zoneID)
                                     },
                                     onExpandedChanged: { expanded in
-                                        setExpanded(zone.id, expanded)
+                                        setExpanded(snap.id, expanded)
                                     }
                                 ))
-                                .id(zone.id)
+                                .id(snap.id)
                             }
                         }
                         .padding(.horizontal, 0)
@@ -203,12 +202,11 @@ struct EQBarsView: View {
 
 struct ZoneCard: View, Equatable {
     static func == (lhs: ZoneCard, rhs: ZoneCard) -> Bool {
-        lhs.zone == rhs.zone && lhs.autoExpand == rhs.autoExpand && lhs.forceExpanded == rhs.forceExpanded
+        lhs.snapshot == rhs.snapshot && lhs.autoExpand == rhs.autoExpand && lhs.forceExpanded == rhs.forceExpanded
     }
 
-    let zone: SonosZone
+    let snapshot: ZonePlaybackSnapshot
     @ObservedObject var discovery: ZoneDiscoveryService
-    @ObservedObject var playbackContext: PlaybackContextService
     let autoExpand: Bool
     let forceExpanded: Bool
     let onNowPlaying: (String) -> Void
@@ -217,26 +215,15 @@ struct ZoneCard: View, Equatable {
     @State private var showEQ = false
     @State private var showGroupPicker = false
     @State private var showTransferPicker = false
-    @State private var contextVersion: Int = 0
 
-    private var liveZone: SonosZone? {
-        discovery.zones.first(where: { $0.id == zone.id })
-    }
-
-    private var localContext: PlaybackContext? {
-        let ctx = playbackContext.contexts[zone.id]
-        return ctx?.isLocal == true ? ctx : nil
-    }
-
-    private var isPlaying: Bool { liveZone?.isPlaying ?? false }
+    private var isPlaying: Bool { snapshot.isPlaying }
 
     private var artPlaceholder: some View {
-        let z = liveZone ?? zone
-        return RoundedRectangle(cornerRadius: 8)
+        RoundedRectangle(cornerRadius: 8)
             .fill(Color.sCard)
             .overlay(
-                Image(systemName: z.isHDMI ? "tv.fill" : "music.note")
-                    .font(.system(size: z.isHDMI ? 20 : 18))
+                Image(systemName: snapshot.isHDMI ? "tv.fill" : "music.note")
+                    .font(.system(size: snapshot.isHDMI ? 20 : 18))
                     .foregroundColor(.sTextMuted)
             )
     }
@@ -248,14 +235,13 @@ struct ZoneCard: View, Equatable {
             HStack(spacing: 12) {
 
                 // Station/local art thumbnail — square, 48pt
-                let z = liveZone ?? zone
-                let artKey = "\(localContext?.artAlbum?.id ?? "")-\(z.stationLogoURL)-\(contextVersion)"
+                let artKey = "\(snapshot.artAlbum?.id ?? "")-\(snapshot.artURL ?? "")"
                 Group {
-                    if let album = localContext?.artAlbum {
+                    if let album = snapshot.artAlbum {
                         AlbumArtView(album: album, size: 48)
                             .id(album.id)
-                    } else if !z.stationLogoURL.isEmpty,
-                       let artURL = URL(string: z.stationLogoURL) {
+                    } else if let urlStr = snapshot.artURL, !urlStr.isEmpty,
+                       let artURL = URL(string: urlStr) {
                         CachedAsyncImage(url: artURL) { phase in
                             switch phase {
                             case .success(let img):
@@ -276,7 +262,7 @@ struct ZoneCard: View, Equatable {
                 VStack(alignment: .leading, spacing: 2) {
                     // Zone name + EQ bars inline
                     HStack(spacing: 6) {
-                        Text(zone.name)
+                        Text(snapshot.name)
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundColor(.sTextPrimary)
                         if isPlaying {
@@ -286,8 +272,8 @@ struct ZoneCard: View, Equatable {
                     }
 
                     // Group members — same visual weight as coordinator
-                    if !z.groupMembers.isEmpty {
-                        ForEach(z.groupMembers, id: \.id) { member in
+                    if !snapshot.groupMembers.isEmpty {
+                        ForEach(snapshot.groupMembers, id: \.id) { member in
                             Text(member.name)
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundColor(.sTextPrimary)
@@ -296,10 +282,7 @@ struct ZoneCard: View, Equatable {
                     }
 
                     // Source label — album name for local tracks, station name for streams
-                    let sourceLabel: String = {
-                        if let ctx = localContext { return ctx.albumName }
-                        return z.stationName
-                    }()
+                    let sourceLabel = snapshot.albumName
                     if !sourceLabel.isEmpty {
                         Text(sourceLabel)
                             .font(.system(size: 11, weight: .medium))
@@ -317,7 +300,7 @@ struct ZoneCard: View, Equatable {
                 }
 
                 // Play/pause — far right
-                Button(action: { discovery.togglePlayPause(zoneID: zone.id) }) {
+                Button(action: { discovery.togglePlayPause(zoneID: snapshot.id) }) {
                     Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 18))
                         .foregroundColor(isPlaying ? .sHighlight : .sTextMuted)
@@ -337,11 +320,11 @@ struct ZoneCard: View, Equatable {
                         .padding(.horizontal, 16)
 
                     // Volume — group master (applies delta to all members)
-                    VolumeControlView(zoneID: zone.id, discovery: discovery)
+                    VolumeControlView(zoneID: snapshot.id, discovery: discovery)
                         .padding(.horizontal, 16)
 
                     // Individual member volume controls
-                    let liveMembers = (liveZone ?? zone).groupMembers
+                    let liveMembers = snapshot.groupMembers
                     if !liveMembers.isEmpty {
                         Divider()
                             .background(Color.sSeparator)
@@ -353,7 +336,7 @@ struct ZoneCard: View, Equatable {
 
                             // Ungroup
                             Button(action: {
-                                discovery.ungroupZone(zoneID: zone.id)
+                                discovery.ungroupZone(zoneID: snapshot.id)
                             }) {
                                 HStack(spacing: 4) {
                                     Image(systemName: "rectangle.on.rectangle.slash")
@@ -371,9 +354,9 @@ struct ZoneCard: View, Equatable {
 
                             // Sync
                             Button(action: {
-                                let coordVol = (liveZone ?? zone).volume
+                                let coordVol = snapshot.volume
                                 for member in liveMembers {
-                                    discovery.setMemberVolume(zoneID: zone.id, memberID: member.id, volume: coordVol)
+                                    discovery.setMemberVolume(zoneID: snapshot.id, memberID: member.id, volume: coordVol)
                                 }
                             }) {
                                 HStack(spacing: 4) {
@@ -390,11 +373,11 @@ struct ZoneCard: View, Equatable {
 
                         // Coordinator individual row
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(zone.name)
+                            Text(snapshot.name)
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundColor(.sTextMuted)
                                 .padding(.horizontal, 16)
-                            VolumeControlView(zoneID: zone.id, memberID: zone.id, discovery: discovery)
+                            VolumeControlView(zoneID: snapshot.id, memberID: snapshot.id, discovery: discovery)
                                 .padding(.horizontal, 16)
                         }
 
@@ -405,7 +388,7 @@ struct ZoneCard: View, Equatable {
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundColor(.sTextMuted)
                                     .padding(.horizontal, 16)
-                                VolumeControlView(zoneID: zone.id, memberID: member.id, discovery: discovery)
+                                VolumeControlView(zoneID: snapshot.id, memberID: member.id, discovery: discovery)
                                     .padding(.horizontal, 16)
                             }
                         }
@@ -427,25 +410,25 @@ struct ZoneCard: View, Equatable {
                         Button(action: { showTransferPicker = true }) {
                             Image(systemName: "arrow.left.arrow.right")
                                 .font(.system(size: 18))
-                                .foregroundColor(isPlaying && liveMembers.isEmpty ? .sHighlight : .sTextMuted)
+                                .foregroundColor(isPlaying && snapshot.groupMembers.isEmpty ? .sHighlight : .sTextMuted)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 10)
                         }
                         .buttonStyle(.plain)
-                        .disabled(!isPlaying || !liveMembers.isEmpty)
+                        .disabled(!isPlaying || !snapshot.groupMembers.isEmpty)
 
                         // EQ
-                        Button(action: { if liveMembers.isEmpty { showEQ = true } }) {
+                        Button(action: { if snapshot.groupMembers.isEmpty { showEQ = true } }) {
                             Image(systemName: "slider.horizontal.3")
                                 .font(.system(size: 18))
-                                .foregroundColor(liveMembers.isEmpty ? .sHighlight : .sTextMuted)
+                                .foregroundColor(snapshot.groupMembers.isEmpty ? .sHighlight : .sTextMuted)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 10)
                         }
                         .buttonStyle(.plain)
 
                         // Now Playing
-                        Button(action: { if isPlaying { onNowPlaying(zone.id) } }) {
+                        Button(action: { if isPlaying { onNowPlaying(snapshot.id) } }) {
                             Image(systemName: "music.note")
                                 .font(.system(size: 18))
                                 .foregroundColor(isPlaying ? .sBrass : .sTextMuted)
@@ -463,7 +446,7 @@ struct ZoneCard: View, Equatable {
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .padding(.horizontal, 16)
         .sheet(isPresented: $showEQ) {
-            if let liveZone = discovery.zones.first(where: { $0.id == zone.id }) {
+            if let liveZone = discovery.zones.first(where: { $0.id == snapshot.id }) {
                 EQSheet(zone: liveZone, discovery: discovery)
                     .presentationDetents([.height(EQSheet.sheetHeight(for: liveZone))])
                     .presentationDragIndicator(.visible)
@@ -472,12 +455,16 @@ struct ZoneCard: View, Equatable {
             }
         }
         .sheet(isPresented: $showGroupPicker) {
-            GroupPickerSheet(coordinatorZone: zone, discovery: discovery)
+            if let liveZone = discovery.zones.first(where: { $0.id == snapshot.id }) {
+                GroupPickerSheet(coordinatorZone: liveZone, discovery: discovery)
+            }
         }
         .sheet(isPresented: $showTransferPicker) {
-            TransferZoneSheet(sourceZone: zone, discovery: discovery)
+            if let liveZone = discovery.zones.first(where: { $0.id == snapshot.id }) {
+                TransferZoneSheet(sourceZone: liveZone, discovery: discovery)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
+            }
         }
         .onAppear {
             // Restore persisted state first
@@ -499,14 +486,12 @@ struct ZoneCard: View, Equatable {
                 isExpanded = newValue
             }
         }
-        .onReceive(playbackContext.$contexts) { _ in
-            contextVersion += 1
-        }
+        // PlaybackStore triggers view refresh automatically
     }
 }
 
 #Preview {
-    ZonesView(discovery: ZoneDiscoveryService(), playbackContext: PlaybackContextService.shared, expandZoneID: .constant(nil))
+    ZonesView(discovery: ZoneDiscoveryService(), store: PlaybackStore.shared, expandZoneID: .constant(nil))
         .preferredColorScheme(.dark)
 }
 

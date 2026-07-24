@@ -231,7 +231,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             }
         }
 
-        // Fetch GetPositionInfo for ALL playing zones — adaptive interval based on state
+        // Fetch GetPositionInfo for ALL playing zones (track/artist updates every ~3min)
         let positionResults: [(String, Data)] = await withTaskGroup(of: (String, Data?).self) { group in
             for zone in zones.filter({ $0.isPlaying }) {
                 let id = zone.id
@@ -288,9 +288,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         }
     }
 
-    /// Exposed for testing only.
     nonisolated static func parseTimeStringPublic(_ s: String) -> Int { parseTimeString(s) }
-
     private nonisolated static func parseTimeString(_ s: String) -> Int {
         let parts = s.split(separator: ":").compactMap { Int($0) }
         switch parts.count {
@@ -538,10 +536,6 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         var consecutiveFailures = 0
         refreshTask = Task {
             while !Task.isCancelled {
-                // Adaptive interval:
-                // — 2s when playing zones exist (responsive position updates)
-                // — 5s when paused or idle
-                // — 15s backoff after 3 consecutive failures
                 let hasPlaying = zones.contains { $0.isPlaying && !$0.idleState }
                 let backingOff = consecutiveFailures >= 3
                 let intervalNs: UInt64 = backingOff ? 15_000_000_000
@@ -550,14 +544,9 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                 try? await Task.sleep(nanoseconds: intervalNs)
                 guard !Task.isCancelled else { break }
                 await fetchTransportStates()
-                // Track failures for backoff — reset on any zones responding
-                if zones.isEmpty {
-                    consecutiveFailures += 1
-                } else {
-                    consecutiveFailures = 0
-                }
+                if zones.isEmpty { consecutiveFailures += 1 } else { consecutiveFailures = 0 }
                 pollCount += 1
-                // Lightweight IdleState refresh every 15s (3 polls at 5s, or more at 2s)
+                // Lightweight IdleState refresh every 15s
                 if pollCount >= 3 {
                     pollCount = 0
                     if let anyHost = zones.first?.host {
@@ -1011,7 +1000,15 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         }
         Task {
             let action = isPlaying ? "Pause" : "Play"
-            await ZoneDiscoveryService.sendTransportAction(host: zone.host, action: action)
+            do {
+                try await SonosEndpointDriver.shared.sendTransportAction(host: zone.host, action: action)
+            } catch {
+                sLog("ZONES: \(action) failed on \(zone.name): \(error.localizedDescription)")
+                // Revert optimistic update on failure
+                if let idx = self.zones.firstIndex(where: { $0.id == zoneID }) {
+                    self.zones[idx].isPlaying = isPlaying
+                }
+            }
         }
     }
 
@@ -1068,10 +1065,10 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                 let newVol = max(0, min(100, zones[idx].groupMembers[memberIdx].volume + delta))
                 zones[idx].groupMembers[memberIdx].volume = newVol
                 let host = zones[idx].groupMembers[memberIdx].host
-                Task { await ZoneDiscoveryService.sendSetVolume(host: host, volume: newVol) }
+                Task { try? await SonosEndpointDriver.shared.sendSetVolume(host: host, volume: newVol) }
             }
         }
-        Task { await ZoneDiscoveryService.sendSetVolume(host: zone.host, volume: clamped) }
+        Task { try? await SonosEndpointDriver.shared.sendSetVolume(host: zone.host, volume: clamped) }
     }
 
     func muteGroup(zoneID: String, mute: Bool, restoreVolumes: [String: Int] = [:]) {
@@ -1559,9 +1556,9 @@ struct SonosZone: Identifiable, Equatable {
     var currentTrack: String = ""
     var currentArtist: String = ""
     var isHDMI: Bool = false        // TV/HDMI source — Arc/Beam specific
-    var currentTrackURI: String = ""   // x-file-cifs URI — used by PlaybackContextService to advance local context
+    var currentTrackURI: String = ""   // x-file-cifs URI — used by PlaybackContextService
     var elapsedSeconds: Int = 0        // Playback position from GetPositionInfo
-    var durationSeconds: Int = 0       // Track duration from GetPositionInfo — 0 for streams
+    var durationSeconds: Int = 0       // Track duration from GetPositionInfo
     var idleState: Bool = false     // IdleState from topology — true = idle even if transport says PLAYING
     var capabilities: [String] = ["eq", "volume", "mute"]  // Loaded from DB devices table
     var dbDeviceId: String = ""     // Sorriva UUID from devices table

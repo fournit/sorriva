@@ -59,6 +59,11 @@
 		80E293F830127B0E0031E31D /* MigrationAlert.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E293F730127B0E0031E31D /* MigrationAlert.swift */; };
 		80E293FA301281A80031E31D /* CredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E293F9301281A80031E31D /* CredentialStore.swift */; };
 		80E293FC30128E0E0031E31D /* SorrivaAppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E293FB30128E0E0031E31D /* SorrivaAppEnvironment.swift */; };
+		80E293FF3012926C0031E31D /* PlaybackStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E293FE3012926C0031E31D /* PlaybackStore.swift */; };
+		80E294003012926C0031E31D /* PlaybackModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E293FD3012926C0031E31D /* PlaybackModels.swift */; };
+		80E294043012EC000031E31D /* EndpointModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294023012EC000031E31D /* EndpointModels.swift */; };
+		80E294053012EC000031E31D /* AudioEndpointDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294013012EC000031E31D /* AudioEndpointDriver.swift */; };
+		80E294063012EC000031E31D /* SonosEndpointDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294033012EC000031E31D /* SonosEndpointDriver.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -136,6 +141,11 @@
 		80E293F730127B0E0031E31D /* MigrationAlert.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MigrationAlert.swift; sourceTree = "<group>"; };
 		80E293F9301281A80031E31D /* CredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialStore.swift; sourceTree = "<group>"; };
 		80E293FB30128E0E0031E31D /* SorrivaAppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SorrivaAppEnvironment.swift; sourceTree = "<group>"; };
+		80E293FD3012926C0031E31D /* PlaybackModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackModels.swift; sourceTree = "<group>"; };
+		80E293FE3012926C0031E31D /* PlaybackStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackStore.swift; sourceTree = "<group>"; };
+		80E294013012EC000031E31D /* AudioEndpointDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEndpointDriver.swift; sourceTree = "<group>"; };
+		80E294023012EC000031E31D /* EndpointModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EndpointModels.swift; sourceTree = "<group>"; };
+		80E294033012EC000031E31D /* SonosEndpointDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SonosEndpointDriver.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -191,6 +201,11 @@
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
+				80E294013012EC000031E31D /* AudioEndpointDriver.swift */,
+				80E294023012EC000031E31D /* EndpointModels.swift */,
+				80E294033012EC000031E31D /* SonosEndpointDriver.swift */,
+				80E293FD3012926C0031E31D /* PlaybackModels.swift */,
+				80E293FE3012926C0031E31D /* PlaybackStore.swift */,
 				80E293FB30128E0E0031E31D /* SorrivaAppEnvironment.swift */,
 				80E293F9301281A80031E31D /* CredentialStore.swift */,
 				80E293F730127B0E0031E31D /* MigrationAlert.swift */,
@@ -425,12 +440,17 @@
 				805A16CD3005DC1600AF3100 /* SorrivaContextMenu.swift in Sources */,
 				80325B023003D51000308486 /* LocalLibraryView.swift in Sources */,
 				805A16C83005AEC600AF3100 /* ArtistsView.swift in Sources */,
+				80E293FF3012926C0031E31D /* PlaybackStore.swift in Sources */,
+				80E294003012926C0031E31D /* PlaybackModels.swift in Sources */,
 				805A16C93005AEC600AF3100 /* AlbumsView.swift in Sources */,
 				805A170C300BB5E100AF3100 /* ScanRetryScheduler.swift in Sources */,
 				805A1729300D16DF00AF3100 /* PlaybackContextService.swift in Sources */,
 				805A16CA3005AEC600AF3100 /* AlbumDetailView.swift in Sources */,
 				805A16CB3005AEC600AF3100 /* TracksView.swift in Sources */,
 				80E293FA301281A80031E31D /* CredentialStore.swift in Sources */,
+				80E294043012EC000031E31D /* EndpointModels.swift in Sources */,
+				80E294053012EC000031E31D /* AudioEndpointDriver.swift in Sources */,
+				80E294063012EC000031E31D /* SonosEndpointDriver.swift in Sources */,
 				805A16EB300840D800AF3100 /* SorrivaTabBar.swift in Sources */,
 				80325ABB2FFEE5DC00308486 /* SorrivaApp.swift in Sources */,
 				805A16C130052B0B00AF3100 /* ScanCoordinator.swift in Sources */,

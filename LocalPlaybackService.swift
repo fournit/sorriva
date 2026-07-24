@@ -95,43 +95,39 @@ final class LocalPlaybackService {
     private func playQueue(_ pairs: [(Track, LibrarySource)], on zone: SonosZone) async {
         sLog("LOCALPLAY: queueing \(pairs.count) tracks on \(zone.name)")
 
+
+
         // Pre-build URIs and DIDLs on MainActor before entering detached task
         // DIDL with duration prevents Sonos aggressive prefetch on zero-duration tracks
         var queueItems: [(uri: String, didl: String, title: String)] = []
-        var contextItems: [(uri: String, track: Track, album: Album)] = []
-
         for (track, source) in pairs {
             let uri = xFileCIFSURI(track: track, source: source)
             let didl = await Self.buildTrackDIDL(track: track, uri: uri, source: source)
             queueItems.append((uri: uri, didl: didl, title: track.title))
-            // Build context queue for PlaybackContextService URI-based advancement
-            if let album = try? SorrivaDatabase.shared.album(id: track.albumId) {
-                contextItems.append((uri: uri, track: track, album: album))
-            }
         }
-
-        // Register full queue so context advances as Sonos moves through tracks
-        PlaybackContextService.shared.setLocalQueue(zoneID: zone.id, items: contextItems)
 
         let host = zone.host
         let zoneID = zone.id
 
-        await Task.detached {
-            // Clear existing queue
-            await ZoneDiscoveryService.removeAllTracksFromQueue(host: host)
+        // Use SonosEndpointDriver — typed results, failures propagate
+        let driver = SonosEndpointDriver.shared
+        let queueResult = try? await driver.addAlbumToQueue(host: host, items: queueItems)
 
-            // AddURIToQueue in loop — x-file-cifs requires single-track calls
-            for (idx, item) in queueItems.enumerated() {
-                await ZoneDiscoveryService.addURIToQueue(host: host, uri: item.uri, didl: item.didl)
-                sLog("LOCALPLAY: queued track \(idx + 1)/\(queueItems.count) — \(item.title)")
+        switch queueResult {
+        case .success, .none:
+            sLog("LOCALPLAY: queued \(queueItems.count) tracks on \(zone.name)")
+        case .partialQueue(let added, let requested):
+            sLog("LOCALPLAY: partial queue \(added)/\(requested) on \(zone.name)")
+            await MainActor.run {
+                PlaybackStore.shared.setIssue(.partialQueue(added: added, requested: requested))
             }
+        }
 
-            // Point transport at queue and play
-            let queueURI = "x-rincon-queue:\(zoneID)#0"
-            await ZoneDiscoveryService.setAVTransportURIWithMetadata(host: host, streamURL: queueURI, didl: "")
-            await ZoneDiscoveryService.sendTransportAction(host: host, action: "Play")
-            sLog("LOCALPLAY: album queue started — \(queueItems.count) tracks")
-        }.value
+        // Point transport at queue and play
+        let queueURI = "x-rincon-queue:\(zoneID)#0"
+        try? await driver.setAVTransportURI(host: host, uri: queueURI, metadata: "")
+        try? await driver.sendTransportAction(host: host, action: "Play")
+        sLog("LOCALPLAY: album queue started — \(queueItems.count) tracks")
     }
 
     // MARK: - NAS share registration
@@ -154,9 +150,14 @@ final class LocalPlaybackService {
             // nasPath format: //hostname/share  e.g. //av-server/media/Music II
             let nasPath = "//\(source.host)/\(source.share)"
             sLog("LOCALPLAY: registering NAS share — \(nasPath) on \(coordinatorHost)")
-            await ZoneDiscoveryService.createObject(host: coordinatorHost, nasPath: nasPath)
-            registered.insert(coordinatorHost)
-            registeredShares[shareKey] = registered
+            let driver = SonosEndpointDriver.shared
+            do {
+                try await driver.createObject(host: coordinatorHost, nasPath: nasPath)
+                registered.insert(coordinatorHost)
+                registeredShares[shareKey] = registered
+            } catch {
+                sLog("LOCALPLAY: share registration failed \(nasPath): \(error.localizedDescription)")
+            }
         }
     }
 

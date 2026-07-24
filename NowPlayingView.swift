@@ -8,58 +8,35 @@ import SwiftUI
 struct NowPlayingView: View {
     @Binding var selectedZoneID: String?
     @ObservedObject var discovery: ZoneDiscoveryService
-    @ObservedObject private var playbackContext = PlaybackContextService.shared
+    @ObservedObject var store: PlaybackStore
     let onTapZone: () -> Void
 
     @State private var cachedTrack: String = ""
     @State private var cachedArtist: String = ""
 
-    // Live zone lookup
-    private var zone: SonosZone? {
+    // Snapshot from PlaybackStore — single source of truth
+    private var snap: ZonePlaybackSnapshot? {
         guard let id = selectedZoneID else { return nil }
-        return discovery.zones.first(where: { $0.id == id })
+        return store.snapshot(for: id)
     }
     private var zoneID: String { selectedZoneID ?? "" }
-    private var zoneName: String { zone?.name ?? "" }
-    private var zoneHost: String { zone?.host ?? "" }
-    private var isPlaying: Bool { zone?.isPlaying ?? false }
-    private var volume: Int { zone?.volume ?? 0 }
+    private var zoneName: String { snap?.name ?? "" }
+    private var zoneHost: String { snap?.host ?? "" }
+    private var isPlaying: Bool { snap?.isPlaying ?? false }
+    private var volume: Int { snap?.volume ?? 0 }
 
-    // Local playback context — takes priority over zone state for local tracks
-    private var localContext: PlaybackContext? {
-        guard let id = selectedZoneID else { return nil }
-        let ctx = playbackContext.contexts[id]
-        return ctx?.isLocal == true ? ctx : nil
-    }
-
-    // Track display — local context takes priority, then cached zone values
     private var displayTrack: String {
-        if let ctx = localContext { return ctx.track }
-        return cachedTrack.isEmpty ? (zone?.currentTrack ?? "") : cachedTrack
+        let t = snap?.trackTitle ?? ""
+        return t.isEmpty ? cachedTrack : t
     }
     private var displayArtist: String {
-        if let ctx = localContext { return ctx.artist }
-        return cachedArtist.isEmpty ? (zone?.currentArtist ?? "") : cachedArtist
+        let a = snap?.artistName ?? ""
+        return a.isEmpty ? cachedArtist : a
     }
-    private var stationName: String {
-        if localContext != nil { return "" }
-        return zone?.stationName ?? ""
-    }
-    // Position from ZoneDiscoveryService — single source of truth, no local polling
-    private var elapsed: Int {
-        if let ctx = localContext, ctx.duration > 0 {
-            // For local tracks, use zone elapsed + DB duration
-            return zone?.elapsedSeconds ?? 0
-        }
-        return zone?.elapsedSeconds ?? 0
-    }
-    private var duration: Int {
-        if let ctx = localContext, ctx.duration > 0 {
-            return Int(ctx.duration)
-        }
-        return zone?.durationSeconds ?? 0
-    }
-    private var progress: Double { duration > 0 ? Double(elapsed) / Double(duration) : 0 }
+    private var stationName: String { snap?.isLocal == true ? "" : (snap?.albumName ?? "") }
+    private var elapsed: Int { snap?.elapsedSeconds ?? 0 }
+    private var duration: Int { snap?.durationSeconds ?? 0 }
+    private var progress: Double { snap?.progress ?? 0 }
 
     private var artPlaceholder: some View {
         RoundedRectangle(cornerRadius: 16)
@@ -113,9 +90,9 @@ struct NowPlayingView: View {
                 Spacer()
 
                 // Album art — local context uses AlbumArtView, stations use CachedAsyncImage
-                let artURL = zone?.stationLogoURL ?? ""
+                let artURL = snap?.artURL ?? ""
                 Group {
-                    if let album = localContext?.artAlbum {
+                    if let album = snap?.artAlbum {
                         AlbumArtView(album: album, size: 280)
                     } else if !artURL.isEmpty, let url = URL(string: artURL) {
                         CachedAsyncImage(url: url) { phase in
@@ -257,20 +234,19 @@ struct NowPlayingView: View {
             }
         }
         .onAppear {
-            if let z = zone {
-                if !z.currentTrack.isEmpty { cachedTrack = z.currentTrack }
-                if !z.currentArtist.isEmpty { cachedArtist = z.currentArtist }
+            if let s = snap {
+                if !s.trackTitle.isEmpty { cachedTrack = s.trackTitle }
+                if !s.artistName.isEmpty { cachedArtist = s.artistName }
             }
         }
         .onChange(of: selectedZoneID) { _ in
-            // Reset cache when zone changes
             cachedTrack = ""
             cachedArtist = ""
         }
-        .onChange(of: zone?.currentTrack ?? "") { track in
+        .onChange(of: snap?.trackTitle ?? "") { track in
             if !track.isEmpty { cachedTrack = track }
         }
-        .onChange(of: zone?.currentArtist ?? "") { artist in
+        .onChange(of: snap?.artistName ?? "") { artist in
             if !artist.isEmpty { cachedArtist = artist }
         }
     }
@@ -281,7 +257,7 @@ struct NowPlayingView: View {
         String(format: "%d:%02d", secs / 60, secs % 60)
     }
 
-    // MARK: - UPnP fetch (retained for external callers — not used for polling)
+    // MARK: - UPnP fetch (retained for external callers)
 
     static func fetchTrackInfo(host: String) async -> SonosTrackInfo? {
         let soapBody = """
