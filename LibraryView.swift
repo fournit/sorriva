@@ -156,15 +156,13 @@ struct LibraryView: View {
     }
 
     private func loadLibrary() {
-        albums  = (try? SorrivaDatabase.shared.allAlbums()) ?? []
-        artists = (try? SorrivaDatabase.shared.allArtists()) ?? []
-        tracks  = (try? SorrivaDatabase.shared.allTracks()) ?? []
+        albums  = LibraryService.shared.listAlbums()
+        artists = LibraryService.shared.listArtists()
+        tracks  = LibraryService.shared.listTracks()
     }
 
     private func loadFavorites() {
-        let iheart = (try? SorrivaDatabase.shared.allStations(source: "iheart")) ?? []
-        let somafm = (try? SorrivaDatabase.shared.allStations(source: "somafm")) ?? []
-        favoriteIDs = Set((iheart + somafm).filter { $0.isFavorite }.map { $0.id })
+        favoriteIDs = LibraryService.shared.favoriteStationIDs(sources: ["iheart", "somafm"])
     }
 
     private func toggleFavorite(id: Int, isFav: Bool) {
@@ -271,8 +269,8 @@ struct FavoritesRow: View {
     }
 
     private func loadFromDB() {
-        let iheart = (try? SorrivaDatabase.shared.allStations(source: "iheart")) ?? []
-        let somafm = (try? SorrivaDatabase.shared.allStations(source: "somafm")) ?? []
+        let iheart = LibraryService.shared.allStations(source: "iheart")
+        let somafm = LibraryService.shared.allStations(source: "somafm")
         dbStations = iheart + somafm
         for s in dbStations {
             if let logo = s.logoURL { loadedLogos[s.id] = logo }
@@ -350,8 +348,8 @@ struct RadioRow: View {
 
     func loadFromDB() {
         // Load stations from all radio sources
-        let iheart = (try? SorrivaDatabase.shared.allStations(source: "iheart")) ?? []
-        let somafm = (try? SorrivaDatabase.shared.allStations(source: "somafm")) ?? []
+        let iheart = LibraryService.shared.allStations(source: "iheart")
+        let somafm = LibraryService.shared.allStations(source: "somafm")
         dbStations = (iheart + somafm).sorted { $0.name < $1.name }
         for s in dbStations {
             if let logo = s.logoURL { loadedLogos[s.id] = logo }
@@ -769,8 +767,8 @@ struct MediaGridView: View {
     }
 
     private func loadFromDB() {
-        let iheart = (try? SorrivaDatabase.shared.allStations(source: "iheart")) ?? []
-        let somafm = (try? SorrivaDatabase.shared.allStations(source: "somafm")) ?? []
+        let iheart = LibraryService.shared.allStations(source: "iheart")
+        let somafm = LibraryService.shared.allStations(source: "somafm")
         allStations = (iheart + somafm).sorted { $0.name < $1.name }
         for s in allStations {
             if let logo = s.logoURL { loadedLogos[s.id] = logo }

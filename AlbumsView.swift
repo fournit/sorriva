@@ -131,17 +131,12 @@ struct AlbumsView: View {
     }
 
     private func loadAlbums() {
-        albums = (try? SorrivaDatabase.shared.allAlbums()) ?? []
+        albums = LibraryService.shared.listAlbums()
     }
 
     private func removeAlbum(_ album: Album?) {
         guard let album else { return }
-        try? SorrivaDatabase.shared.dbQueue.write { db in
-            try db.execute(sql: "DELETE FROM tracks WHERE albumId = ?", arguments: [album.id])
-            try db.execute(sql: "DELETE FROM albums WHERE id = ?", arguments: [album.id])
-        }
-        try? SorrivaDatabase.shared.deleteOrphanedArtists()
-        NotificationCenter.default.post(name: .libraryDidUpdate, object: nil)
+        LibraryService.shared.removeAlbum(album)
     }
 }
 

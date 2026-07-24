@@ -83,7 +83,7 @@ struct AlbumDetailView: View {
                         Button(action: {
                             guard let zone = discovery.zones.first(where: { $0.id == selectedZoneID })
                                     ?? discovery.zones.first else { return }
-                            Task { await LocalPlaybackService.shared.playAlbum(tracks, on: zone) }
+                            PlaybackCoordinator.shared.submit(.playAlbum(tracks, zoneID: zone.id))
                         }) {
                             HStack(spacing: 8) {
                                 Image(systemName: "play.fill")
@@ -182,7 +182,7 @@ struct AlbumDetailView: View {
                 ) { zone in
                     activeSheet = nil
                     Task {
-                        await LocalPlaybackService.shared.playTrack(track, on: zone)
+                        PlaybackCoordinator.shared.submit(.playTrack(track, zoneID: zone.id))
                     }
                 }
                 .presentationDetents([.medium, .large])
@@ -197,7 +197,7 @@ struct AlbumDetailView: View {
                 ) { zone in
                     activeSheet = nil
                     Task {
-                        await LocalPlaybackService.shared.playAlbum(tracks, on: zone)
+                        PlaybackCoordinator.shared.submit(.playAlbum(tracks, zoneID: zone.id))
                     }
                 }
                 .presentationDetents([.medium, .large])
@@ -207,14 +207,12 @@ struct AlbumDetailView: View {
     }
 
     private func loadTracks() {
-        tracks = (try? SorrivaDatabase.shared.tracks(albumId: album.id)) ?? []
+        tracks = LibraryService.shared.tracksForAlbum(album.id)
     }
 
     private func removeTrack(_ track: Track?) {
         guard let track else { return }
-        try? SorrivaDatabase.shared.dbQueue.write { db in
-            try db.execute(sql: "DELETE FROM tracks WHERE id = ?", arguments: [track.id])
-        }
+        LibraryService.shared.removeTrack(track)
         loadTracks()
     }
 }

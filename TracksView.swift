@@ -131,16 +131,14 @@ struct TracksView: View {
     }
 
     private func loadTracks() {
-        tracks = (try? SorrivaDatabase.shared.allTracks()) ?? []
-        let allAlbums = (try? SorrivaDatabase.shared.allAlbums()) ?? []
-        albumsById = Dictionary(uniqueKeysWithValues: allAlbums.map { ($0.id, $0) })
+        tracks = LibraryService.shared.listTracks()
+        let allAlbums = LibraryService.shared.listAlbums()
+        albumsById = LibraryService.shared.albumsById(from: allAlbums)
     }
 
     private func removeTrack(_ track: Track?) {
         guard let track else { return }
-        try? SorrivaDatabase.shared.dbQueue.write { db in
-            try db.execute(sql: "DELETE FROM tracks WHERE id = ?", arguments: [track.id])
-        }
+        LibraryService.shared.removeTrack(track)
         loadTracks()
     }
 }

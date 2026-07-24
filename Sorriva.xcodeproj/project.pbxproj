@@ -64,6 +64,11 @@
 		80E294043012EC000031E31D /* EndpointModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294023012EC000031E31D /* EndpointModels.swift */; };
 		80E294053012EC000031E31D /* AudioEndpointDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294013012EC000031E31D /* AudioEndpointDriver.swift */; };
 		80E294063012EC000031E31D /* SonosEndpointDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294033012EC000031E31D /* SonosEndpointDriver.swift */; };
+		80E294093012EE5D0031E31D /* PlaybackCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294073012EE5D0031E31D /* PlaybackCoordinator.swift */; };
+		80E2940A3012EE5D0031E31D /* PlaybackIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294083012EE5D0031E31D /* PlaybackIntent.swift */; };
+		80E2940E3012F0210031E31D /* GRDBLibraryRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E2940B3012F0210031E31D /* GRDBLibraryRepository.swift */; };
+		80E2940F3012F0210031E31D /* LibraryRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E2940C3012F0210031E31D /* LibraryRepository.swift */; };
+		80E294103012F0210031E31D /* LibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E2940D3012F0210031E31D /* LibraryService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -146,6 +151,11 @@
 		80E294013012EC000031E31D /* AudioEndpointDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEndpointDriver.swift; sourceTree = "<group>"; };
 		80E294023012EC000031E31D /* EndpointModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EndpointModels.swift; sourceTree = "<group>"; };
 		80E294033012EC000031E31D /* SonosEndpointDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SonosEndpointDriver.swift; sourceTree = "<group>"; };
+		80E294073012EE5D0031E31D /* PlaybackCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackCoordinator.swift; sourceTree = "<group>"; };
+		80E294083012EE5D0031E31D /* PlaybackIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackIntent.swift; sourceTree = "<group>"; };
+		80E2940B3012F0210031E31D /* GRDBLibraryRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GRDBLibraryRepository.swift; sourceTree = "<group>"; };
+		80E2940C3012F0210031E31D /* LibraryRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryRepository.swift; sourceTree = "<group>"; };
+		80E2940D3012F0210031E31D /* LibraryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -201,6 +211,11 @@
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
+				80E2940B3012F0210031E31D /* GRDBLibraryRepository.swift */,
+				80E2940C3012F0210031E31D /* LibraryRepository.swift */,
+				80E2940D3012F0210031E31D /* LibraryService.swift */,
+				80E294073012EE5D0031E31D /* PlaybackCoordinator.swift */,
+				80E294083012EE5D0031E31D /* PlaybackIntent.swift */,
 				80E294013012EC000031E31D /* AudioEndpointDriver.swift */,
 				80E294023012EC000031E31D /* EndpointModels.swift */,
 				80E294033012EC000031E31D /* SonosEndpointDriver.swift */,
@@ -412,6 +427,9 @@
 				80325AD53000B03500308486 /* SplashView.swift in Sources */,
 				80325AE2300147C200308486 /* DatabaseModels.swift in Sources */,
 				80325AE3300147C200308486 /* SorrivaDatabase.swift in Sources */,
+				80E2940E3012F0210031E31D /* GRDBLibraryRepository.swift in Sources */,
+				80E2940F3012F0210031E31D /* LibraryRepository.swift in Sources */,
+				80E294103012F0210031E31D /* LibraryService.swift in Sources */,
 				80304054300EA74E0058B020 /* TransferZoneSheet.swift in Sources */,
 				805A16BD3004886100AF3100 /* LocalFilesPickerView.swift in Sources */,
 				80325AD13000AC1800308486 /* EQSheet.swift in Sources */,
@@ -459,6 +477,8 @@
 				80325AC62FFF38A500308486 /* SonosDevice.swift in Sources */,
 				80325AC72FFF38A500308486 /* ZoneDiscoveryService.swift in Sources */,
 				80325ABD2FFEE5DC00308486 /* ZonesView.swift in Sources */,
+				80E294093012EE5D0031E31D /* PlaybackCoordinator.swift in Sources */,
+				80E2940A3012EE5D0031E31D /* PlaybackIntent.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -39,6 +39,14 @@ final class SorrivaAppEnvironment: ObservableObject {
     /// Constitution reference: I-005, ADR-007, ADR-008.
     let sonosDriver: SonosEndpointDriver = .shared
 
+    /// Library service — application-level library use cases.
+    /// Constitution reference: LibraryService section, I-003.
+    let libraryService: LibraryService = .shared
+
+    /// Playback coordinator — owns command lifecycle, pending/confirmed/failed states.
+    /// Constitution reference: Pattern B, WP-10.
+    let playbackCoordinator: PlaybackCoordinator = .shared
+
     /// Authoritative playback state store — single source of truth for all UI.
     /// Constitution reference: I-002, ADR-005.
     @Published var playbackStore: PlaybackStore = .shared
@@ -57,6 +65,12 @@ final class SorrivaAppEnvironment: ObservableObject {
 
         // Wire SonosEndpointDriver to discovery for host lookup.
         sonosDriver.discovery = discovery
+
+        // Wire PlaybackCoordinator to its dependencies.
+        playbackCoordinator.discovery    = discovery
+        playbackCoordinator.localPlayback = LocalPlaybackService.shared
+        playbackCoordinator.sonosDriver  = sonosDriver
+        playbackCoordinator.store        = playbackStore
 
         // Wire PlaybackStore to both upstream sources.
         playbackStore.observe(discovery: discovery, playbackContext: playbackContext)
