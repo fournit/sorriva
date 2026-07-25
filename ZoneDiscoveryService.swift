@@ -79,6 +79,16 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         // WP-14: Network path monitor — restart discovery on network change
         startNetworkMonitor()
 
+        // Subscribe to playback grace notification from LocalPlaybackService
+        NotificationCenter.default.addObserver(
+            forName: .sorrivaSetPlaybackGrace,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self, let zoneID = notification.userInfo?["zoneID"] as? String else { return }
+            self.setPlaybackGrace(zoneID: zoneID)
+        }
+
         // WP-14: Subscribe to foreground notification for topology refresh
         NotificationCenter.default.addObserver(
             forName: .sorrivaAppDidBecomeActive,
@@ -767,6 +777,41 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             .replacingOccurrences(of: "&apos;", with: "'")
             .replacingOccurrences(of: "&amp;",  with: "&")
 
+        // Parse TrackMetaData — dc:title and albumArtURI from DIDL
+        // This works even when zone is idle (r:streamContent is empty)
+        if let tmStart = decoded.range(of: "<TrackMetaData>"),
+           let tmEnd = decoded.range(of: "</TrackMetaData>") {
+            let meta = String(decoded[tmStart.upperBound..<tmEnd.lowerBound])
+
+            // Station name from dc:title
+            if let tStart = meta.range(of: "<dc:title>"),
+               let tEnd = meta.range(of: "</dc:title>") {
+                let title = String(meta[tStart.upperBound..<tEnd.lowerBound])
+                    .trimmingCharacters(in: .whitespaces)
+                // Only use as station name for non-local sources
+                if !title.isEmpty && !zones[idx].currentTrackURI.hasPrefix("x-file-cifs://") {
+                    if zones[idx].stationName.isEmpty {
+                        zones[idx].stationName = title
+                    }
+                }
+            }
+
+            // Album art URL from albumArtURI
+            if let aStart = meta.range(of: "<upnp:albumArtURI>"),
+               let aEnd = meta.range(of: "</upnp:albumArtURI>") {
+                let artPath = String(meta[aStart.upperBound..<aEnd.lowerBound])
+                    .trimmingCharacters(in: .whitespaces)
+                if !artPath.isEmpty && zones[idx].stationLogoURL.isEmpty {
+                    // Convert relative path to absolute URL using zone host
+                    if artPath.hasPrefix("/") {
+                        zones[idx].stationLogoURL = "http://\(zones[idx].host):1400\(artPath)"
+                    } else if artPath.hasPrefix("http") {
+                        zones[idx].stationLogoURL = artPath
+                    }
+                }
+            }
+        }
+
         if let scStart = decoded.range(of: "<r:streamContent>"),
            let scEnd = decoded.range(of: "</r:streamContent>") {
             let content = String(decoded[scStart.upperBound..<scEnd.lowerBound])
@@ -1178,6 +1223,15 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             sLog("LOCALPLAY: \(action) \(host) status=\(status)")
         } catch {
             sLog("LOCALPLAY: \(action) error \(host): \(error.localizedDescription)")
+        }
+    }
+
+    /// Set a playback grace period for a zone — prevents brief STOPPED state during media switches
+    /// from showing the zone as inactive. Call before initiating playback.
+    func setPlaybackGrace(zoneID: String, duration: TimeInterval = 6.0) {
+        if let idx = zones.firstIndex(where: { $0.id == zoneID }) {
+            zones[idx].playingUntil = Date().addingTimeInterval(duration)
+            sLog("ZONES: grace period set for \(zones[idx].name) (\(duration)s)")
         }
     }
 
@@ -1669,6 +1723,7 @@ extension ZoneDiscoveryService {
 
 extension Notification.Name {
     static let sorrivaAppDidBecomeActive = Notification.Name("sorrivaAppDidBecomeActive")
+    static let sorrivaSetPlaybackGrace   = Notification.Name("sorrivaSetPlaybackGrace")
 }
 
 // MARK: - NetServiceBrowserDelegate

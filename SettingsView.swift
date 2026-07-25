@@ -771,12 +771,21 @@ struct DebugLogView: View {
         }
         .navigationBarHidden(true)
         .sheet(isPresented: $showShareSheet) {
-            ShareSheet(items: [SorrivaLogger.shared.logFileURL])
+            let url = exportLogURL()
+            return ShareSheet(items: [url])
         }
     }
 
     private func loadLog() {
         logText = (try? String(contentsOf: SorrivaLogger.shared.logFileURL, encoding: .utf8)) ?? ""
+    }
+    private func exportLogURL() -> URL {
+        let src = SorrivaLogger.shared.logFileURL
+        let dst = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sorriva-debug-export.log")
+        try? FileManager.default.removeItem(at: dst)
+        try? FileManager.default.copyItem(at: src, to: dst)
+        return dst
     }
 }
 

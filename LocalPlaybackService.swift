@@ -91,6 +91,9 @@ final class LocalPlaybackService {
     private func playSingleTrack(_ track: Track, source: LibrarySource, on zone: SonosZone) async {
         let uri = xFileCIFSURI(track: track, source: source)
         sLog("LOCALPLAY: single track — \(track.title)")
+        // Set grace period before play — prevents zone card going inactive during switch
+        NotificationCenter.default.post(name: .sorrivaSetPlaybackGrace,
+            object: nil, userInfo: ["zoneID": zone.id])
         sLog("LOCALPLAY: URI — \(uri)")
 
         if let album = try? SorrivaDatabase.shared.album(id: track.albumId) {
@@ -113,6 +116,9 @@ final class LocalPlaybackService {
 
     private func playQueue(_ pairs: [(Track, LibrarySource)], on zone: SonosZone) async {
         sLog("LOCALPLAY: queueing \(pairs.count) tracks on \(zone.name)")
+        // Set grace period before queue build — prevents zone card going inactive during switch
+        NotificationCenter.default.post(name: .sorrivaSetPlaybackGrace,
+            object: nil, userInfo: ["zoneID": zone.id])
 
         // Register full queue for context advancement
         var contextItems: [(uri: String, track: Track, album: Album)] = []

@@ -81,13 +81,8 @@ final class PlaybackContextService: ObservableObject {
             if !zone.isPlaying && uriIsRadio {
                 let uriChanged = zone.currentTrackURI != prev?.currentTrackURI
                 if uriChanged || contexts[zone.id] == nil {
-                    contexts[zone.id] = PlaybackContext(
-                        track: "", artist: "",
-                        albumName: zone.stationName.isEmpty ? "Radio" : zone.stationName,
-                        duration: 0, artAlbum: nil,
-                        artURL: zone.stationLogoURL.isEmpty ? nil : zone.stationLogoURL,
-                        isLocal: false
-                    )
+                    // Don't clear existing context — resolveStationURI will update when ready
+                    // This prevents blank flash between transfer and DB lookup completion
                     resolveStationURI(zone.currentTrackURI, zoneID: zone.id,
                                       stationName: zone.stationName,
                                       stationLogoURL: zone.stationLogoURL)
@@ -101,15 +96,22 @@ final class PlaybackContextService: ObservableObject {
                 Date().timeIntervalSince($0) < 2.0
             } ?? false
             if zone.isPlaying && !inLocalGrace {
-                contexts[zone.id] = PlaybackContext(
-                    track: zone.currentTrack,
-                    artist: zone.currentArtist,
-                    albumName: zone.stationName,
-                    duration: 0,
-                    artAlbum: nil,
-                    artURL: zone.stationLogoURL.isEmpty ? nil : zone.stationLogoURL,
-                    isLocal: false
-                )
+                // Only overwrite if we have something meaningful to show
+                // Empty context during transition would wipe out good context
+                let hasContent = !zone.currentTrack.isEmpty || !zone.stationName.isEmpty
+                if hasContent {
+                    contexts[zone.id] = PlaybackContext(
+                        track: zone.currentTrack,
+                        artist: zone.currentArtist,
+                        albumName: zone.stationName,
+                        duration: 0,
+                        artAlbum: nil,
+                        artURL: zone.stationLogoURL.isEmpty ? nil : zone.stationLogoURL,
+                        isLocal: false
+                    )
+                } else {
+                    sLog("CONTEXT: Case3 skipped empty content for \(zone.name) — preserving existing context")
+                }
                 continue
             }
 
