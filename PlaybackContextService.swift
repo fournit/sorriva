@@ -80,7 +80,9 @@ final class PlaybackContextService: ObservableObject {
                 && !zone.currentTrackURI.hasPrefix("x-rincon-queue:")
             if !zone.isPlaying && uriIsRadio {
                 let uriChanged = zone.currentTrackURI != prev?.currentTrackURI
-                if uriChanged || contexts[zone.id] == nil {
+                let stationChanged = zone.stationName != prev?.stationName
+                let logoChanged = zone.stationLogoURL != prev?.stationLogoURL
+                if uriChanged || stationChanged || logoChanged || contexts[zone.id] == nil {
                     // Don't clear existing context — resolveStationURI will update when ready
                     // This prevents blank flash between transfer and DB lookup completion
                     resolveStationURI(zone.currentTrackURI, zoneID: zone.id,
