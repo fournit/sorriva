@@ -110,8 +110,7 @@ final class PlaybackContextService: ObservableObject {
                         isLocal: false
                     )
                 } else {
-                    sLog("CONTEXT: Case3 skipped empty content for \(zone.name) — preserving existing context")
-                }
+                    }
                 continue
             }
 
@@ -199,7 +198,6 @@ final class PlaybackContextService: ObservableObject {
         Task { @MainActor in
             // Step 1: resolve current track from URI for immediate display
             guard let currentTrack = resolveTrackFromURI(uri) else {
-                sLog("CONTEXT: no track found for URI \(uri.prefix(60))")
                 return
             }
             guard let album = try? SorrivaDatabase.shared.album(id: currentTrack.albumId) else { return }
@@ -238,7 +236,6 @@ final class PlaybackContextService: ObservableObject {
         // x-file-cifs://host/share/path → drop first 4 components
         guard parts.count > 4 else { return nil }
         let filePath = "/" + parts.dropFirst(4).joined(separator: "/")
-        sLog("CONTEXT: looking up filePath: \(filePath)")
 
         return try? SorrivaDatabase.shared.dbQueue.read { db in
             try Track.filter(sql: "filePath LIKE ?", arguments: ["%\(filePath)"]).fetchOne(db)
@@ -278,7 +275,6 @@ final class PlaybackContextService: ObservableObject {
             let (data, response) = try await URLSession.shared.data(for: request)
             statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
             xml = String(data: data, encoding: .utf8) ?? ""
-            sLog("CONTEXT: Sonos queue Browse status=\(statusCode) bytes=\(data.count)")
             if statusCode != 200 {
                 sLog("CONTEXT: queue fetch non-200: \(xml.prefix(200))")
                 return
@@ -310,7 +306,6 @@ final class PlaybackContextService: ObservableObject {
             searchRange = resEnd.upperBound..<xml.endIndex
         }
 
-        sLog("CONTEXT: Sonos queue has \(queueURIs.count) local tracks")
         guard !queueURIs.isEmpty else { return }
 
         // Resolve each URI to a Track + Album
@@ -331,7 +326,6 @@ final class PlaybackContextService: ObservableObject {
     /// Resolve new TrackURI directly from DB and update context.
     /// Called when Sonos advances to a new track URI during local playback.
     private func advanceLocalContext(zoneID: String, toURI: String) {
-        sLog("CONTEXT: track advanced for \(zoneID) — resolving \(toURI.suffix(50))")
         Task { @MainActor in
             guard let track = self.resolveTrackFromURI(toURI) else {
                 sLog("CONTEXT: advance — no DB match for \(toURI.suffix(50))")
