@@ -778,31 +778,32 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             .replacingOccurrences(of: "&amp;",  with: "&")
 
         // Parse TrackMetaData — dc:title and albumArtURI from DIDL
-        // This works even when zone is idle (r:streamContent is empty)
+        // dc:title is only reliable for station name when zone is IDLE
+        // When actively playing iHeart, dc:title contains the HLS stream URL not station name
         if let tmStart = decoded.range(of: "<TrackMetaData>"),
            let tmEnd = decoded.range(of: "</TrackMetaData>") {
             let meta = String(decoded[tmStart.upperBound..<tmEnd.lowerBound])
 
-            // Station name from dc:title
+            // Station name from dc:title — idle zones only
             if let tStart = meta.range(of: "<dc:title>"),
                let tEnd = meta.range(of: "</dc:title>") {
                 let title = String(meta[tStart.upperBound..<tEnd.lowerBound])
                     .trimmingCharacters(in: .whitespaces)
-                // Only use as station name for non-local sources
-                if !title.isEmpty && !zones[idx].currentTrackURI.hasPrefix("x-file-cifs://") {
+                // Only use for non-local, idle zones — active streams put HLS URL in dc:title
+                let isIdle = !zones[idx].isPlaying
+                if !title.isEmpty && isIdle && !zones[idx].currentTrackURI.hasPrefix("x-file-cifs://") {
                     if zones[idx].stationName.isEmpty {
                         zones[idx].stationName = title
                     }
                 }
             }
 
-            // Album art URL from albumArtURI
+            // Album art URL from albumArtURI — works for both idle and playing
             if let aStart = meta.range(of: "<upnp:albumArtURI>"),
                let aEnd = meta.range(of: "</upnp:albumArtURI>") {
                 let artPath = String(meta[aStart.upperBound..<aEnd.lowerBound])
                     .trimmingCharacters(in: .whitespaces)
                 if !artPath.isEmpty && zones[idx].stationLogoURL.isEmpty {
-                    // Convert relative path to absolute URL using zone host
                     if artPath.hasPrefix("/") {
                         zones[idx].stationLogoURL = "http://\(zones[idx].host):1400\(artPath)"
                     } else if artPath.hasPrefix("http") {

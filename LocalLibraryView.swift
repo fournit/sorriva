@@ -182,8 +182,8 @@ struct SMBServerDetailView: View {
     @Environment(\.dismiss) private var dismiss
 
     var serverName: String { sources.first?.displayName ?? host }
-    var username: String { sources.first?.username ?? "" }
-    var password: String { sources.first?.password ?? "" }
+    var username: String { sources.first?.resolvedCredentials.username ?? "" }
+    var password: String { sources.first?.resolvedCredentials.password ?? "" }
 
     @State private var showServerAction = false
     @State private var showServerActionSheet = false
@@ -268,8 +268,8 @@ struct SMBServerDetailView: View {
                                         NavigationLink(destination: SMBFolderBrowserView(
                                             device: SMBDevice(id: host, name: serverName, host: host, port: 445),
                                             share: source.share,
-                                            username: source.username ?? "",
-                                            password: source.password ?? "",
+                                            username: source.loginCredentials.username,
+                                            password: source.loginCredentials.password,
                                             currentPath: "/",
                                             onSaved: { _ in },
                                             onFolderSelected: { path in

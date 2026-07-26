@@ -81,7 +81,14 @@ actor SMBScanner {
     /// Used by ScanCoordinator for incremental change detection.
     func statFolders(source: LibrarySource) async throws -> [FolderScanResult] {
         let client = SMBClient(host: source.host)
-        try await client.login(username: source.username ?? "", password: source.password ?? "")
+        // Keychain-aware credential resolution. Reading source.username/password
+        // directly returns the plaintext columns, which the v12 migration cleared
+        // after moving the secrets to the Keychain.
+        let creds = source.resolvedCredentials
+        try await client.login(
+            username: creds.username.isEmpty ? "guest" : creds.username,
+            password: creds.password
+        )
         defer { Task { try? await client.logoff() } }
         try await client.connectShare(source.share)
         defer { Task { try? await client.disconnectShare() } }
@@ -127,8 +134,11 @@ actor SMBScanner {
         ))
 
         let walkClient = SMBClient(host: source.host)
-        let creds1 = source.resolvedCredentials
-        try await walkClient.login(username: creds1.username.isEmpty ? "guest" : creds1.username, password: creds1.password)
+        // Resolved once for the whole scan and reused by every per-file read below.
+        // Keychain-aware; source.username/password read the plaintext columns that
+        // the v12 migration cleared after migrating secrets to the Keychain.
+        let creds = source.resolvedCredentials
+        try await walkClient.login(username: creds.username.isEmpty ? "guest" : creds.username, password: creds.password)
         defer { Task { try? await walkClient.logoff() } }
         try await walkClient.connectShare(source.share)
         defer { Task { try? await walkClient.disconnectShare() } }
@@ -196,8 +206,8 @@ actor SMBScanner {
             let headerData = await readFileWithFreshConnection(
                 host: source.host,
                 share: source.share,
-                username: source.username ?? "",
-                password: source.password ?? "",
+                username: creds.username,
+                password: creds.password,
                 path: file.path,
                 fileSize: Int(file.size)
             )
@@ -220,12 +230,22 @@ actor SMBScanner {
             // Fill missing fields from path structure
             meta = fillFromPath(meta: meta, filePath: file.path, rootPath: root)
 
-            let artistName = meta.albumArtist ?? meta.artist ?? "Unknown Artist"
-            let artist = try resolveArtist(name: artistName, cache: &artistCache)
+            // Album artist and track artist are resolved independently.
+            // ALBUMARTIST governs the album; ARTIST governs the track.
+            // On a compilation these differ — ALBUMARTIST is "Various Artists"
+            // while each track carries its own performer. Falling back to the
+            // other field only when the preferred one is absent.
+            let albumArtistName = meta.albumArtist ?? meta.artist ?? "Unknown Artist"
+            let trackArtistName = meta.artist ?? meta.albumArtist ?? "Unknown Artist"
+            let albumArtist = try resolveArtist(name: albumArtistName, cache: &artistCache)
+            let trackArtist = (trackArtistName == albumArtistName)
+                ? albumArtist
+                : try resolveArtist(name: trackArtistName, cache: &artistCache)
+
             let albumTitle = meta.album ?? "Unknown Album"
             let folderPath = (file.path as NSString).deletingLastPathComponent
             let album = try resolveAlbum(
-                title: albumTitle, artist: artist, year: meta.year,
+                title: albumTitle, artist: albumArtist, year: meta.year,
                 genre: meta.genre, folderPath: folderPath,
                 sourceId: source.id, cache: &albumCache
             )
@@ -236,8 +256,8 @@ actor SMBScanner {
                 title: meta.title ?? filenameWithoutExtension(filename),
                 albumId: album.id,
                 albumTitle: album.title,
-                primaryArtistId: artist.id,
-                artistName: artist.name,
+                primaryArtistId: trackArtist.id,
+                artistName: trackArtist.name,
                 trackNumber: meta.trackNumber,
                 discNumber: meta.discNumber,
                 year: meta.year ?? album.year,
@@ -257,7 +277,7 @@ actor SMBScanner {
             // If track already exists from a previous scan, this updates it in place.
             try? SorrivaDatabase.shared.upsertTrack(track)
             try? SorrivaDatabase.shared.upsertTrackArtist(
-                trackId: track.id, artistId: artist.id, role: "primary"
+                trackId: track.id, artistId: trackArtist.id, role: "primary"
             )
 
             // Write FolderStat immediately when all files in a folder are processed.
@@ -406,21 +426,33 @@ actor SMBScanner {
 
     // MARK: - Artist / Album resolution
 
+    /// Normalized matching key for artist identity — trims surrounding whitespace
+    /// and folds case, so "Yazoo", "yazoo", and "Yazoo " resolve to a single artist
+    /// row instead of three. Used for cache and lookup only; the display name keeps
+    /// its original casing.
+    private func artistKey(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
     private func resolveArtist(name: String, cache: inout [String: Artist]) throws -> Artist {
-        if let cached = cache[name] { return cached }
-        if let existing = try SorrivaDatabase.shared.artist(named: name) {
-            cache[name] = existing
+        var displayName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if displayName.isEmpty { displayName = "Unknown Artist" }
+        let key = artistKey(displayName)
+
+        if let cached = cache[key] { return cached }
+        if let existing = try SorrivaDatabase.shared.artist(namedNormalized: displayName) {
+            cache[key] = existing
             return existing
         }
         let now = Int(Date().timeIntervalSince1970)
         let artist = Artist(
-            id: UUID().uuidString, name: name,
-            sortName: makeSortName(name),
+            id: UUID().uuidString, name: displayName,
+            sortName: makeSortName(displayName),
             imageURL: nil, albumCount: 0, trackCount: 0,
             createdAt: now, updatedAt: now
         )
         try SorrivaDatabase.shared.upsertArtist(artist)
-        cache[name] = artist
+        cache[key] = artist
         return artist
     }
 
@@ -433,19 +465,15 @@ actor SMBScanner {
         let folderKey = "folder|\(folderPath)"
         if let cached = cache[folderKey] { return cached }
 
-        // DB lookup by folderPath — authoritative deduplication key
+        // DB lookup by folderPath — the sole deduplication key.
+        //
+        // The former title + artist fallback was removed deliberately. It merged
+        // two folders into one album whenever their ALBUM tags matched, which the
+        // data on disk never asserts. On a library where every compilation
+        // resolves to the same "Various Artists" row, any two compilations sharing
+        // an ALBUM tag collapsed into a single album. One folder is one album.
         if let existing = try SorrivaDatabase.shared.album(folderPath: folderPath) {
             cache[folderKey] = existing
-            cache["\(artist.id)|\(existing.title)"] = existing
-            return existing
-        }
-
-        // Fallback: lookup by title + artist
-        let titleKey = "\(artist.id)|\(title)"
-        if let cached = cache[titleKey] { return cached }
-        if let existing = try SorrivaDatabase.shared.album(title: title, artistId: artist.id) {
-            cache[folderKey] = existing
-            cache[titleKey] = existing
             return existing
         }
 
@@ -468,7 +496,6 @@ actor SMBScanner {
             artistId: artist.id, albumId: album.id, role: "primary"
         )
         cache[folderKey] = album
-        cache[titleKey] = album
         return album
     }
 
@@ -564,20 +591,45 @@ actor SMBScanner {
             var result: Data? = nil
 
             Task.detached {
+                let name = (path as NSString).lastPathComponent
+                let client = SMBClient(host: host)
+
+                // Each stage is caught separately. A single catch labelled
+                // "read error" previously reported auth and share-connect failures
+                // as read failures, which made STATUS_LOGON_FAILURE from the server
+                // look like a file problem.
                 do {
-                    let client = SMBClient(host: host)
-                    try await client.login(username: username.isEmpty ? "guest" : username, password: password)
+                    try await client.login(
+                        username: username.isEmpty ? "guest" : username,
+                        password: password
+                    )
+                } catch {
+                    self.scanLog("SCAN: auth error — \(name): \(error.localizedDescription)")
+                    semaphore.signal()
+                    return
+                }
+
+                do {
                     try await client.connectShare(share)
+                } catch {
+                    self.scanLog("SCAN: share error — \(share) for \(name): \(error.localizedDescription)")
+                    try? await client.logoff()
+                    semaphore.signal()
+                    return
+                }
+
+                do {
                     let reader = client.fileReader(path: path)
                     let readLength = UInt32(min(65536, fileSize))
                     let data = try await reader.read(offset: 0, length: readLength)
                     try? await reader.close()
-                    try? await client.disconnectShare()
-                    try? await client.logoff()
                     result = data
                 } catch {
-                    self.scanLog("SCAN: read error — \((path as NSString).lastPathComponent): \(error.localizedDescription)")
+                    self.scanLog("SCAN: read error — \(name): \(error.localizedDescription)")
                 }
+
+                try? await client.disconnectShare()
+                try? await client.logoff()
                 semaphore.signal()
             }
 
@@ -1017,6 +1069,8 @@ actor SMBScanner {
         }
 
         scanLog("RETRY: tracks START — \(skips.count) pending for \(source.displayName)")
+        // Keychain-aware resolution, resolved once for the retry loop.
+        let creds = source.resolvedCredentials
         var resolved = 0
         var stillFailing = 0
 
@@ -1032,8 +1086,8 @@ actor SMBScanner {
             let headerData = await readFileWithFreshConnection(
                 host: source.host,
                 share: source.share,
-                username: source.username?.isEmpty == false ? source.username! : "guest",
-                password: source.password ?? "",
+                username: creds.username.isEmpty ? "guest" : creds.username,
+                password: creds.password,
                 path: skip.filePath,
                 fileSize: fileSize
             )

@@ -237,7 +237,7 @@ final class ScanCoordinator: ObservableObject {
         // One persistent connection for the entire pass.
         var client = SMBClient(host: source.host)
         do {
-            try await client.login(username: source.username ?? "", password: source.password ?? "")
+            try await client.login(username: source.loginCredentials.username, password: source.loginCredentials.password)
             try await client.connectShare(source.share)
         } catch {
             scanLog("ARTWORK: folder pass — failed to connect: \(error.localizedDescription)")
@@ -312,7 +312,7 @@ final class ScanCoordinator: ObservableObject {
                         // Timeout — reconnect and try next candidate
                         scanLog("ARTWORK: folder — reconnecting after timeout")
                         client = SMBClient(host: source.host)
-                        if (try? await client.login(username: source.username ?? "", password: source.password ?? "")) != nil,
+                        if (try? await client.login(username: source.loginCredentials.username, password: source.loginCredentials.password)) != nil,
                            (try? await client.connectShare(source.share)) != nil {
                             scanLog("ARTWORK: folder — reconnected")
                         }
@@ -337,7 +337,7 @@ final class ScanCoordinator: ObservableObject {
                 try? await client.disconnectShare()
                 try? await client.logoff()
                 client = SMBClient(host: source.host)
-                if (try? await client.login(username: source.username ?? "", password: source.password ?? "")) != nil,
+                if (try? await client.login(username: source.loginCredentials.username, password: source.loginCredentials.password)) != nil,
                    (try? await client.connectShare(source.share)) != nil {
                     scanLog("ARTWORK: folder — reconnected")
                 }
@@ -401,7 +401,7 @@ final class ScanCoordinator: ObservableObject {
         // One persistent connection for the entire pass
         var client = SMBClient(host: source.host)
         do {
-            try await client.login(username: source.username ?? "", password: source.password ?? "")
+            try await client.login(username: source.loginCredentials.username, password: source.loginCredentials.password)
             try await client.connectShare(source.share)
         } catch {
             scanLog("ARTWORK: embedded pass — failed to connect: \(error.localizedDescription)")
@@ -452,7 +452,7 @@ final class ScanCoordinator: ObservableObject {
                         // Timeout — connection is in bad state, create fresh client without disconnecting
                         scanLog("ARTWORK: embedded — creating fresh connection after timeout")
                         client = SMBClient(host: source.host)
-                        if (try? await client.login(username: source.username ?? "", password: source.password ?? "")) != nil,
+                        if (try? await client.login(username: source.loginCredentials.username, password: source.loginCredentials.password)) != nil,
                            (try? await client.connectShare(source.share)) != nil {
                             scanLog("ARTWORK: embedded — reconnected")
                         }
@@ -466,7 +466,7 @@ final class ScanCoordinator: ObservableObject {
                     try? await client.disconnectShare()
                     try? await client.logoff()
                     client = SMBClient(host: source.host)
-                    if (try? await client.login(username: source.username ?? "", password: source.password ?? "")) != nil,
+                    if (try? await client.login(username: source.loginCredentials.username, password: source.loginCredentials.password)) != nil,
                        (try? await client.connectShare(source.share)) != nil {
                         scanLog("ARTWORK: embedded — reconnected")
                     }
@@ -638,7 +638,7 @@ final class ScanCoordinator: ObservableObject {
             guard !storedStats.isEmpty else { return [] }
 
             let client = SMBClient(host: source.host)
-            try await client.login(username: source.username ?? "", password: source.password ?? "")
+            try await client.login(username: source.loginCredentials.username, password: source.loginCredentials.password)
             defer { Task { try? await client.logoff() } }
             try await client.connectShare(source.share)
             defer { Task { try? await client.disconnectShare() } }

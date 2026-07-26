@@ -133,4 +133,13 @@ extension LibrarySource {
         // Plaintext fallback — present until v12 migration runs
         return (username: username ?? "", password: password ?? "")
     }
+
+    /// Login-ready credentials — resolvedCredentials with the empty-username
+    /// guest fallback applied. Every SMB login site should use this rather than
+    /// reading the username/password columns, which the v12 migration cleared.
+    var loginCredentials: (username: String, password: String) {
+        let creds = resolvedCredentials
+        return (username: creds.username.isEmpty ? "guest" : creds.username,
+                password: creds.password)
+    }
 }

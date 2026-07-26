@@ -160,7 +160,7 @@ actor ScanRetryScheduler {
 
         var client = SMBClient(host: source.host)
         do {
-            try await client.login(username: source.username ?? "", password: source.password ?? "")
+            try await client.login(username: source.loginCredentials.username, password: source.loginCredentials.password)
             try await client.connectShare(source.share)
         } catch {
             scanLog("RETRY: embedded art — SMB connect failed: \(error.localizedDescription)")
@@ -205,7 +205,7 @@ actor ScanRetryScheduler {
                     try? await client.disconnectShare()
                     try? await client.logoff()
                     client = SMBClient(host: source.host)
-                    if (try? await client.login(username: source.username ?? "", password: source.password ?? "")) != nil,
+                    if (try? await client.login(username: source.loginCredentials.username, password: source.loginCredentials.password)) != nil,
                        (try? await client.connectShare(source.share)) != nil {
                         scanLog("RETRY: embedded art — reconnected")
                     }

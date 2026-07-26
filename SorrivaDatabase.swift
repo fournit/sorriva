@@ -1334,6 +1334,19 @@ final class SorrivaDatabase {
         }
     }
 
+    /// Case-insensitive artist lookup, trimmed of surrounding whitespace.
+    /// Used by the scanner so "Yazoo", "yazoo", and "Yazoo " resolve to a single
+    /// artist row across scans rather than only within one scan's cache.
+    /// COLLATE NOCASE is ASCII-only, which is sufficient for tag matching here.
+    func artist(namedNormalized name: String) throws -> Artist? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return try dbQueue.read { db in
+            try Artist
+                .filter(sql: "name = ? COLLATE NOCASE", arguments: [trimmed])
+                .fetchOne(db)
+        }
+    }
+
     func artist(id: String) throws -> Artist? {
         try dbQueue.read { db in try Artist.fetchOne(db, key: id) }
     }
@@ -1476,12 +1489,30 @@ final class SorrivaDatabase {
         }
     }
 
-    /// Delete artists that have no remaining albums — called after deleteOrphanedAlbums.
+    /// Delete artists that are referenced by nothing — called after deleteOrphanedAlbums.
+    ///
+    /// An artist is orphaned only when no album, no track, and no track_artists row
+    /// refers to it. Checking albums alone is not sufficient: since track artist and
+    /// album artist are resolved independently, a compilation track's performer owns
+    /// no album at all. Deleting that artist cascades through
+    /// tracks.primaryArtistId (onDelete: .cascade) and removes every one of their
+    /// tracks, which silently wiped all compilation tracks after each scan.
+    ///
+    /// NOT EXISTS rather than NOT IN — NOT IN evaluates to NULL and deletes nothing
+    /// if any referenced column is ever NULL.
     func deleteOrphanedArtists() throws {
         try dbQueue.write { db in
             try db.execute(sql: """
                 DELETE FROM artists
-                WHERE id NOT IN (SELECT DISTINCT primaryArtistId FROM albums)
+                WHERE NOT EXISTS (
+                        SELECT 1 FROM albums WHERE albums.primaryArtistId = artists.id
+                      )
+                  AND NOT EXISTS (
+                        SELECT 1 FROM tracks WHERE tracks.primaryArtistId = artists.id
+                      )
+                  AND NOT EXISTS (
+                        SELECT 1 FROM track_artists WHERE track_artists.artistId = artists.id
+                      )
             """)
         }
     }

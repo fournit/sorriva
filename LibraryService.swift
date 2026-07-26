@@ -22,8 +22,23 @@ final class LibraryService {
         (try? repository.allAlbums()) ?? []
     }
 
+    /// Placeholder names used as the album artist on compilations. These are not
+    /// real performers, so they are hidden from artist browse. The artist rows and
+    /// their album relationships are left intact — album views still show
+    /// "Various Artists" as the album artist, and the artist remains reachable by
+    /// direct navigation.
+    private static let compilationArtistNames: Set<String> = [
+        "va", "various", "various artists"
+    ]
+
     func listArtists() -> [Artist] {
-        (try? repository.allArtists()) ?? []
+        let all = (try? repository.allArtists()) ?? []
+        return all.filter { artist in
+            let key = artist.name
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            return !Self.compilationArtistNames.contains(key)
+        }
     }
 
     func listTracks() -> [Track] {

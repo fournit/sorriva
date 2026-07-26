@@ -208,8 +208,8 @@ struct BackupView: View {
                         backupHost     = source.host
                         backupShare    = source.share
                         backupPath     = path
-                        backupUsername = source.username ?? ""
-                        backupPassword = source.password ?? ""
+                        backupUsername = source.resolvedCredentials.username
+                        backupPassword = source.resolvedCredentials.password
                         showLocationPicker = false
                     }
                 ),

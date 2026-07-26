@@ -201,8 +201,9 @@ final class SorrivaHTTPServer {
 
         let smbHost = source.host
         let smbShare = source.share
-        let smbUser = source.username ?? ""
-        let smbPass = source.password ?? ""
+        let smbCreds = source.loginCredentials
+        let smbUser = smbCreds.username
+        let smbPass = smbCreds.password
         let filePath = track.filePath
         let chunkSize = 1 * 1024 * 1024
         let statusLine = rangeStart > 0 ? "206 Partial Content" : "200 OK"
