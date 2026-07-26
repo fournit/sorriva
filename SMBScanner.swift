@@ -74,27 +74,29 @@ actor SMBScanner {
         "flac", "mp3", "m4a", "aac", "wav", "aiff", "aif", "alac"
     ]
 
+    // MARK: - Test seam
+    // bScannerTestSeam — production default produces the real SMB reader,
+    // so the existing `SMBScanner()` call site in ScanCoordinator is unchanged.
+    // Tests inject a fixture-backed reader instead.
+    private let readerFactory: @Sendable (LibrarySource) -> MediaSourceReader
+
+    init(readerFactory: @escaping @Sendable (LibrarySource) -> MediaSourceReader = { SMBMediaSourceReader(source: $0) }) {
+        self.readerFactory = readerFactory
+    }
+
     // MARK: - Public API
 
     /// Quick stat of all top-level album folders under source rootPath.
     /// Returns one FolderScanResult per immediate subfolder (album level).
     /// Used by ScanCoordinator for incremental change detection.
     func statFolders(source: LibrarySource) async throws -> [FolderScanResult] {
-        let client = SMBClient(host: source.host)
-        // Keychain-aware credential resolution. Reading source.username/password
-        // directly returns the plaintext columns, which the v12 migration cleared
-        // after moving the secrets to the Keychain.
-        let creds = source.resolvedCredentials
-        try await client.login(
-            username: creds.username.isEmpty ? "guest" : creds.username,
-            password: creds.password
-        )
-        defer { Task { try? await client.logoff() } }
-        try await client.connectShare(source.share)
-        defer { Task { try? await client.disconnectShare() } }
-
+        let reader = readerFactory(source)
         let root = rootPath(source)
-        return try await statTopLevelFolders(client: client, path: root)
+        let results = try await statTopLevelFolders(reader: reader, path: root)
+        if let smbReader = reader as? SMBMediaSourceReader {
+            await smbReader.closeWalkConnection()
+        }
+        return results
     }
 
     /// Full scan of entire source — used for initial load and manual "Scan Now".
@@ -133,15 +135,9 @@ actor SMBScanner {
             currentFile: folderPaths == nil ? "Listing all files…" : "Listing changed folders…"
         ))
 
-        let walkClient = SMBClient(host: source.host)
-        // Resolved once for the whole scan and reused by every per-file read below.
-        // Keychain-aware; source.username/password read the plaintext columns that
-        // the v12 migration cleared after migrating secrets to the Keychain.
-        let creds = source.resolvedCredentials
-        try await walkClient.login(username: creds.username.isEmpty ? "guest" : creds.username, password: creds.password)
-        defer { Task { try? await walkClient.logoff() } }
-        try await walkClient.connectShare(source.share)
-        defer { Task { try? await walkClient.disconnectShare() } }
+        // Keychain-aware credential resolution now happens inside the reader
+        // (SMBMediaSourceReader.init), resolved once and reused for every read.
+        let reader = readerFactory(source)
 
         let root = rootPath(source)
         var allFiles: [(path: String, size: Int)] = []
@@ -153,11 +149,17 @@ actor SMBScanner {
                     scanLog("SCAN: cancelled during folder walk")
                     throw CancellationError()
                 }
-                try await collectAudioFiles(client: walkClient, path: folder, results: &allFiles)
+                try await collectAudioFiles(reader: reader, path: folder, results: &allFiles)
             }
         } else {
             // Full scan
-            try await collectAudioFiles(client: walkClient, path: root, results: &allFiles)
+            try await collectAudioFiles(reader: reader, path: root, results: &allFiles)
+        }
+
+        // Directory walk is complete — tear down the shared walk connection now.
+        // Per-file header reads below each open their own fresh connection.
+        if let smbReader = reader as? SMBMediaSourceReader {
+            await smbReader.closeWalkConnection()
         }
 
         let totalFiles = allFiles.count
@@ -203,14 +205,7 @@ actor SMBScanner {
             // Per-file fresh connection — eliminates session degradation on UNAS Pro.
             // 100ms throttle gives NAS time to release each connection before the next opens.
             var meta = ParsedMetadata()
-            let headerData = await readFileWithFreshConnection(
-                host: source.host,
-                share: source.share,
-                username: creds.username,
-                password: creds.password,
-                path: file.path,
-                fileSize: Int(file.size)
-            )
+            let headerData = await readFileHeader(reader: reader, path: file.path, fileSize: file.size)
             if let data = headerData {
                 let parsed = parseTagData(data: data, ext: ext)
                 if parsed.title != nil || parsed.artist != nil || parsed.album != nil || parsed.duration != nil {
@@ -361,48 +356,53 @@ actor SMBScanner {
     // MARK: - Directory walk
 
     /// Public wrapper for use by ScanCoordinator during change detection.
+    /// Signature unchanged (still takes a connected SMBClient) so ScanCoordinator
+    /// needs no changes — internally adapted onto the same reader-based walk
+    /// used by the scanner's own scan/statFolders paths, so there is exactly
+    /// one recursive directory-walk implementation.
     func collectAudioFilesPublic(
         client: SMBClient,
         path: String,
         results: inout [(path: String, size: Int)]
     ) async throws {
-        try await collectAudioFiles(client: client, path: path, results: &results)
+        let adapter = SMBClientListingOnlyReader(client: client)
+        try await collectAudioFiles(reader: adapter, path: path, results: &results)
     }
 
     private func collectAudioFiles(
-        client: SMBClient,
+        reader: MediaSourceReader,
         path: String,
         results: inout [(path: String, size: Int)]
     ) async throws {
-        let entries = try await client.listDirectory(path: path)
+        let entries = try await reader.listDirectory(path: path)
         for entry in entries {
             let name = entry.name
             guard name != "." && name != ".." && !name.hasPrefix(".") else { continue }
             let fullPath = path == "/" ? "/\(name)" : "\(path)/\(name)"
             if entry.isDirectory {
-                try await collectAudioFiles(client: client, path: fullPath, results: &results)
+                try await collectAudioFiles(reader: reader, path: fullPath, results: &results)
             } else {
                 let ext = (name as NSString).pathExtension.lowercased()
                 if Self.audioExtensions.contains(ext) {
-                    results.append((path: fullPath, size: Int(entry.size)))
+                    results.append((path: fullPath, size: entry.size))
                 }
             }
         }
     }
 
     private func statTopLevelFolders(
-        client: SMBClient,
+        reader: MediaSourceReader,
         path: String
     ) async throws -> [FolderScanResult] {
         var results: [FolderScanResult] = []
-        let entries = try await client.listDirectory(path: path)
+        let entries = try await reader.listDirectory(path: path)
         for entry in entries {
             let name = entry.name
             guard name != "." && name != ".." && !name.hasPrefix(".") else { continue }
             guard entry.isDirectory else { continue }
             let fullPath = path == "/" ? "/\(name)" : "\(path)/\(name)"
             var files: [(path: String, size: Int)] = []
-            try await collectAudioFiles(client: client, path: fullPath, results: &files)
+            try await collectAudioFiles(reader: reader, path: fullPath, results: &files)
             if !files.isEmpty {
                 results.append(FolderScanResult(
                     folderPath: fullPath,
@@ -412,6 +412,24 @@ actor SMBScanner {
             }
         }
         return results
+    }
+
+    /// Adapts an already-connected SMBClient for directory listing only —
+    /// used solely by collectAudioFilesPublic so ScanCoordinator's
+    /// change-detection path shares the same recursive walk as the scanner's
+    /// own scan/statFolders paths. readHeader is never called through this
+    /// adapter; collectAudioFilesPublic only lists directories.
+    private struct SMBClientListingOnlyReader: MediaSourceReader {
+        let client: SMBClient
+        func listDirectory(path: String) async throws -> [MediaSourceEntry] {
+            let entries = try await client.listDirectory(path: path)
+            return entries.map {
+                MediaSourceEntry(name: $0.name, isDirectory: $0.isDirectory, size: Int($0.size))
+            }
+        }
+        func readHeader(path: String, byteCount: Int) async throws -> Data {
+            throw MediaSourceReaderError.unsupported
+        }
     }
 
     // MARK: - Track deletion helpers
@@ -579,66 +597,35 @@ actor SMBScanner {
 
     // MARK: - Folder artwork fetch
 
-    // MARK: - Per-file fresh connection read
+    // MARK: - Per-file header read via injected reader
 
-    private func readFileWithFreshConnection(
-        host: String, share: String,
-        username: String, password: String,
-        path: String, fileSize: Int
-    ) async -> Data? {
-        return await withCheckedContinuation { continuation in
-            let semaphore = DispatchSemaphore(value: 0)
-            var result: Data? = nil
-
-            Task.detached {
-                let name = (path as NSString).lastPathComponent
-                let client = SMBClient(host: host)
-
-                // Each stage is caught separately. A single catch labelled
-                // "read error" previously reported auth and share-connect failures
-                // as read failures, which made STATUS_LOGON_FAILURE from the server
-                // look like a file problem.
-                do {
-                    try await client.login(
-                        username: username.isEmpty ? "guest" : username,
-                        password: password
-                    )
-                } catch {
-                    self.scanLog("SCAN: auth error — \(name): \(error.localizedDescription)")
-                    semaphore.signal()
-                    return
-                }
-
-                do {
-                    try await client.connectShare(share)
-                } catch {
-                    self.scanLog("SCAN: share error — \(share) for \(name): \(error.localizedDescription)")
-                    try? await client.logoff()
-                    semaphore.signal()
-                    return
-                }
-
-                do {
-                    let reader = client.fileReader(path: path)
-                    let readLength = UInt32(min(65536, fileSize))
-                    let data = try await reader.read(offset: 0, length: readLength)
-                    try? await reader.close()
-                    result = data
-                } catch {
-                    self.scanLog("SCAN: read error — \(name): \(error.localizedDescription)")
-                }
-
-                try? await client.disconnectShare()
-                try? await client.logoff()
-                semaphore.signal()
+    /// Read up to 64KB from the start of a file through the injected reader,
+    /// translating I/O errors into the same log lines the scanner has always
+    /// produced. Returns nil on any failure — callers already treat nil as skip.
+    /// bScannerTestSeam — the actual connection handling now lives in
+    /// SMBMediaSourceReader.readHeader; this wrapper only adds logging.
+    private func readFileHeader(reader: MediaSourceReader, path: String, fileSize: Int) async -> Data? {
+        let byteCount = min(65536, fileSize)
+        do {
+            return try await reader.readHeader(path: path, byteCount: byteCount)
+        } catch let error as MediaSourceReaderError {
+            let name = (path as NSString).lastPathComponent
+            switch error {
+            case .auth(_, let underlying):
+                scanLog("SCAN: auth error — \(name): \(underlying.localizedDescription)")
+            case .share(_, let underlying):
+                scanLog("SCAN: share error for \(name): \(underlying.localizedDescription)")
+            case .read(_, let underlying):
+                scanLog("SCAN: read error — \(name): \(underlying.localizedDescription)")
+            case .timeout:
+                scanLog("SCAN: TIMEOUT 15s — \(path)")
+            case .unsupported:
+                scanLog("SCAN: readHeader unsupported for this reader — \(path)")
             }
-
-            DispatchQueue.global(qos: .utility).async {
-                if semaphore.wait(timeout: .now() + 15) == .timedOut {
-                    self.scanLog("SCAN: TIMEOUT 15s — \(path)")
-                }
-                continuation.resume(returning: result)
-            }
+            return nil
+        } catch {
+            scanLog("SCAN: read error — \(path): \(error.localizedDescription)")
+            return nil
         }
     }
 
@@ -1069,8 +1056,8 @@ actor SMBScanner {
         }
 
         scanLog("RETRY: tracks START — \(skips.count) pending for \(source.displayName)")
-        // Keychain-aware resolution, resolved once for the retry loop.
-        let creds = source.resolvedCredentials
+        // Keychain-aware resolution now happens inside the reader.
+        let reader = readerFactory(source)
         var resolved = 0
         var stillFailing = 0
 
@@ -1083,14 +1070,7 @@ actor SMBScanner {
 
             let fileSize = Int((try? SorrivaDatabase.shared.track(filePath: skip.filePath))?.fileSize ?? 65536)
 
-            let headerData = await readFileWithFreshConnection(
-                host: source.host,
-                share: source.share,
-                username: creds.username.isEmpty ? "guest" : creds.username,
-                password: creds.password,
-                path: skip.filePath,
-                fileSize: fileSize
-            )
+            let headerData = await readFileHeader(reader: reader, path: skip.filePath, fileSize: fileSize)
 
             if let data = headerData {
                 let parsed = parseTagData(data: data, ext: ext)

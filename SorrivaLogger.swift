@@ -14,7 +14,7 @@ final class SorrivaLogger {
 
     private let logFileName     = "sorriva-debug.log"
     private let prevLogFileName = "sorriva-debug-prev.log"
-    private let maxBytes        = 1 * 1024 * 1024  // 1MB — keeps log accessible
+    private let maxBytes        = 256 * 1024  // 256KB — small enough to view/export without lag
     private let queue           = DispatchQueue(label: "sorriva.logger", qos: .utility)
     private var fileHandle: FileHandle?
 
@@ -55,15 +55,13 @@ final class SorrivaLogger {
     // MARK: - Private
 
     private func openLog() {
-        // Truncate on open if already over limit — prevents lock on export
-        if let size = try? logURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-           size > maxBytes {
+        // Rotate on every app launch — keeps the log scoped to "since last launch"
+        // for debugging, rather than silently accumulating across many days of use.
+        if FileManager.default.fileExists(atPath: logURL.path) {
             rotate()
             return
         }
-        if !FileManager.default.fileExists(atPath: logURL.path) {
-            FileManager.default.createFile(atPath: logURL.path, contents: nil)
-        }
+        FileManager.default.createFile(atPath: logURL.path, contents: nil)
         fileHandle = try? FileHandle(forWritingTo: logURL)
         fileHandle?.seekToEndOfFile()
         if let data = "[\(timestamp())] --- Sorriva log opened ---\n".data(using: .utf8) {

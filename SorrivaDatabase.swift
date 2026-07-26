@@ -21,8 +21,24 @@ final class SorrivaDatabase {
 
     private init() {
         let fm = FileManager.default
-        let appSupport = try! fm
-            .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+
+        // Test isolation — never let a test process touch the real app database.
+        // XCTestConfigurationFilePath is set by Xcode/xcodebuild for every test
+        // run; it is not present in a normal app launch. Each test run gets a
+        // fresh, unique temp-directory file, so tests never share state with
+        // the real device library or with each other across separate runs.
+        let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+
+        let appSupport: URL
+        if isRunningTests {
+            appSupport = fm.temporaryDirectory
+                .appendingPathComponent("sorriva-tests-\(UUID().uuidString)", isDirectory: true)
+            try? fm.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        } else {
+            appSupport = try! fm
+                .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        }
+
         let dbURL  = appSupport.appendingPathComponent("sorriva.sqlite")
         let walURL = appSupport.appendingPathComponent("sorriva.sqlite-wal")
         let shmURL = appSupport.appendingPathComponent("sorriva.sqlite-shm")

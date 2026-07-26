@@ -298,6 +298,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
 
                 let wasPlaying = zones[idx].isPlaying
 
+
                 // Detect idle → playing transition for GetMediaInfo fetch
                 if finalPlaying && !wasPlaying {
                     newlyPlayingZones.append(zones[idx])
@@ -477,32 +478,23 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             return nil
         }
 
-        var stationName = ""
-        if let start = decoded.range(of: "<dc:title>"),
-           let end = decoded.range(of: "</dc:title>") {
-            let title = String(decoded[start.upperBound..<end.lowerBound])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            print("SORRIVA: GetMediaInfo title='\(title)'")
-            if !title.hasPrefix("http") && !title.contains(".m3u8") &&
-               !title.contains("?rj-") && !title.hasPrefix("RINCON_") && !title.isEmpty {
-                stationName = title
-            }
-        } else {
-            print("SORRIVA: GetMediaInfo — no dc:title found in decoded")
-        }
+        let rawTitle: String? = {
+            guard let start = decoded.range(of: "<dc:title>"),
+                  let end = decoded.range(of: "</dc:title>") else { return nil }
+            return String(decoded[start.upperBound..<end.lowerBound])
+        }()
+        let rawArt: String? = {
+            guard let start = decoded.range(of: "<upnp:albumArtURI>"),
+                  let end = decoded.range(of: "</upnp:albumArtURI>") else { return nil }
+            return String(decoded[start.upperBound..<end.lowerBound])
+        }()
 
-        var artURL = ""
-        if let start = decoded.range(of: "<upnp:albumArtURI>"),
-           let end = decoded.range(of: "</upnp:albumArtURI>") {
-            artURL = String(decoded[start.upperBound..<end.lowerBound])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            print("SORRIVA: GetMediaInfo artURL='\(artURL)'")
-        }
-
-        guard !stationName.isEmpty else {
-            print("SORRIVA: GetMediaInfo — stationName empty, returning nil")
+        let resolved = StationMetadataResolver.resolve(rawTitle: rawTitle, rawArtPath: rawArt, zoneHost: host)
+        guard let stationName = resolved.name else {
+            print("SORRIVA: GetMediaInfo — no valid station name for \(host)")
             return nil
         }
+        let artURL = resolved.artURL ?? ""
         return (name: stationName, artURL: artURL)
     }
 
@@ -777,38 +769,34 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             .replacingOccurrences(of: "&apos;", with: "'")
             .replacingOccurrences(of: "&amp;",  with: "&")
 
-        // Parse TrackMetaData — dc:title and albumArtURI from DIDL
-        // dc:title is only reliable for station name when zone is IDLE
-        // When actively playing iHeart, dc:title contains the HLS stream URL not station name
+        // Parse TrackMetaData via consolidated StationMetadataResolver — single
+        // source of truth for validating dc:title / albumArtURI across all call sites.
         if let tmStart = decoded.range(of: "<TrackMetaData>"),
            let tmEnd = decoded.range(of: "</TrackMetaData>") {
             let meta = String(decoded[tmStart.upperBound..<tmEnd.lowerBound])
 
-            // Station name from dc:title — idle zones only
-            if let tStart = meta.range(of: "<dc:title>"),
-               let tEnd = meta.range(of: "</dc:title>") {
-                let title = String(meta[tStart.upperBound..<tEnd.lowerBound])
-                    .trimmingCharacters(in: .whitespaces)
-                // Only use for non-local, idle zones — active streams put HLS URL in dc:title
-                let isIdle = !zones[idx].isPlaying
-                if !title.isEmpty && isIdle && !zones[idx].currentTrackURI.hasPrefix("x-file-cifs://") {
-                    if zones[idx].stationName.isEmpty {
-                        zones[idx].stationName = title
-                    }
-                }
-            }
+            let rawTitle: String? = {
+                guard let s = meta.range(of: "<dc:title>"),
+                      let e = meta.range(of: "</dc:title>") else { return nil }
+                return String(meta[s.upperBound..<e.lowerBound])
+            }()
+            let rawArt: String? = {
+                guard let s = meta.range(of: "<upnp:albumArtURI>"),
+                      let e = meta.range(of: "</upnp:albumArtURI>") else { return nil }
+                return String(meta[s.upperBound..<e.lowerBound])
+            }()
 
-            // Album art URL from albumArtURI — works for both idle and playing
-            if let aStart = meta.range(of: "<upnp:albumArtURI>"),
-               let aEnd = meta.range(of: "</upnp:albumArtURI>") {
-                let artPath = String(meta[aStart.upperBound..<aEnd.lowerBound])
-                    .trimmingCharacters(in: .whitespaces)
-                if !artPath.isEmpty && zones[idx].stationLogoURL.isEmpty {
-                    if artPath.hasPrefix("/") {
-                        zones[idx].stationLogoURL = "http://\(zones[idx].host):1400\(artPath)"
-                    } else if artPath.hasPrefix("http") {
-                        zones[idx].stationLogoURL = artPath
-                    }
+            let resolved = StationMetadataResolver.resolve(
+                rawTitle: rawTitle, rawArtPath: rawArt, zoneHost: zones[idx].host)
+
+            // Only write for non-local zones — local file playback has its own metadata path.
+            let isLocalZone = zones[idx].currentTrackURI.hasPrefix("x-file-cifs://")
+            if !isLocalZone {
+                if let name = resolved.name, zones[idx].stationName.isEmpty {
+                    zones[idx].stationName = name
+                }
+                if let art = resolved.artURL, zones[idx].stationLogoURL.isEmpty {
+                    zones[idx].stationLogoURL = art
                 }
             }
         }
@@ -869,6 +857,13 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
     // MARK: - Station playback
 
     func playStation(streamID: Int, on zone: SonosZone) {
+        // Same protection as persistStationPlay/setPlaybackGrace/togglePlayPause —
+        // clear stale IdleState immediately and set a grace period so the UI doesn't
+        // report a false "stopped" while topology catches up on this zone's first play.
+        if let idx = zones.firstIndex(where: { $0.id == zone.id }) {
+            zones[idx].idleState = false
+            zones[idx].playingUntil = Date().addingTimeInterval(6)
+        }
         Task {
             print("SORRIVA: Fetching stream URL for station \(streamID)")
             guard let streamURL = await IHeartAPI.fetchStreamURL(streamID: streamID) else {
@@ -892,6 +887,10 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             zones[idx].currentArtist = ""
             zones[idx].isHDMI = false
             zones[idx].playingUntil = Date().addingTimeInterval(5)
+            // Force idleState false immediately — stale topology IdleState for a zone's
+            // first playback this session would otherwise cause a false "stopped" report
+            // once the grace period above expires, until the next periodic topology refresh.
+            zones[idx].idleState = false
         }
 
         Task {
@@ -1171,6 +1170,14 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         // Optimistic UI
         if let idx = zones.firstIndex(where: { $0.id == zoneID }) {
             zones[idx].isPlaying = !isPlaying
+            if !isPlaying {
+                // Transitioning idle → playing: same protection as persistStationPlay/
+                // setPlaybackGrace — stale IdleState from before this zone was active
+                // would otherwise cause a false "stopped" report once raw transport
+                // catches up, until the next periodic topology refresh corrects it.
+                zones[idx].idleState = false
+                zones[idx].playingUntil = Date().addingTimeInterval(6)
+            }
         }
         Task {
             let action = isPlaying ? "Pause" : "Play"
@@ -1232,6 +1239,9 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
     func setPlaybackGrace(zoneID: String, duration: TimeInterval = 6.0) {
         if let idx = zones.firstIndex(where: { $0.id == zoneID }) {
             zones[idx].playingUntil = Date().addingTimeInterval(duration)
+            // Same rationale as persistStationPlay — clear any stale idle flag now
+            // rather than waiting for the next periodic topology refresh to catch up.
+            zones[idx].idleState = false
             sLog("ZONES: grace period set for \(zones[idx].name) (\(duration)s)")
         }
     }

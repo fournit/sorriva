@@ -691,6 +691,7 @@ struct AboutView: View {
 #if DEBUG
 struct DebugLogView: View {
     @State private var logText: String = ""
+    @State private var totalLineCount: Int = 0
     @State private var showShareSheet = false
     @Environment(\.dismiss) private var dismiss
 
@@ -742,7 +743,7 @@ struct DebugLogView: View {
                     }
                     .buttonStyle(.plain)
                     Spacer()
-                    Text("\(logText.components(separatedBy: "\n").count) lines")
+                    Text("\(totalLineCount) lines (showing last \(min(totalLineCount, 500)))")
                         .font(.system(size: 12))
                         .foregroundColor(.sTextMuted)
                 }
@@ -777,7 +778,17 @@ struct DebugLogView: View {
     }
 
     private func loadLog() {
-        logText = (try? String(contentsOf: SorrivaLogger.shared.logFileURL, encoding: .utf8)) ?? ""
+        let full = (try? String(contentsOf: SorrivaLogger.shared.logFileURL, encoding: .utf8)) ?? ""
+        // Only keep the last 500 lines for on-screen display — rendering an
+        // entire multi-thousand-line log as one Text view freezes the UI.
+        // Export still shares the complete (rotation-capped) file.
+        let allLines = full.components(separatedBy: "\n")
+        totalLineCount = allLines.count
+        if allLines.count > 500 {
+            logText = allLines.suffix(500).joined(separator: "\n")
+        } else {
+            logText = full
+        }
     }
     private func exportLogURL() -> URL {
         let src = SorrivaLogger.shared.logFileURL
