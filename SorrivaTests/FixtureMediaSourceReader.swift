@@ -32,7 +32,11 @@ final class FixtureMediaSourceReader: MediaSourceReader {
             at: dirURL,
             includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey]
         )
-        return try contents.map { url in
+        // Sorted for deterministic test ordering — FileManager.contentsOfDirectory
+        // makes no ordering guarantee otherwise, which would make any test that
+        // depends on processing order (e.g. "first occurrence wins") flaky.
+        let sorted = contents.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        return try sorted.map { url in
             let values = try url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
             return MediaSourceEntry(
                 name: url.lastPathComponent,

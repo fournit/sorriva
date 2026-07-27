@@ -1450,7 +1450,13 @@ final class SorrivaDatabase {
     }
 
     /// Idempotent track upsert keyed on filePath. Reuses existing id on rescan.
-    func upsertTrackIdempotent(_ track: Track) throws {
+    /// Returns the Track as actually persisted — on a rescan this has the
+    /// EXISTING row's id, not the caller's freshly-minted one. Callers that
+    /// need to reference this track's id afterward (e.g. inserting into
+    /// track_artists, which has a foreign key on tracks.id) must use the
+    /// returned value, not the id on the Track they passed in.
+    @discardableResult
+    func upsertTrackIdempotent(_ track: Track) throws -> Track {
         try dbQueue.write { db in
             if let existing = try Track
                 .filter(Track.Columns.filePath == track.filePath)
@@ -1459,8 +1465,10 @@ final class SorrivaDatabase {
                 updated.id = existing.id
                 updated.createdAt = existing.createdAt
                 try updated.save(db)
+                return updated
             } else {
                 try track.save(db)
+                return track
             }
         }
     }
@@ -1803,6 +1811,7 @@ final class SorrivaDatabase {
             try db.execute(sql: "DELETE FROM albums")
             try db.execute(sql: "DELETE FROM artists")
             try db.execute(sql: "DELETE FROM folder_stats")
+            try db.execute(sql: "DELETE FROM scan_skips")
             try db.execute(sql: """
                 UPDATE library_sources
                 SET scanState = 'idle', trackCount = 0, lastScanned = NULL,

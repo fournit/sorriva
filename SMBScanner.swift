@@ -12,6 +12,8 @@ struct ScanReport {
     var albumsFound: Int
     var artistsFound: Int
     var filesSkipped: Int
+    var writeFailures: Int     // DB writes that failed even after immediate retry —
+                                // queued into scan_skips, same recovery path as read failures
     var artworkFound: Int       // albums with art after all passes
     var tracksRetried: Int      // skips successfully resolved
     var permanentFailures: Int  // unresolvable after 5 attempts
@@ -178,6 +180,7 @@ actor SMBScanner {
 
         var scanned = 0
         var skipped = 0
+        var writeFailures = 0
         var skippedPaths: [String] = []  // collected during loop, written to DB after scan completes
         var artistCache: [String: Artist] = [:]
         var albumCache:  [String: Album]  = [:]
@@ -222,58 +225,23 @@ actor SMBScanner {
                 scanLog("SCAN: [\(scanned + 1)/\(totalFiles)] progress — \(skipped) skipped so far")
             }
 
-            // Fill missing fields from path structure
-            meta = fillFromPath(meta: meta, filePath: file.path, rootPath: root)
-
-            // Album artist and track artist are resolved independently.
-            // ALBUMARTIST governs the album; ARTIST governs the track.
-            // On a compilation these differ — ALBUMARTIST is "Various Artists"
-            // while each track carries its own performer. Falling back to the
-            // other field only when the preferred one is absent.
-            let albumArtistName = meta.albumArtist ?? meta.artist ?? "Unknown Artist"
-            let trackArtistName = meta.artist ?? meta.albumArtist ?? "Unknown Artist"
-            let albumArtist = try resolveArtist(name: albumArtistName, cache: &artistCache)
-            let trackArtist = (trackArtistName == albumArtistName)
-                ? albumArtist
-                : try resolveArtist(name: trackArtistName, cache: &artistCache)
-
-            let albumTitle = meta.album ?? "Unknown Album"
             let folderPath = (file.path as NSString).deletingLastPathComponent
-            let album = try resolveAlbum(
-                title: albumTitle, artist: albumArtist, year: meta.year,
-                genre: meta.genre, folderPath: folderPath,
-                sourceId: source.id, cache: &albumCache
+            let (track, trackArtist) = try buildTrack(
+                meta: meta, filePath: file.path, fileSize: file.size,
+                rootPath: root, source: source,
+                artistCache: &artistCache, albumCache: &albumCache
             )
 
-            let now = Int(Date().timeIntervalSince1970)
-            let track = Track(
-                id: UUID().uuidString,
-                title: meta.title ?? filenameWithoutExtension(filename),
-                albumId: album.id,
-                albumTitle: album.title,
-                primaryArtistId: trackArtist.id,
-                artistName: trackArtist.name,
-                trackNumber: meta.trackNumber,
-                discNumber: meta.discNumber,
-                year: meta.year ?? album.year,
-                genre: meta.genre ?? album.genre,
-                duration: meta.duration,
-                fileFormat: ext == "aif" ? "aiff" : ext,
-                filePath: file.path,
-                fileSize: file.size,
-                bitrate: meta.bitrate,
-                sampleRate: meta.sampleRate,
-                sourceId: source.id,
-                createdAt: now,
-                updatedAt: now
-            )
-
-            // Always upsert — filePath is the idempotency key.
-            // If track already exists from a previous scan, this updates it in place.
-            try? SorrivaDatabase.shared.upsertTrack(track)
-            try? SorrivaDatabase.shared.upsertTrackArtist(
-                trackId: track.id, artistId: trackArtist.id, role: "primary"
-            )
+            // Idempotent upsert keyed on filePath (WP-02) — rescans update the
+            // existing row in place instead of silently failing on the UNIQUE
+            // constraint. A missing track is a missing track regardless of
+            // whether a read or a write failed, so a write failure here gets
+            // the same scan_skips retry queue read failures already use.
+            let wrote = await writeTrackWithRetry(track, trackArtistId: trackArtist.id)
+            if !wrote {
+                writeFailures += 1
+                try? SorrivaDatabase.shared.insertScanSkip(filePath: file.path, sourceId: source.id)
+            }
 
             // Write FolderStat immediately when all files in a folder are processed.
             // This enables resume — completed folders won't rescan on next foreground check.
@@ -332,7 +300,7 @@ actor SMBScanner {
         let finalAlbumCount = try SorrivaDatabase.shared.albums(sourceId: source.id).count
         let scanEnd = Date()
         let duration = String(format: "%.1fs", scanEnd.timeIntervalSince(scanStart))
-        scanLog("SCAN: END \(source.displayName) at \(formatTime(scanEnd)) — \(duration) total, \(finalTrackCount) tracks, \(skipped) skipped")
+        scanLog("SCAN: END \(source.displayName) at \(formatTime(scanEnd)) — \(duration) total, \(finalTrackCount) tracks, \(skipped) read-skipped, \(writeFailures) write-failed")
         let report = ScanReport(
             sourceId: source.id,
             sourceName: source.displayName,
@@ -341,6 +309,7 @@ actor SMBScanner {
             albumsFound: finalAlbumCount,
             artistsFound: artistCache.count,
             filesSkipped: skipped,
+            writeFailures: writeFailures,
             artworkFound: 0,      // enriched by ScanCoordinator after artwork passes
             tracksRetried: 0,     // enriched by ScanCoordinator after retry scheduler
             permanentFailures: 0, // enriched by ScanCoordinator after retry scheduler
@@ -369,6 +338,19 @@ actor SMBScanner {
         try await collectAudioFiles(reader: adapter, path: path, results: &results)
     }
 
+    /// Normalizes a share-relative path to a single consistent form — one
+    /// leading slash, no trailing slash, no accidental repeated slashes.
+    /// filePath is the idempotency key for the whole scan; any inconsistency
+    /// here would silently defeat both the UNIQUE constraint and
+    /// upsertTrackIdempotent's lookup.
+    private func normalizePath(_ path: String) -> String {
+        var result = path
+        while result.contains("//") { result = result.replacingOccurrences(of: "//", with: "/") }
+        if !result.hasPrefix("/") { result = "/" + result }
+        while result.count > 1 && result.hasSuffix("/") { result.removeLast() }
+        return result
+    }
+
     private func collectAudioFiles(
         reader: MediaSourceReader,
         path: String,
@@ -378,7 +360,7 @@ actor SMBScanner {
         for entry in entries {
             let name = entry.name
             guard name != "." && name != ".." && !name.hasPrefix(".") else { continue }
-            let fullPath = path == "/" ? "/\(name)" : "\(path)/\(name)"
+            let fullPath = normalizePath(path == "/" ? "/\(name)" : "\(path)/\(name)")
             if entry.isDirectory {
                 try await collectAudioFiles(reader: reader, path: fullPath, results: &results)
             } else {
@@ -576,7 +558,13 @@ actor SMBScanner {
                 if m.album == nil { m.album = parts[1].trimmingCharacters(in: .whitespaces) }
             }
         case 1:
-            if m.artist == nil { m.artist = components[0] }
+            // Same guard as the default case below — if ALBUMARTIST was already
+            // parsed from tags, don't overwrite the (legitimately absent) artist
+            // with the folder name. Without this, a file with only an ALBUMARTIST
+            // tag sitting directly in one folder at the share root (no separate
+            // Artist folder above it) gets its track artist silently replaced by
+            // the folder name instead of falling back to ALBUMARTIST.
+            if m.albumArtist == nil && m.artist == nil { m.artist = components[0] }
         default:
             if m.albumArtist == nil && m.artist == nil { m.artist = components[components.count - 2] }
             if m.album == nil {
@@ -627,6 +615,99 @@ actor SMBScanner {
             scanLog("SCAN: read error — \(path): \(error.localizedDescription)")
             return nil
         }
+    }
+
+    // MARK: - Track construction and write (shared by main scan loop and retry pass)
+
+    /// Resolve artist/album/track identity and construct a Track ready to
+    /// upsert. Single place that builds a Track from parsed metadata — used
+    /// by the main scan loop and by retrySkippedTracks for a skip whose row
+    /// was never created due to an earlier write failure.
+    private func buildTrack(
+        meta rawMeta: ParsedMetadata,
+        filePath: String,
+        fileSize: Int,
+        rootPath root: String,
+        source: LibrarySource,
+        artistCache: inout [String: Artist],
+        albumCache: inout [String: Album]
+    ) throws -> (track: Track, trackArtist: Artist) {
+        let filename = (filePath as NSString).lastPathComponent
+        let ext = (filename as NSString).pathExtension.lowercased()
+        let meta = fillFromPath(meta: rawMeta, filePath: filePath, rootPath: root)
+
+        // Album artist and track artist are resolved independently.
+        // ALBUMARTIST governs the album; ARTIST governs the track.
+        // On a compilation these differ — ALBUMARTIST is "Various Artists"
+        // while each track carries its own performer. Falling back to the
+        // other field only when the preferred one is absent.
+        let albumArtistName = meta.albumArtist ?? meta.artist ?? "Unknown Artist"
+        let trackArtistName = meta.artist ?? meta.albumArtist ?? "Unknown Artist"
+        let albumArtist = try resolveArtist(name: albumArtistName, cache: &artistCache)
+        let trackArtist = (trackArtistName == albumArtistName)
+            ? albumArtist
+            : try resolveArtist(name: trackArtistName, cache: &artistCache)
+
+        let albumTitle = meta.album ?? "Unknown Album"
+        let folderPath = (filePath as NSString).deletingLastPathComponent
+        let album = try resolveAlbum(
+            title: albumTitle, artist: albumArtist, year: meta.year,
+            genre: meta.genre, folderPath: folderPath,
+            sourceId: source.id, cache: &albumCache
+        )
+
+        let now = Int(Date().timeIntervalSince1970)
+        let track = Track(
+            id: UUID().uuidString,
+            title: meta.title ?? filenameWithoutExtension(filename),
+            albumId: album.id,
+            albumTitle: album.title,
+            primaryArtistId: trackArtist.id,
+            artistName: trackArtist.name,
+            trackNumber: meta.trackNumber,
+            discNumber: meta.discNumber,
+            year: meta.year ?? album.year,
+            genre: meta.genre ?? album.genre,
+            duration: meta.duration,
+            fileFormat: ext == "aif" ? "aiff" : ext,
+            filePath: filePath,
+            fileSize: fileSize,
+            bitrate: meta.bitrate,
+            sampleRate: meta.sampleRate,
+            sourceId: source.id,
+            createdAt: now,
+            updatedAt: now
+        )
+        return (track, trackArtist)
+    }
+
+    /// Write a track (and its artist join row) with a short immediate retry
+    /// for transient failures (SQLite briefly busy/locked from concurrent
+    /// access — the common case). Returns false only after 3 attempts still
+    /// fail, so the caller can queue it into scan_skips: a track missing
+    /// because of a write failure gets the same second chance as one missing
+    /// because of a read failure, through the same retry mechanism.
+    private func writeTrackWithRetry(_ track: Track, trackArtistId: String) async -> Bool {
+        for attempt in 1...3 {
+            do {
+                // upsertTrackIdempotent may persist under a DIFFERENT id than
+                // track.id if this filePath already has a row (rescan) — use
+                // the id it actually returns, not the caller's, or the
+                // track_artists insert below violates its FK on tracks.id.
+                let persisted = try SorrivaDatabase.shared.upsertTrackIdempotent(track)
+                try SorrivaDatabase.shared.upsertTrackArtist(
+                    trackId: persisted.id, artistId: trackArtistId, role: "primary"
+                )
+                return true
+            } catch {
+                if attempt < 3 {
+                    try? await Task.sleep(nanoseconds: 150_000_000)
+                } else {
+                    scanLog("SCAN: write failed after 3 attempts — \(track.filePath): \(error)")
+                }
+            }
+        }
+        return false
     }
 
     private func formatTime(_ date: Date) -> String {
@@ -1058,6 +1139,9 @@ actor SMBScanner {
         scanLog("RETRY: tracks START — \(skips.count) pending for \(source.displayName)")
         // Keychain-aware resolution now happens inside the reader.
         let reader = readerFactory(source)
+        let root = rootPath(source)
+        var artistCache: [String: Artist] = [:]
+        var albumCache: [String: Album] = [:]
         var resolved = 0
         var stillFailing = 0
 
@@ -1068,7 +1152,8 @@ actor SMBScanner {
 
             scanLog("RETRY: track attempt \(attemptNum)/5 — \(filename)")
 
-            let fileSize = Int((try? SorrivaDatabase.shared.track(filePath: skip.filePath))?.fileSize ?? 65536)
+            let existingTrack = try? SorrivaDatabase.shared.track(filePath: skip.filePath)
+            let fileSize = existingTrack?.fileSize ?? 65536
 
             let headerData = await readFileHeader(reader: reader, path: skip.filePath, fileSize: fileSize)
 
@@ -1077,16 +1162,33 @@ actor SMBScanner {
                 let hasUsefulTags = parsed.title != nil || parsed.artist != nil
                                  || parsed.album != nil || parsed.duration != nil
                 if hasUsefulTags {
-                    try? SorrivaDatabase.shared.updateTrackTags(
-                        filePath: skip.filePath,
-                        title: parsed.title,
-                        artistName: parsed.artist ?? parsed.albumArtist,
-                        trackNumber: parsed.trackNumber,
-                        discNumber: parsed.discNumber,
-                        year: parsed.year,
-                        genre: parsed.genre,
-                        duration: parsed.duration
-                    )
+                    if existingTrack != nil {
+                        // Read-failure origin — row already exists with fallback
+                        // metadata, backfill the real tags now that they're readable.
+                        try? SorrivaDatabase.shared.updateTrackTags(
+                            filePath: skip.filePath,
+                            title: parsed.title,
+                            artistName: parsed.artist ?? parsed.albumArtist,
+                            trackNumber: parsed.trackNumber,
+                            discNumber: parsed.discNumber,
+                            year: parsed.year,
+                            genre: parsed.genre,
+                            duration: parsed.duration
+                        )
+                    } else {
+                        // Write-failure origin — no row was ever created. Build one
+                        // fresh from these newly-parsed tags, same as the main scan.
+                        do {
+                            let (track, trackArtist) = try buildTrack(
+                                meta: parsed, filePath: skip.filePath, fileSize: fileSize,
+                                rootPath: root, source: source,
+                                artistCache: &artistCache, albumCache: &albumCache
+                            )
+                            _ = await writeTrackWithRetry(track, trackArtistId: trackArtist.id)
+                        } catch {
+                            scanLog("RETRY: track insert failed — \(filename): \(error)")
+                        }
+                    }
                     try? SorrivaDatabase.shared.resolveScanSkip(filePath: skip.filePath)
                     scanLog("RETRY: track RESOLVED (attempt \(attemptNum)) — \(filename)")
                     resolved += 1
