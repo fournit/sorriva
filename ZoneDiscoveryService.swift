@@ -26,6 +26,20 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
     private var topologyFetched = false
     private var refreshTask: Task<Void, Never>?
 
+    // MARK: - Topology refresh coordinator
+    // Every caller that needs a fresh topology (group, ungroup, transfer,
+    // foreground/network-restored, initial discovery) goes through
+    // requestTopologyRefresh(host:) rather than calling fetchTopology directly.
+    // Without this, independent unguarded calls could overlap — network
+    // responses aren't guaranteed to arrive in request order, so a stale
+    // fetch completing after a newer one would silently overwrite correct
+    // group state with wrong data. At most one fetchTopology call is ever
+    // in flight; any requests that arrive while one is running coalesce
+    // into a single guaranteed follow-up rather than piling up.
+    private var topologyFetchInFlight = false
+    private var topologyRefreshPending = false
+    private var pendingTopologyHost: String?
+
     // WP-14: Candidate host pool for topology failover (S-008)
     private var candidateHosts: [String] = []
     private var candidateIndex: Int = 0
@@ -158,10 +172,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             startDiscovery()
             return
         }
-        refreshTask?.cancel()
-        refreshTask = Task {
-            await self.fetchTopology(host: anyZone.host)
-        }
+        requestTopologyRefresh(host: anyZone.host)
     }
 
     // MARK: - Private
@@ -189,7 +200,33 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         topologyFetched = true
 
         sLog("ZONES: Fetching topology from \(host)")
-        Task { await self.fetchTopology(host: host) }
+        requestTopologyRefresh(host: host)
+    }
+
+    /// Single entry point for requesting a topology refresh. If a fetch is
+    /// already in flight, this request coalesces into a guaranteed follow-up
+    /// rather than firing a concurrent, racing duplicate. See the property
+    /// declarations above for why this exists.
+    private func requestTopologyRefresh(host: String) {
+        pendingTopologyHost = host
+        if topologyFetchInFlight {
+            topologyRefreshPending = true
+            return
+        }
+        Task { await runTopologyRefreshLoop() }
+    }
+
+    private func runTopologyRefreshLoop() async {
+        topologyFetchInFlight = true
+        defer { topologyFetchInFlight = false }
+        repeat {
+            topologyRefreshPending = false
+            guard let host = pendingTopologyHost else { break }
+            // fetchTopology handles its own host failover internally
+            // (tryNextCandidate) — that's a single atomic unit of work from
+            // this coordinator's point of view, success or failure.
+            await fetchTopology(host: host)
+        } while topologyRefreshPending
     }
 
     private func fetchTopology(host: String) async {
@@ -218,7 +255,35 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             sLog("ZONES: Topology response status=\(status) bytes=\(data.count)")
 
             if let parsed = parseTopology(data: data) {
-                zones = parsed.sorted { $0.name < $1.name }
+                // Merge into existing zones rather than replacing wholesale.
+                // TopologyParser only knows id/name/host/idleState/groupMembers —
+                // a full replace resets every OTHER field (station info, current
+                // track, position, volume, grace period) to bare defaults on
+                // every topology fetch. Invisible for an already-idle zone with
+                // little to lose, but visibly blips an actively-playing
+                // coordinator's now-playing info to blank before the separate
+                // async steps below (fetchTransportStates, fetchAllStationMetadata,
+                // restoreZoneStateFromDB) restore it moments later.
+                let previousByID = Dictionary(uniqueKeysWithValues: zones.map { ($0.id, $0) })
+                let merged = parsed.map { fresh -> SonosZone in
+                    guard let previous = previousByID[fresh.id] else { return fresh }
+                    var z = fresh
+                    z.isPlaying        = previous.isPlaying
+                    z.volume           = previous.volume
+                    z.stationName      = previous.stationName
+                    z.stationLogoURL   = previous.stationLogoURL
+                    z.currentTrack     = previous.currentTrack
+                    z.currentArtist    = previous.currentArtist
+                    z.currentTrackURI  = previous.currentTrackURI
+                    z.elapsedSeconds   = previous.elapsedSeconds
+                    z.durationSeconds  = previous.durationSeconds
+                    z.dbDeviceId       = previous.dbDeviceId
+                    z.playingUntil     = previous.playingUntil
+                    // fresh.idleState, fresh.groupMembers, fresh.name, fresh.host
+                    // are authoritative from THIS topology read — kept as-is.
+                    return z
+                }
+                zones = merged.sorted { $0.name < $1.name }
                 lastTopologyHost = host
                 topologyLastFetched = Date()
                 sLog("ZONES: Parsed \(zones.count) zones: \(zones.map(\.name).joined(separator: ", "))")
@@ -1334,6 +1399,25 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
 
         print("SORRIVA: groupZone — host map: \(addHostMap)")
 
+        // Same protection as persistStationPlay/setPlaybackGrace/togglePlayPause —
+        // clear stale idleState and start a grace period on the coordinator and every
+        // zone being added, BEFORE the SOAP calls fire. Without this, the regular
+        // periodic poll loop (running independently the whole time) can catch Sonos's
+        // own brief internal transition mid-handshake and correctly-but-visibly render
+        // it as idle for a moment, even though the group action is succeeding —
+        // exactly the "everything flashes idle then bounces back" blip.
+        let graceUntil = Date().addingTimeInterval(6)
+        if let idx = zones.firstIndex(where: { $0.id == coordinatorID }) {
+            zones[idx].idleState = false
+            zones[idx].playingUntil = graceUntil
+        }
+        for id in addZoneIDs {
+            if let idx = zones.firstIndex(where: { $0.id == id }) {
+                zones[idx].idleState = false
+                zones[idx].playingUntil = graceUntil
+            }
+        }
+
         Task {
             // Remove zones from this group
             for id in removeZoneIDs {
@@ -1366,7 +1450,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             // Full topology refresh to get updated group members
             try? await Task.sleep(nanoseconds: 500_000_000)
             if let host = zones.first?.host {
-                await fetchTopology(host: host)
+                requestTopologyRefresh(host: host)
             }
         }
     }
@@ -1426,7 +1510,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         Task {
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             if let host = zones.first?.host {
-                await fetchTopology(host: host)
+                requestTopologyRefresh(host: host)
             }
         }
     }
@@ -1484,7 +1568,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             // Refresh topology
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             if let host = zones.first?.host {
-                await fetchTopology(host: host)
+                requestTopologyRefresh(host: host)
             }
         }
     }
