@@ -829,6 +829,20 @@ final class SorrivaDatabase {
             print("SORRIVA DB: v13 canonical identity tables created, \(tracks.count) tracks backfilled")
         }
 
+        // v14 — album_genres: many-to-many, authoritative multi-genre source for albums.
+        // Album.genre (single-value) is left untouched — nothing in the UI reads it today,
+        // so this is purely additive. Stores raw freeform genre strings from file tags,
+        // unlike station_genres which joins to a curated radio-genre taxonomy table —
+        // local album/track genres come from whatever a tagger wrote, not a fixed list.
+        migrator.registerMigration("v14_album_genres") { db in
+            try db.create(table: "album_genres", ifNotExists: true) { t in
+                t.column("albumId", .text).notNull().references("albums", onDelete: .cascade)
+                t.column("genre", .text).notNull()
+                t.primaryKey(["albumId", "genre"])
+            }
+            print("SORRIVA DB: v14 album_genres table created")
+        }
+
         try migrator.migrate(dbQueue)
         print("SORRIVA DB: Migrations complete")
     }
@@ -1617,6 +1631,37 @@ final class SorrivaDatabase {
             try db.execute(sql: """
                 UPDATE albums SET trackCount = ?, updatedAt = ? WHERE id = ?
             """, arguments: [count, now, albumId])
+        }
+    }
+
+    // MARK: - Album genres (multi-value, v14)
+    // Authoritative source for "what genres does this album span" — Album.genre
+    // (single-value) is left untouched and unread by any UI today.
+
+    /// Remove all genre rows for an album — called before rewriting on rescan,
+    /// since retagging could change which genres are present.
+    func deleteAlbumGenres(albumId: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM album_genres WHERE albumId = ?", arguments: [albumId])
+        }
+    }
+
+    /// Insert one genre row for an album. INSERT OR IGNORE — safe to call
+    /// repeatedly for the same (albumId, genre) pair.
+    func upsertAlbumGenre(albumId: String, genre: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT OR IGNORE INTO album_genres (albumId, genre) VALUES (?, ?)
+            """, arguments: [albumId, genre])
+        }
+    }
+
+    /// All distinct genres recorded for an album, sorted for stable display order.
+    func albumGenres(albumId: String) throws -> [String] {
+        try dbQueue.read { db in
+            try String.fetchAll(db, sql: """
+                SELECT genre FROM album_genres WHERE albumId = ? ORDER BY genre
+            """, arguments: [albumId])
         }
     }
 

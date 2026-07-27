@@ -184,6 +184,7 @@ actor SMBScanner {
         var skippedPaths: [String] = []  // collected during loop, written to DB after scan completes
         var artistCache: [String: Artist] = [:]
         var albumCache:  [String: Album]  = [:]
+        var albumGenreSets: [String: Set<String>] = [:]  // albumId → distinct genre strings seen this scan
 
         // Pre-compute folder groups so we can write FolderStat as each folder completes
         let folderGroups = Dictionary(grouping: allFiles) { ($0.path as NSString).deletingLastPathComponent }
@@ -231,6 +232,14 @@ actor SMBScanner {
                 rootPath: root, source: source,
                 artistCache: &artistCache, albumCache: &albumCache
             )
+
+            // Collect distinct genres per album — written to album_genres at
+            // finalize. Album.genre (single-value) is untouched; this is the
+            // authoritative multi-genre source for albums spanning several
+            // genres (e.g. VA compilations), added additively.
+            if let genre = track.genre, !genre.isEmpty {
+                albumGenreSets[track.albumId, default: []].insert(genre)
+            }
 
             // Idempotent upsert keyed on filePath (WP-02) — rescans update the
             // existing row in place instead of silently failing on the UNIQUE
@@ -289,6 +298,12 @@ actor SMBScanner {
         }
         for album in albumCache.values {
             try? SorrivaDatabase.shared.updateAlbumTrackCount(albumId: album.id)
+        }
+        for (albumId, genres) in albumGenreSets {
+            try? SorrivaDatabase.shared.deleteAlbumGenres(albumId: albumId)
+            for genre in genres {
+                try? SorrivaDatabase.shared.upsertAlbumGenre(albumId: albumId, genre: genre)
+            }
         }
 
         let finalTrackCount = try SorrivaDatabase.shared.trackCount(sourceId: source.id)
@@ -808,7 +823,16 @@ actor SMBScanner {
         guard data[0] == 0x49, data[1] == 0x44, data[2] == 0x33 else { return meta }
 
         let size = id3SyncsafeInt(data: data, offset: 6)
-        guard size > 0, size + 10 <= data.count else { return meta }
+        guard size > 0 else { return meta }
+        // Deliberately NOT requiring size + 10 <= data.count here. The declared
+        // tag size includes every frame, and a single embedded APIC cover image
+        // (commonly 50-300KB from EAC/dbPoweramp rips) routinely pushes it past
+        // our 64KB header-read window even though the text frames we actually
+        // care about (TIT2/TALB/TPE1/etc.) are almost always near the front of
+        // the tag. Rejecting the whole file here discarded fully-reachable tags
+        // for any MP3 with embedded art over ~64KB. The per-frame guard below
+        // already stops correctly at whichever frame doesn't fit — nothing
+        // upstream of that point needs to be sacrificed.
 
         let version = data[3]
         var offset = 10
