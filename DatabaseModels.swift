@@ -294,6 +294,8 @@ struct Album: Codable, FetchableRecord, PersistableRecord, Identifiable {
     var genre: String?          // Parsed from tag — null if not present
     var artPathThumb: String?   // Local path to 100px cached artwork — null until enrichment pass
     var artPathFull: String?    // Local path to 600px cached artwork — null until enrichment pass
+    var artworkWidth: Int?      // Pixel width of the current winning artwork — null until any pass finds art (v15)
+    var artworkHeight: Int?     // Pixel height of the current winning artwork — null until any pass finds art (v15)
     var embeddedArtScanned: Bool    // True after embedded art pass has run — never runs again once set
     var artManualOverride: Bool     // True when user manually set artwork — blocks all automated art passes
     var embeddedArtFailed: Bool     // True when embedded art read errored (not genuine no-art) — triggers retry
@@ -314,6 +316,8 @@ struct Album: Codable, FetchableRecord, PersistableRecord, Identifiable {
         static let genre               = Column(CodingKeys.genre)
         static let artPathThumb        = Column(CodingKeys.artPathThumb)
         static let artPathFull         = Column(CodingKeys.artPathFull)
+        static let artworkWidth        = Column(CodingKeys.artworkWidth)
+        static let artworkHeight       = Column(CodingKeys.artworkHeight)
         static let embeddedArtScanned    = Column(CodingKeys.embeddedArtScanned)
         static let artManualOverride     = Column(CodingKeys.artManualOverride)
         static let embeddedArtFailed     = Column(CodingKeys.embeddedArtFailed)

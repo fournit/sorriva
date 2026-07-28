@@ -843,6 +843,18 @@ final class SorrivaDatabase {
             print("SORRIVA DB: v14 album_genres table created")
         }
 
+        // v15 — artwork best-wins: two additive columns on albums storing the
+        // current winning candidate's pixel dimensions, so the embedded/folder/
+        // online passes can compare against each other's results instead of
+        // the last pass to run always winning unconditionally.
+        migrator.registerMigration("v15_artwork_dimensions") { db in
+            try db.alter(table: "albums") { t in
+                t.add(column: "artworkWidth", .integer)
+                t.add(column: "artworkHeight", .integer)
+            }
+            print("SORRIVA DB: v15 artwork dimension columns added")
+        }
+
         try migrator.migrate(dbQueue)
         print("SORRIVA DB: Migrations complete")
     }
@@ -1677,12 +1689,43 @@ final class SorrivaDatabase {
         }
     }
 
+    /// Writes artwork paths together with the winning candidate's pixel
+    /// dimensions — bArtworkSelectionNotBestWins. All three passes (embedded/
+    /// folder/online) call this instead of updateAlbumArtwork so later passes
+    /// can compare their own candidate's area against what's already stored.
+    func updateAlbumArtworkWithDimensions(
+        albumId: String, thumbPath: String?, fullPath: String?, width: Int, height: Int
+    ) throws {
+        let now = Int(Date().timeIntervalSince1970)
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE albums
+                SET artPathThumb = ?, artPathFull = ?, artworkWidth = ?, artworkHeight = ?, updatedAt = ?
+                WHERE id = ?
+            """, arguments: [thumbPath, fullPath, width, height, now, albumId])
+        }
+    }
+
     /// All albums with no artwork yet — used by ArtworkCache to find work to do.
     func albumsWithoutArtwork() throws -> [Album] {
         try dbQueue.read { db in
             try Album
                 .filter(Album.Columns.artPathThumb == nil)
                 .filter(Album.Columns.artManualOverride == false)
+                .order(Album.Columns.sortTitle)
+                .fetchAll(db)
+        }
+    }
+
+    /// Albums whose current winning artwork (from any pass so far) is still
+    /// below iTunes's known ceiling (600×600 = 360000px²), or has no artwork
+    /// at all — online fetch can never produce anything better than 600×600,
+    /// so anything already at or above that has nothing to gain from trying.
+    func albumsBelowOnlineArtworkCeiling() throws -> [Album] {
+        try dbQueue.read { db in
+            try Album
+                .filter(Album.Columns.artManualOverride == false)
+                .filter(sql: "(artworkWidth IS NULL OR artworkWidth * artworkHeight < 360000)")
                 .order(Album.Columns.sortTitle)
                 .fetchAll(db)
         }
@@ -1699,11 +1742,20 @@ final class SorrivaDatabase {
         }
     }
 
+    /// Marks an album as fully done with embedded art consideration — no
+    /// further scanning OR retrying needed. Clears embeddedArtFailed too:
+    /// without this, a genuinely confirmed "no art in this file" result
+    /// (a successful read, not a transient error) still left the album in
+    /// the retry queue forever, since that queue filters on embeddedArtFailed
+    /// specifically, not embeddedArtScanned. Found via a real repro where an
+    /// album retried indefinitely showing "attempt 2/5" without ever
+    /// incrementing, since the "no art" branch never touched either flag
+    /// the retry queue actually depends on.
     func markEmbeddedArtScanned(albumId: String) throws {
         let now = Int(Date().timeIntervalSince1970)
         try dbQueue.write { db in
             try db.execute(sql: """
-                UPDATE albums SET embeddedArtScanned = 1, updatedAt = ? WHERE id = ?
+                UPDATE albums SET embeddedArtScanned = 1, embeddedArtFailed = 0, updatedAt = ? WHERE id = ?
             """, arguments: [now, albumId])
         }
     }

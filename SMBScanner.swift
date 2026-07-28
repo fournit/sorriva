@@ -208,12 +208,52 @@ actor SMBScanner {
 
             // Per-file fresh connection — eliminates session degradation on UNAS Pro.
             // 100ms throttle gives NAS time to release each connection before the next opens.
-            var meta = ParsedMetadata()
+            let folderPath = (file.path as NSString).deletingLastPathComponent
             let headerData = await readFileHeader(reader: reader, path: file.path, fileSize: file.size)
+
             if let data = headerData {
+                var meta = ParsedMetadata()
                 let parsed = parseTagData(data: data, ext: ext)
                 if parsed.title != nil || parsed.artist != nil || parsed.album != nil || parsed.duration != nil {
                     meta = parsed
+                }
+
+                // Only build and write a track when the read actually succeeded.
+                // A failed read used to still fall through to buildTrack with an
+                // empty meta — fillFromPath's folder-name fallback would run with
+                // no artist/album context, and for a VA compilation could produce
+                // a wrong album (unstripped "Various Artists - ..." title) that a
+                // later successful retry of the SAME file's tags never corrected,
+                // since retry only updates the track row, not the album it already
+                // created. Real repro: "12 Inch Dance 80s Remix (CD 2)" track 1
+                // timed out, fell back, created the album with the wrong name;
+                // the retry pass later read the same file fine but the wrong
+                // album persisted. Now: a failed read only ever produces a skip
+                // record — whichever track (this pass or on retry) reads
+                // successfully first is the one that defines the album.
+                let (track, trackArtist) = try buildTrack(
+                    meta: meta, filePath: file.path, fileSize: file.size,
+                    rootPath: root, source: source,
+                    artistCache: &artistCache, albumCache: &albumCache
+                )
+
+                // Collect distinct genres per album — written to album_genres at
+                // finalize. Album.genre (single-value) is untouched; this is the
+                // authoritative multi-genre source for albums spanning several
+                // genres (e.g. VA compilations), added additively.
+                if let genre = track.genre, !genre.isEmpty {
+                    albumGenreSets[track.albumId, default: []].insert(genre)
+                }
+
+                // Idempotent upsert keyed on filePath (WP-02) — rescans update the
+                // existing row in place instead of silently failing on the UNIQUE
+                // constraint. A missing track is a missing track regardless of
+                // whether a read or a write failed, so a write failure here gets
+                // the same scan_skips retry queue read failures already use.
+                let wrote = await writeTrackWithRetry(track, trackArtistId: trackArtist.id)
+                if !wrote {
+                    writeFailures += 1
+                    try? SorrivaDatabase.shared.insertScanSkip(filePath: file.path, sourceId: source.id)
                 }
             } else {
                 skipped += 1
@@ -226,34 +266,10 @@ actor SMBScanner {
                 scanLog("SCAN: [\(scanned + 1)/\(totalFiles)] progress — \(skipped) skipped so far")
             }
 
-            let folderPath = (file.path as NSString).deletingLastPathComponent
-            let (track, trackArtist) = try buildTrack(
-                meta: meta, filePath: file.path, fileSize: file.size,
-                rootPath: root, source: source,
-                artistCache: &artistCache, albumCache: &albumCache
-            )
-
-            // Collect distinct genres per album — written to album_genres at
-            // finalize. Album.genre (single-value) is untouched; this is the
-            // authoritative multi-genre source for albums spanning several
-            // genres (e.g. VA compilations), added additively.
-            if let genre = track.genre, !genre.isEmpty {
-                albumGenreSets[track.albumId, default: []].insert(genre)
-            }
-
-            // Idempotent upsert keyed on filePath (WP-02) — rescans update the
-            // existing row in place instead of silently failing on the UNIQUE
-            // constraint. A missing track is a missing track regardless of
-            // whether a read or a write failed, so a write failure here gets
-            // the same scan_skips retry queue read failures already use.
-            let wrote = await writeTrackWithRetry(track, trackArtistId: trackArtist.id)
-            if !wrote {
-                writeFailures += 1
-                try? SorrivaDatabase.shared.insertScanSkip(filePath: file.path, sourceId: source.id)
-            }
-
-            // Write FolderStat immediately when all files in a folder are processed.
-            // This enables resume — completed folders won't rescan on next foreground check.
+            // Write FolderStat immediately when all files in a folder are processed
+            // (successfully written or skipped — both count as "considered" this
+            // pass). This enables resume — completed folders won't rescan on next
+            // foreground check.
             completedInFolder[folderPath, default: 0] += 1
             if let folderFiles = folderGroups[folderPath],
                completedInFolder[folderPath] == folderFiles.count {

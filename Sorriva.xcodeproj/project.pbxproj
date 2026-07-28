@@ -74,6 +74,8 @@
 		80E294163012F60E0031E31D /* SourceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294153012F60E0031E31D /* SourceResolver.swift */; };
 		80E294B130165BD70031E31D /* StationMetadataResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294B030165BD70031E31D /* StationMetadataResolver.swift */; };
 		80E294B3301669450031E31D /* MediaSourceReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294B2301669450031E31D /* MediaSourceReader.swift */; };
+		80E295023017D8E20031E31D /* ImageDimensionReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E295013017D8E20031E31D /* ImageDimensionReader.swift */; };
+		80E295033017D8E20031E31D /* ArtworkBestWins.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E295003017D8E20031E31D /* ArtworkBestWins.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -166,6 +168,8 @@
 		80E294153012F60E0031E31D /* SourceResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceResolver.swift; sourceTree = "<group>"; };
 		80E294B030165BD70031E31D /* StationMetadataResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StationMetadataResolver.swift; sourceTree = "<group>"; };
 		80E294B2301669450031E31D /* MediaSourceReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaSourceReader.swift; sourceTree = "<group>"; };
+		80E295003017D8E20031E31D /* ArtworkBestWins.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkBestWins.swift; sourceTree = "<group>"; };
+		80E295013017D8E20031E31D /* ImageDimensionReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageDimensionReader.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -221,6 +225,8 @@
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
+				80E295003017D8E20031E31D /* ArtworkBestWins.swift */,
+				80E295013017D8E20031E31D /* ImageDimensionReader.swift */,
 				80E294B2301669450031E31D /* MediaSourceReader.swift */,
 				80E294B030165BD70031E31D /* StationMetadataResolver.swift */,
 				80E294153012F60E0031E31D /* SourceResolver.swift */,
@@ -442,6 +448,8 @@
 				80325AD53000B03500308486 /* SplashView.swift in Sources */,
 				80325AE2300147C200308486 /* DatabaseModels.swift in Sources */,
 				80325AE3300147C200308486 /* SorrivaDatabase.swift in Sources */,
+				80E295023017D8E20031E31D /* ImageDimensionReader.swift in Sources */,
+				80E295033017D8E20031E31D /* ArtworkBestWins.swift in Sources */,
 				80E2940E3012F0210031E31D /* GRDBLibraryRepository.swift in Sources */,
 				80E294B130165BD70031E31D /* StationMetadataResolver.swift in Sources */,
 				80E2940F3012F0210031E31D /* LibraryRepository.swift in Sources */,

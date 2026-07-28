@@ -48,13 +48,19 @@ actor ArtworkCache {
 
     // MARK: - Public API
 
-    /// Fetch artwork for all albums that don't have it yet.
-    /// Called after scan completes — runs staggered in background.
+    /// Fetch artwork for all albums that have no artwork at all yet.
+    /// REVERTED 2026-07-27 from "just another best-wins candidate" back to
+    /// gap-filling only, after a wrong iTunes match (weak/generic query,
+    /// zero verification of match relevance — see bArtworkArtistQuery)
+    /// overwrote correct existing folder artwork, since iTunes always claims
+    /// 600×600 and that area comparison alone can't tell a right match from
+    /// a wrong one. A wrong match can now only ever fill an empty slot,
+    /// never destroy something that was already correct.
     func fetchMissingArtwork() async {
         let albums = (try? SorrivaDatabase.shared.albumsWithoutArtwork()) ?? []
         guard !albums.isEmpty else { return }
 
-        print("ARTWORK: fetching art for \(albums.count) albums")
+        sLog("ARTWORK: online fetch — \(albums.count) albums with no artwork yet")
 
         for album in albums {
             await fetchArtwork(for: album)
@@ -62,21 +68,22 @@ actor ArtworkCache {
             try? await Task.sleep(nanoseconds: 3_000_000_000)
         }
 
-        print("ARTWORK: fetch complete")
+        sLog("ARTWORK: online fetch complete")
     }
 
     /// Fetch artwork for a single album. Called directly after a new source is added
     /// if we want to pre-warm a specific album.
     func fetchArtwork(for album: Album) async {
-        // Skip if already cached
-        if album.artPathThumb != nil { return }
+        // Skip if already cached — see fetchMissingArtwork for why this reverted
+        // from a stored-area comparison back to a hard "no existing art" gate.
+        guard album.artPathThumb == nil else { return }
 
         guard let url = searchURL(artist: album.artistName, album: album.title) else { return }
 
         do {
             let (data, _) = try await session.data(from: url)
             guard let artworkURL = parseArtworkURL(from: data) else {
-                print("ARTWORK: no match — \(album.artistName) · \(album.title)")
+                sLog("ARTWORK: no match — \(album.artistName) · \(album.title)")
                 return
             }
 
@@ -86,13 +93,11 @@ actor ArtworkCache {
             let thumbPath = try await downloadAndSave(urlString: thumbURL, albumId: album.id, suffix: "thumb")
             let fullPath  = try await downloadAndSave(urlString: fullURL,  albumId: album.id, suffix: "full")
 
-            try? SorrivaDatabase.shared.updateAlbumArtwork(
-                albumId: album.id,
-                thumbPath: thumbPath,
-                fullPath: fullPath
+            try? SorrivaDatabase.shared.updateAlbumArtworkWithDimensions(
+                albumId: album.id, thumbPath: thumbPath, fullPath: fullPath, width: 600, height: 600
             )
 
-            print("ARTWORK: cached — \(album.artistName) · \(album.title)")
+            sLog("ARTWORK: online SAVED (600×600) — \(album.artistName) · \(album.title)")
 
             // Notify UI to reload artwork
             await MainActor.run {
@@ -100,7 +105,7 @@ actor ArtworkCache {
             }
 
         } catch {
-            print("ARTWORK: error — \(album.artistName) · \(album.title): \(error.localizedDescription)")
+            sLog("ARTWORK: error — \(album.artistName) · \(album.title): \(error.localizedDescription)")
         }
     }
 

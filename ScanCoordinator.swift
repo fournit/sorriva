@@ -170,10 +170,18 @@ final class ScanCoordinator: ObservableObject {
 
         Task.detached { [weak self] in
             guard let self else { return }
+            // bArtworkSelectionNotBestWins — embedded art is checked first since
+            // it has the highest likelihood of being high-resolution (e.g. the
+            // real-world MP3 case found during the ID3v2 investigation). Folder
+            // pass always runs its cheap header-check afterward regardless of
+            // what embedded found, since the folder could genuinely have
+            // something better — only its expensive download is conditional.
+            // Online fetch runs last, only for albums still below its fixed
+            // 600×600 ceiling.
+            let embeddedArtFound = await self.runEmbeddedArtPass(source: source)
+            try? await Task.sleep(nanoseconds: 30_000_000_000)
             let folderArtFound   = await self.runFolderArtPass(source: source)
             await ArtworkCache.shared.fetchMissingArtwork()
-            try? await Task.sleep(nanoseconds: 30_000_000_000)
-            let embeddedArtFound = await self.runEmbeddedArtPass(source: source)
 
             // Mark as retrying before scheduler starts
             try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "retrying")
@@ -253,84 +261,77 @@ final class ScanCoordinator: ObservableObject {
                 self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] SKIP no folder path — \(album.title)")
                 continue
             }
-            guard album.artPathFull == nil || album.artPathFull!.isEmpty else {
-                self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] SKIP has art — \(album.title)")
-                continue
-            }
 
+            // Always run the cheap check, even if a prior pass (embedded, or an
+            // earlier scan) already found something — bArtworkSelectionNotBestWins.
+            // The folder might genuinely have something better; only the
+            // expensive download below is conditional on actually winning.
             self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] checking — \(album.artistName) · \(album.title)")
 
-            var imageData: Data? = nil
+            var pathsByName: [String: String] = [:]
+            var measured: [ArtworkBestWins.Candidate] = []
 
             do {
                 let entries = try await client.listDirectory(path: album.folderPath)
 
-                // Find all image files in the folder, sorted by file size descending.
-                // Largest file is most likely to be the highest quality artwork.
-                // Skip files with thumbnail indicators in their name.
                 let imageExts  = Set(["jpg", "jpeg", "png"])
                 let thumbWords = ["small", "thumb", "mini", "tiny"]
-                let candidates = entries
-                    .filter { entry in
-                        let ext  = (entry.name as NSString).pathExtension.lowercased()
-                        let name = entry.name.lowercased()
-                        guard imageExts.contains(ext) else { return false }
-                        guard !thumbWords.contains(where: { name.contains($0) }) else { return false }
-                        return true
-                    }
-                    .sorted { $0.size > $1.size }  // largest first
+                let candidateFiles = entries.filter { entry in
+                    let ext  = (entry.name as NSString).pathExtension.lowercased()
+                    let name = entry.name.lowercased()
+                    guard imageExts.contains(ext) else { return false }
+                    guard !thumbWords.contains(where: { name.contains($0) }) else { return false }
+                    return true
+                }
 
-                if candidates.isEmpty {
+                if candidateFiles.isEmpty {
                     self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] no image files found")
                 }
 
-                // Try candidates in order until we find one that decodes to ≥300px
-                for candidate in candidates {
+                // Cheap pass — header-only read of every candidate to compare true
+                // pixel area, instead of fully decoding each one just to check size.
+                for candidate in candidateFiles {
                     let artPath = album.folderPath == "/"
                         ? "/\(candidate.name)"
                         : "\(album.folderPath)/\(candidate.name)"
 
-                    self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] trying \(candidate.name) (\(candidate.size / 1024)KB)")
-
-                    var downloaded: Data? = nil
-                    downloaded = await withCheckedContinuation { continuation in
+                    var timedOut = false
+                    let headerData: Data? = await withCheckedContinuation { continuation in
                         let semaphore = DispatchSemaphore(value: 0)
                         var result: Data? = nil
                         Task.detached {
-                            result = try? await client.download(path: artPath)
+                            let reader = client.fileReader(path: artPath)
+                            result = try? await reader.read(offset: 0, length: 16384)
+                            try? await reader.close()
                             semaphore.signal()
                         }
                         DispatchQueue.global(qos: .utility).async {
-                            if semaphore.wait(timeout: .now() + 20) == .timedOut {
-                                self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] TIMEOUT — \(candidate.name)")
+                            if semaphore.wait(timeout: .now() + 10) == .timedOut {
+                                self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] header TIMEOUT — \(candidate.name)")
+                                timedOut = true
                             }
                             continuation.resume(returning: result)
                         }
                     }
 
-                    if downloaded == nil {
-                        // Timeout — reconnect and try next candidate
-                        scanLog("ARTWORK: folder — reconnecting after timeout")
+                    if timedOut {
+                        // NAS drops SMB sessions after a timeout — the connection is
+                        // now in a bad state and every subsequent read on it will also
+                        // time out until it's replaced. Reconnect before continuing,
+                        // same recovery the download step below already does.
+                        scanLog("ARTWORK: folder — reconnecting after header timeout")
                         client = SMBClient(host: source.host)
                         if (try? await client.login(username: source.loginCredentials.username, password: source.loginCredentials.password)) != nil,
                            (try? await client.connectShare(source.share)) != nil {
                             scanLog("ARTWORK: folder — reconnected")
                         }
-                        continue
                     }
 
-                    // Decode and check minimum dimensions
-                    if let data = downloaded, let img = UIImage(data: data) {
-                        let w = Int(img.size.width)
-                        let h = Int(img.size.height)
-                        if w >= 300 || h >= 300 {
-                            imageData = data
-                            self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] selected \(candidate.name) (\(w)×\(h)px)")
-                            break
-                        } else {
-                            self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] SKIP \(candidate.name) — too small (\(w)×\(h)px)")
-                        }
-                    }
+                    guard let header = headerData,
+                          let dims = ImageDimensionReader.dimensions(data: header) else { continue }
+
+                    pathsByName[candidate.name] = artPath
+                    measured.append(ArtworkBestWins.Candidate(name: candidate.name, width: dims.width, height: dims.height))
                 }
             } catch {
                 self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] error — \(error.localizedDescription)")
@@ -345,7 +346,47 @@ final class ScanCoordinator: ObservableObject {
                 continue
             }
 
-            if let data = imageData, let image = UIImage(data: data) {
+            guard let winner = ArtworkBestWins.selectWinner(
+                candidates: measured, storedWidth: album.artworkWidth, storedHeight: album.artworkHeight
+            ) else {
+                if !measured.isEmpty {
+                    self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] best candidate does not beat stored \(album.artworkWidth ?? 0)×\(album.artworkHeight ?? 0) — skip download")
+                }
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                continue
+            }
+            guard let winnerPath = pathsByName[winner.name] else {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                continue
+            }
+
+            // Winner beats what's stored — download in full and save.
+            var downloadTimedOut = false
+            let downloaded: Data? = await withCheckedContinuation { continuation in
+                let semaphore = DispatchSemaphore(value: 0)
+                var result: Data? = nil
+                Task.detached {
+                    result = try? await client.download(path: winnerPath)
+                    semaphore.signal()
+                }
+                DispatchQueue.global(qos: .utility).async {
+                    if semaphore.wait(timeout: .now() + 20) == .timedOut {
+                        self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] download TIMEOUT — \(winner.name)")
+                        downloadTimedOut = true
+                    }
+                    continuation.resume(returning: result)
+                }
+            }
+            if downloadTimedOut {
+                scanLog("ARTWORK: folder — reconnecting after download timeout")
+                client = SMBClient(host: source.host)
+                if (try? await client.login(username: source.loginCredentials.username, password: source.loginCredentials.password)) != nil,
+                   (try? await client.connectShare(source.share)) != nil {
+                    scanLog("ARTWORK: folder — reconnected")
+                }
+            }
+
+            if let data = downloaded, let image = UIImage(data: data) {
                 let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
                 let artDir  = docsDir.appendingPathComponent("artwork", isDirectory: true)
                 try? FileManager.default.createDirectory(at: artDir, withIntermediateDirectories: true)
@@ -355,13 +396,18 @@ final class ScanCoordinator: ObservableObject {
                    let thumbData = resized(image, to: 300)?.jpegData(compressionQuality: 0.85) {
                     try? fullData.write(to: fullURL)
                     try? thumbData.write(to: thumbURL)
-                    try? SorrivaDatabase.shared.updateAlbumArtwork(
+                    try? SorrivaDatabase.shared.updateAlbumArtworkWithDimensions(
                         albumId: album.id,
                         thumbPath: "artwork/\(album.id)_thumb.jpg",
-                        fullPath:  "artwork/\(album.id)_full.jpg"
+                        fullPath:  "artwork/\(album.id)_full.jpg",
+                        width: winner.width, height: winner.height
                     )
                     found += 1
-                    self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] SAVED — \(album.artistName) · \(album.title)")
+                    if winner.width < 200 && winner.height < 200 {
+                        self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] SAVED LOW-RES (\(winner.width)×\(winner.height)px, nothing better found) — \(album.artistName) · \(album.title)")
+                    } else {
+                        self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] SAVED — \(winner.name) (\(winner.width)×\(winner.height)px) — \(album.artistName) · \(album.title)")
+                    }
                     await MainActor.run {
                         NotificationCenter.default.post(name: .artworkDidUpdate, object: album.id)
                     }
@@ -422,8 +468,9 @@ final class ScanCoordinator: ObservableObject {
 
             scanLog("ARTWORK: embedded [\(idx+1)/\(albums.count)] — \(album.artistName) · \(album.title)")
 
-            var artFound = false
             var artReadErrored = false  // true if any track read threw an error (vs genuine no-art)
+            struct FoundArt { let data: Data; let candidate: ArtworkBestWins.Candidate }
+            var foundCandidates: [FoundArt] = []
 
             for track in tracks.prefix(3) {
                 let ext = (track.filePath as NSString).pathExtension.lowercased()
@@ -473,31 +520,61 @@ final class ScanCoordinator: ObservableObject {
                     continue
                 }
 
-                if let data = imageData, let image = UIImage(data: data) {
-                    let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                    let artDir = docsDir.appendingPathComponent("artwork", isDirectory: true)
-                    try? FileManager.default.createDirectory(at: artDir, withIntermediateDirectories: true)
-                    let fullURL  = artDir.appendingPathComponent("\(album.id)_full.jpg")
-                    let thumbURL = artDir.appendingPathComponent("\(album.id)_thumb.jpg")
-                    if let fullData  = resized(image, to: 600)?.jpegData(compressionQuality: 0.85),
-                       let thumbData = resized(image, to: 300)?.jpegData(compressionQuality: 0.85) {
-                        try? fullData.write(to: fullURL)
-                        try? thumbData.write(to: thumbURL)
-                        try? SorrivaDatabase.shared.updateAlbumArtwork(
-                            albumId: album.id,
-                            thumbPath: "artwork/\(album.id)_thumb.jpg",
-                            fullPath: "artwork/\(album.id)_full.jpg"
+                // Collect this track's art rather than saving and stopping —
+                // a later track in the same album can have better embedded art
+                // than an earlier one (real case: "We Live Here" track 1 at
+                // 200×200, track 2 at 1280×1280 — the old break-on-first logic
+                // saved the worse one and never looked further).
+                if let data = imageData, let dims = ImageDimensionReader.dimensions(data: data) {
+                    foundCandidates.append(FoundArt(
+                        data: data,
+                        candidate: ArtworkBestWins.Candidate(
+                            name: (track.filePath as NSString).lastPathComponent,
+                            width: dims.width, height: dims.height
                         )
-                        try? SorrivaDatabase.shared.markEmbeddedArtScanned(albumId: album.id)
-                        found += 1
-                        artFound = true
-                        scanLog("ARTWORK: embedded SAVED — \(album.artistName) · \(album.title)")
-                        await MainActor.run {
-                            NotificationCenter.default.post(name: .artworkDidUpdate, object: album.id)
-                        }
-                        break
+                    ))
+                }
+            }
+
+            var artFound = false
+            if let winner = ArtworkBestWins.selectWinner(
+                candidates: foundCandidates.map(\.candidate),
+                storedWidth: album.artworkWidth, storedHeight: album.artworkHeight
+            ), let winningArt = foundCandidates.first(where: { $0.candidate == winner }),
+               let image = UIImage(data: winningArt.data) {
+                let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                let artDir = docsDir.appendingPathComponent("artwork", isDirectory: true)
+                try? FileManager.default.createDirectory(at: artDir, withIntermediateDirectories: true)
+                let fullURL  = artDir.appendingPathComponent("\(album.id)_full.jpg")
+                let thumbURL = artDir.appendingPathComponent("\(album.id)_thumb.jpg")
+                if let fullData  = resized(image, to: 600)?.jpegData(compressionQuality: 0.85),
+                   let thumbData = resized(image, to: 300)?.jpegData(compressionQuality: 0.85) {
+                    try? fullData.write(to: fullURL)
+                    try? thumbData.write(to: thumbURL)
+                    try? SorrivaDatabase.shared.updateAlbumArtworkWithDimensions(
+                        albumId: album.id,
+                        thumbPath: "artwork/\(album.id)_thumb.jpg",
+                        fullPath: "artwork/\(album.id)_full.jpg",
+                        width: winner.width, height: winner.height
+                    )
+                    try? SorrivaDatabase.shared.markEmbeddedArtScanned(albumId: album.id)
+                    found += 1
+                    artFound = true
+                    if winner.width < 200 && winner.height < 200 {
+                        scanLog("ARTWORK: embedded SAVED LOW-RES (\(winner.width)×\(winner.height)px, nothing better found) — \(album.artistName) · \(album.title)")
+                    } else {
+                        scanLog("ARTWORK: embedded SAVED (\(winner.width)×\(winner.height)px, best of \(foundCandidates.count) track(s) checked) — \(album.artistName) · \(album.title)")
+                    }
+                    await MainActor.run {
+                        NotificationCenter.default.post(name: .artworkDidUpdate, object: album.id)
                     }
                 }
+            } else if !foundCandidates.isEmpty {
+                // Found embedded art, but it didn't beat what's already stored —
+                // still mark scanned, this album genuinely has no better embedded art.
+                try? SorrivaDatabase.shared.markEmbeddedArtScanned(albumId: album.id)
+                artFound = true
+                scanLog("ARTWORK: embedded — best candidate does not beat stored \(album.artworkWidth ?? 0)×\(album.artworkHeight ?? 0), keeping existing — \(album.artistName) · \(album.title)")
             }
 
             if !artFound {
