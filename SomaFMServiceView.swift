@@ -166,7 +166,7 @@ struct SomaFMServiceView: View {
                         stationName: rs.name, artURL: rs.logoURL)
                     discovery.persistStationPlay(
                         zone: zone, stationId: rs.id,
-                        stationName: rs.name, logoURL: rs.logoURL)
+                        stationName: rs.name, logoURL: rs.logoURL, streamURL: url)
                     discovery.triggerRefresh()
                     onPlayStation(rs, zone)
                     onNavigateToZone(zone.id)

@@ -494,7 +494,9 @@ actor SMBScanner {
     ) throws -> Album {
         // Check in-memory cache by folderPath first — prevents splits from tag inconsistencies
         let folderKey = "folder|\(folderPath)"
-        if let cached = cache[folderKey] { return cached }
+        if let cached = cache[folderKey] {
+            return cached
+        }
 
         // DB lookup by folderPath — the sole deduplication key.
         //
@@ -507,6 +509,11 @@ actor SMBScanner {
             cache[folderKey] = existing
             return existing
         }
+
+        // TEMP DIAGNOSTIC — log every new album creation with the exact folderPath
+        // key and title/artist used, to find whether a folderPath mismatch between
+        // call sites causes a duplicate/wrong album for what should be one folder.
+        scanLog("SCAN: resolveAlbum CREATING — folderPath='\(folderPath)' title='\(title)' artist='\(artist.name)'")
 
         // Create new album
         let now = Int(Date().timeIntervalSince1970)

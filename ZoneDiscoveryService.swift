@@ -271,6 +271,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                     z.isPlaying        = previous.isPlaying
                     z.volume           = previous.volume
                     z.stationName      = previous.stationName
+                    z.stationNameURI   = previous.stationNameURI
                     z.stationLogoURL   = previous.stationLogoURL
                     z.currentTrack     = previous.currentTrack
                     z.currentArtist    = previous.currentArtist
@@ -640,6 +641,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                 if let state = try SorrivaDatabase.shared.zoneState(deviceId: zone.dbDeviceId) {
                     if zones[idx].stationName.isEmpty, let name = state.stationName {
                         zones[idx].stationName = name
+                        zones[idx].stationNameURI = zones[idx].currentTrackURI
                     }
                     if zones[idx].stationLogoURL.isEmpty, let logo = state.stationLogoURL {
                         zones[idx].stationLogoURL = logo
@@ -675,7 +677,10 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             }
             for await (id, name, art) in group {
                 if let idx = zones.firstIndex(where: { $0.id == id }) {
-                    if !name.isEmpty { zones[idx].stationName = name }
+                    if !name.isEmpty {
+                        zones[idx].stationName = name
+                        zones[idx].stationNameURI = zones[idx].currentTrackURI
+                    }
                     if !art.isEmpty {
                         zones[idx].stationLogoURL = art
                         // Pre-warm image cache so Now Playing art is instant
@@ -693,7 +698,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                 }
             }
         }
-        print("SORRIVA: Station metadata populated for \(zones.filter { !$0.stationName.isEmpty }.count) zones")
+        sLog("ZONES: Station metadata populated for \(zones.filter { !$0.stationName.isEmpty }.count) zones")
     }
 
     private func startPolling() {
@@ -940,7 +945,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         }
     }
 
-    func persistStationPlay(zone: SonosZone, stationId: Int, stationName: String, logoURL: String) {
+    func persistStationPlay(zone: SonosZone, stationId: Int, stationName: String, logoURL: String, streamURL: String) {
         // Optimistic update — set zone state immediately in memory
         // playingUntil gives a 5-second grace period so fetchTransportStates
         // doesn't immediately override with STOPPED during Sonos startup
@@ -948,6 +953,19 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             zones[idx].isPlaying = true
             zones[idx].stationName = stationName
             zones[idx].stationLogoURL = logoURL
+            // Pair stationNameURI with the URL we're actually telling Sonos to
+            // play, right now, at the one moment we reliably know both together.
+            // This is the real fix for stale station names surviving a transfer/
+            // new selection — the app already knows the correct name here; we
+            // don't need to wait for (or trust) Sonos's own GetMediaInfo title,
+            // which can come back empty for iHeart HLS streams (confirmed via a
+            // real repro — Sonos's dc:title was blank while the stream itself
+            // was playing correctly). currentTrackURI is set optimistically here
+            // too so the staleness check in PlaybackContextService is correctly
+            // satisfied immediately, not left waiting for a later poll to
+            // independently converge on the same URL.
+            zones[idx].stationNameURI = streamURL
+            zones[idx].currentTrackURI = streamURL
             zones[idx].currentTrack = ""
             zones[idx].currentArtist = ""
             zones[idx].isHDMI = false
@@ -972,9 +990,9 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                         logoURL: logoURL
                     )
                 }
-                print("SORRIVA DB: Persisted station play \(stationName) on \(zone.name)")
+                sLog("ZONES: Persisted station play \(stationName) on \(zone.name)")
             } catch {
-                print("SORRIVA DB: Station persist error: \(error)")
+                sLog("ZONES: Station persist error: \(error)")
             }
         }
     }
@@ -1530,6 +1548,25 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
 
         print("SORRIVA: transferPlayback — \(sourceZone.name) → \(destZone.name)")
 
+        // Optimistic update — the content isn't changing, only which zone plays
+        // it, so the destination should immediately show the same station info
+        // the source already had, rather than waiting for a topology refresh to
+        // (possibly unreliably) pick it up from Sonos's own GetMediaInfo. Real
+        // repro: a transferred zone kept showing the DESTINATION's own previous
+        // station indefinitely, since Sonos returned an empty title for the new
+        // stream and nothing else ever corrected it.
+        if let idx = zones.firstIndex(where: { $0.id == toZoneID }) {
+            zones[idx].stationName = sourceZone.stationName
+            zones[idx].stationNameURI = sourceZone.stationNameURI
+            zones[idx].stationLogoURL = sourceZone.stationLogoURL
+            zones[idx].currentTrackURI = sourceZone.currentTrackURI
+            zones[idx].currentTrack = sourceZone.currentTrack
+            zones[idx].currentArtist = sourceZone.currentArtist
+            zones[idx].isPlaying = true
+            zones[idx].idleState = false
+            zones[idx].playingUntil = Date().addingTimeInterval(6)
+        }
+
         Task {
             // Step 0: register NAS shares with destination before transfer
             // so x-file-cifs:// URIs work immediately when dest becomes coordinator
@@ -1901,6 +1938,9 @@ struct SonosZone: Identifiable, Equatable {
     var isPlaying: Bool     // Transport state
     var volume: Int         // 0-100
     var stationName: String = ""
+    var stationNameURI: String = ""     // URI that stationName was actually resolved for — if this
+                                         // doesn't match currentTrackURI, stationName is stale and
+                                         // must not be displayed (see bStationNameStaleAfterTransfer)
     var stationLogoURL: String = ""
     var currentTrack: String = ""
     var currentArtist: String = ""

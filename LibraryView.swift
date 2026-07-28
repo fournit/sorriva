@@ -496,7 +496,8 @@ struct MediaCard: View {
                             zone: zone,
                             stationId: stationId,
                             stationName: stationName,
-                            logoURL: artURL
+                            logoURL: artURL,
+                            streamURL: url
                         )
                         discovery.triggerRefresh()
                     }

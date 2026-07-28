@@ -270,6 +270,7 @@ final class ScanCoordinator: ObservableObject {
 
             var pathsByName: [String: String] = [:]
             var measured: [ArtworkBestWins.Candidate] = []
+            var candidateFileCount = 0
 
             do {
                 let entries = try await client.listDirectory(path: album.folderPath)
@@ -287,6 +288,7 @@ final class ScanCoordinator: ObservableObject {
                 if candidateFiles.isEmpty {
                     self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] no image files found")
                 }
+                candidateFileCount = candidateFiles.count
 
                 // Cheap pass — header-only read of every candidate to compare true
                 // pixel area, instead of fully decoding each one just to check size.
@@ -319,11 +321,23 @@ final class ScanCoordinator: ObservableObject {
                         // now in a bad state and every subsequent read on it will also
                         // time out until it's replaced. Reconnect before continuing,
                         // same recovery the download step below already does.
+                        //
+                        // Explicitly disconnect/logoff the OLD client before replacing
+                        // it — even though it's in a bad state. Per Apple DTS guidance,
+                        // NWConnection.cancel() (which logoff() triggers via
+                        // Session.disconnect()) is specifically designed to safely force-
+                        // release a connection's resources regardless of its current
+                        // state; relying on ARC to eventually deallocate an abandoned
+                        // client instead is the non-deterministic pattern that leaks
+                        // kernel connection resources over a long scan session.
                         scanLog("ARTWORK: folder — reconnecting after header timeout")
+                        let staleClient = client
+                        Task { try? await staleClient.disconnectShare(); try? await staleClient.logoff() }
                         client = SMBClient(host: source.host)
-                        if (try? await client.login(username: source.loginCredentials.username, password: source.loginCredentials.password)) != nil,
-                           (try? await client.connectShare(source.share)) != nil {
+                        if await reconnectWithTimeout(client: client, source: source) {
                             scanLog("ARTWORK: folder — reconnected")
+                        } else {
+                            scanLog("ARTWORK: folder — reconnect failed/timed out, will retry next album")
                         }
                     }
 
@@ -335,12 +349,13 @@ final class ScanCoordinator: ObservableObject {
                 }
             } catch {
                 self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] error — \(error.localizedDescription)")
-                try? await client.disconnectShare()
-                try? await client.logoff()
+                let staleClient = client
+                Task { try? await staleClient.disconnectShare(); try? await staleClient.logoff() }
                 client = SMBClient(host: source.host)
-                if (try? await client.login(username: source.loginCredentials.username, password: source.loginCredentials.password)) != nil,
-                   (try? await client.connectShare(source.share)) != nil {
+                if await reconnectWithTimeout(client: client, source: source) {
                     scanLog("ARTWORK: folder — reconnected")
+                } else {
+                    scanLog("ARTWORK: folder — reconnect failed/timed out, will retry next album")
                 }
                 try? await Task.sleep(nanoseconds: 300_000_000)
                 continue
@@ -351,6 +366,12 @@ final class ScanCoordinator: ObservableObject {
             ) else {
                 if !measured.isEmpty {
                     self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] best candidate does not beat stored \(album.artworkWidth ?? 0)×\(album.artworkHeight ?? 0) — skip download")
+                } else if candidateFileCount > 0 {
+                    // Real image files existed in the folder, but not one of them
+                    // produced a readable header — every candidate hit a timeout or
+                    // an unparseable header. Previously silent; this album ends up
+                    // with no artwork from this pass and it wasn't obvious why.
+                    self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] NO USABLE CANDIDATE — \(candidateFileCount) image file(s) found but none produced a readable header")
                 }
                 try? await Task.sleep(nanoseconds: 300_000_000)
                 continue
@@ -379,10 +400,13 @@ final class ScanCoordinator: ObservableObject {
             }
             if downloadTimedOut {
                 scanLog("ARTWORK: folder — reconnecting after download timeout")
+                let staleClient = client
+                Task { try? await staleClient.disconnectShare(); try? await staleClient.logoff() }
                 client = SMBClient(host: source.host)
-                if (try? await client.login(username: source.loginCredentials.username, password: source.loginCredentials.password)) != nil,
-                   (try? await client.connectShare(source.share)) != nil {
+                if await reconnectWithTimeout(client: client, source: source) {
                     scanLog("ARTWORK: folder — reconnected")
+                } else {
+                    scanLog("ARTWORK: folder — reconnect failed/timed out, will retry next album")
                 }
             }
 
@@ -436,6 +460,37 @@ final class ScanCoordinator: ObservableObject {
     }
 
     @discardableResult
+    /// Attempts login + connectShare with a hard timeout, returning whether it
+    /// succeeded. Without this, a reconnect attempted right after a read
+    /// timeout (i.e. exactly when the NAS is most likely still unresponsive)
+    /// could hang indefinitely with nothing to interrupt it — this is what
+    /// caused a real embedded-art-pass lockup: the read timeout's own recovery
+    /// was working correctly, but the reconnect attempt that followed it had
+    /// no timeout of its own and froze the whole scan loop silently.
+    private func reconnectWithTimeout(client: SMBClient, source: LibrarySource, timeoutSeconds: Double = 10) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let semaphore = DispatchSemaphore(value: 0)
+            var succeeded = false
+            Task.detached {
+                if (try? await client.login(username: source.loginCredentials.username, password: source.loginCredentials.password)) != nil,
+                   (try? await client.connectShare(source.share)) != nil {
+                    succeeded = true
+                }
+                semaphore.signal()
+            }
+            DispatchQueue.global(qos: .utility).async {
+                if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
+                    self.scanLog("ARTWORK: reconnect TIMEOUT — NAS still unresponsive")
+                    // Force-release, same reasoning as the read-timeout path —
+                    // don't leave this Task.detached's login/connectShare hanging
+                    // indefinitely if it never completes on its own.
+                    Task { try? await client.logoff() }
+                }
+                continuation.resume(returning: succeeded)
+            }
+        }
+    }
+
     private func runEmbeddedArtPass(source: LibrarySource) async -> Int {
         let albums = (try? SorrivaDatabase.shared.albumsNeedingEmbeddedArtScan()) ?? []
         guard !albums.isEmpty else {
@@ -496,12 +551,20 @@ final class ScanCoordinator: ObservableObject {
                     }
                     guard let rawData = raw else {
                         artReadErrored = true
-                        // Timeout — connection is in bad state, create fresh client without disconnecting
+                        // Timeout — explicitly disconnect/logoff the old client before
+                        // replacing it, even though it's in a bad state. See the folder
+                        // pass's header-timeout handling for why this matters: relying
+                        // on ARC to eventually deallocate an abandoned client instead of
+                        // calling cancel() is the non-deterministic pattern that leaks
+                        // kernel connection resources over a long scan session.
                         scanLog("ARTWORK: embedded — creating fresh connection after timeout")
+                        let staleClient = client
+                        Task { try? await staleClient.disconnectShare(); try? await staleClient.logoff() }
                         client = SMBClient(host: source.host)
-                        if (try? await client.login(username: source.loginCredentials.username, password: source.loginCredentials.password)) != nil,
-                           (try? await client.connectShare(source.share)) != nil {
+                        if await reconnectWithTimeout(client: client, source: source) {
                             scanLog("ARTWORK: embedded — reconnected")
+                        } else {
+                            scanLog("ARTWORK: embedded — reconnect failed/timed out, will retry next album")
                         }
                         continue
                     }
@@ -510,12 +573,13 @@ final class ScanCoordinator: ObservableObject {
                     scanLog("ARTWORK: embedded read error — \((track.filePath as NSString).lastPathComponent): \(error.localizedDescription)")
                     artReadErrored = true
                     // Reconnect on non-timeout error
-                    try? await client.disconnectShare()
-                    try? await client.logoff()
+                    let staleClient = client
+                    Task { try? await staleClient.disconnectShare(); try? await staleClient.logoff() }
                     client = SMBClient(host: source.host)
-                    if (try? await client.login(username: source.loginCredentials.username, password: source.loginCredentials.password)) != nil,
-                       (try? await client.connectShare(source.share)) != nil {
+                    if await reconnectWithTimeout(client: client, source: source) {
                         scanLog("ARTWORK: embedded — reconnected")
+                    } else {
+                        scanLog("ARTWORK: embedded — reconnect failed/timed out, will retry next album")
                     }
                     continue
                 }

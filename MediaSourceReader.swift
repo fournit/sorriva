@@ -105,21 +105,29 @@ actor SMBMediaSourceReader: MediaSourceReader {
         let share = self.share
         let username = self.username
         let password = self.password
+        let name = (path as NSString).lastPathComponent
+
+        // Created here, outside Task.detached, so both the background work AND
+        // the timeout handler below can reach the same client instance. This is
+        // what makes force-cancellation on timeout possible.
+        let client = SMBClient(host: host)
 
         return try await withCheckedThrowingContinuation { continuation in
             let semaphore = DispatchSemaphore(value: 0)
             var result: Result<Data, Error> = .failure(MediaSourceReaderError.timeout)
 
             Task.detached {
-                let name = (path as NSString).lastPathComponent
-                let client = SMBClient(host: host)
-
                 // Each stage caught separately — a single catch-all previously
                 // reported auth and share-connect failures as read failures,
                 // making STATUS_LOGON_FAILURE from the server look like a file problem.
                 do {
                     try await client.login(username: username.isEmpty ? "guest" : username, password: password)
                 } catch {
+                    // Explicit cleanup even on auth failure — login() can still have
+                    // established the underlying connection before the server
+                    // rejected credentials, so there may be a real connection to
+                    // release here, not just a no-op.
+                    try? await client.logoff()
                     result = .failure(MediaSourceReaderError.auth(name: name, underlying: error))
                     semaphore.signal()
                     return
@@ -152,6 +160,19 @@ actor SMBMediaSourceReader: MediaSourceReader {
             DispatchQueue.global(qos: .utility).async {
                 if semaphore.wait(timeout: .now() + 15) == .timedOut {
                     result = .failure(MediaSourceReaderError.timeout)
+                    // The Task.detached above is still running at this point — Swift
+                    // Task cancellation is cooperative and SMBClient's own async
+                    // methods never check for it, so simply abandoning the task
+                    // would leave it (and its connection) running indefinitely if
+                    // the underlying network operation is genuinely hung, not just
+                    // slow. Force-cancelling the connection directly is reliable
+                    // regardless: NWConnection.cancel() completes any outstanding
+                    // receive/send with an error, which unblocks whatever the stuck
+                    // task is awaiting, letting it exit and run its own (now
+                    // redundant) cleanup. Fire-and-forget — we don't wait for this
+                    // to finish before resuming, since the caller has already
+                    // given up on this read either way.
+                    Task { try? await client.logoff() }
                 }
                 continuation.resume(with: result)
             }

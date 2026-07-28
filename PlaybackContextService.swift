@@ -98,17 +98,31 @@ final class PlaybackContextService: ObservableObject {
                 Date().timeIntervalSince($0) < 2.0
             } ?? false
             if zone.isPlaying && !inLocalGrace {
+                // stationName/stationLogoURL are only trustworthy if they were
+                // actually resolved for the URI Sonos is CURRENTLY playing. If the
+                // URI has since changed (e.g. a transfer brought new content to
+                // this zone) but a fresh name hasn't landed yet — or Sonos itself
+                // returned an empty title for the new stream, which
+                // fetchAllStationMetadata deliberately doesn't overwrite blindly —
+                // the old name is stale and must not be displayed as current.
+                // Real repro: transferring a new station to a zone kept showing
+                // the PREVIOUS station's name indefinitely, since nothing ever
+                // cleared it once Sonos returned an empty title for the new one.
+                let stationNameIsFresh = zone.stationNameURI == zone.currentTrackURI
+                let displayStationName = stationNameIsFresh ? zone.stationName : ""
+                let displayStationArt  = stationNameIsFresh ? zone.stationLogoURL : ""
+
                 // Only overwrite if we have something meaningful to show
                 // Empty context during transition would wipe out good context
-                let hasContent = !zone.currentTrack.isEmpty || !zone.stationName.isEmpty
+                let hasContent = !zone.currentTrack.isEmpty || !displayStationName.isEmpty
                 if hasContent {
                     contexts[zone.id] = PlaybackContext(
                         track: zone.currentTrack,
                         artist: zone.currentArtist,
-                        albumName: zone.stationName,
+                        albumName: displayStationName,
                         duration: 0,
                         artAlbum: nil,
-                        artURL: zone.stationLogoURL.isEmpty ? nil : zone.stationLogoURL,
+                        artURL: displayStationArt.isEmpty ? nil : displayStationArt,
                         isLocal: false
                     )
                 } else {
