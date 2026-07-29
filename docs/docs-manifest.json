@@ -1,0 +1,131 @@
+{
+  "product": "sorriva",
+  "docs": [
+    {
+      "file": "sorriva-poc.html",
+      "display_name": "POC Handoff",
+      "description": "Proof of concept session guide \u2014 Sonos zone picker, iHeart search/browse/playback, favorites. Pre-session checklist, Flask routes, SwiftUI screens, iHeart and Sonos API notes.",
+      "category": "handoff"
+    },
+    {
+      "file": "sorriva-context.html",
+      "display_name": "Product Context",
+      "description": "Full product context \u2014 architecture, stack, features, brand, design principles, marketing positioning, and decision log. Source of truth for all sessions.",
+      "category": "arch"
+    },
+    {
+      "file": "sorriva-product-spec.html",
+      "display_name": "Product Spec",
+      "description": "Complete feature reference across 10 product areas. Every feature in user-action language with configurable items, status, priority, and audio quality context.",
+      "category": "arch"
+    },
+    {
+      "file": "sorriva-competitive.html",
+      "display_name": "Competitive Matrix",
+      "description": "Feature-by-feature comparison vs Roon with Sorriva positioning response. 11 Sorriva advantages, 2 honest gaps, 7 parity features.",
+      "category": "marketing"
+    },
+    {
+      "file": "sorriva-audio-quality.html",
+      "display_name": "Audio Quality Reference",
+      "description": "Lossless vs hi-res explained. Streaming service quality table. Sorriva delivery path matrix by protocol and hardware.",
+      "category": "marketing"
+    },
+    {
+      "file": "passione-session-protocol.html",
+      "display_name": "Session Protocol",
+      "description": "Cross-product session conventions \u2014 start checklist, iteration workflow, session close, zip spec, manifest schemas, rollback, Hub workflow.",
+      "category": "arch"
+    },
+    {
+      "file": "sonos-upnp-reference.html",
+      "display_name": "Sonos UPnP Reference",
+      "description": "Complete Sonos UPnP/SOAP API reference. Discovery, topology, transport, volume, EQ, zone grouping, station playback. Includes S2 firmware quirks (x-rincon: single colon, IdleState behavior, Arc Ultra extended EQ). Validated against live hardware July 2026.",
+      "category": "arch"
+    },
+    {
+      "file": "iheart-api-reference.html",
+      "display_name": "iHeartRADIO API Reference",
+      "description": "Undocumented iHeart API endpoints. Station info, stream URLs, logo URLs, now-playing limitations. Includes Sonos playback integration (hls-radio:// prefix, DIDL-Lite metadata). Reverse-engineered July 2026.",
+      "category": "arch"
+    },
+    {
+      "file": "sorriva-local-playback-arch.html",
+      "display_name": "Local Playback Architecture",
+      "description": "How Sorriva streams local FLAC to Sonos via iPad HTTP proxy. Research, ruled-out approaches, chosen architecture, Core Transfer flow, quality preservation, what was built (NWListener, 1MB chunks, UNAS Pro findings), known issues. v2.0 updated 2026-07-15.",
+      "category": "arch"
+    },
+    {
+      "file": "sorriva-local-playback-arch.md",
+      "display_name": "Local Playback Architecture (Markdown)",
+      "description": "Markdown version of the local playback architecture doc. Drop into a Claude session as a document upload for efficient reading. Same content as the HTML version \u2014 includes all UNAS Pro discoveries, 1MB chunk solution, known short-snippet issue, and next steps.",
+      "category": "arch"
+    },
+    {
+      "file": "engineering/01_Constitution.md",
+      "display_name": "AI Engineering Constitution",
+      "description": "Highest-authority engineering instruction set for Sorriva. Product principles, architectural invariants, scope controls, operating rules, and definition of done. Governs all AI agent behavior.",
+      "category": "engineering"
+    },
+    {
+      "file": "engineering/02_Architecture.md",
+      "display_name": "Target Architecture",
+      "description": "Target module boundaries, system shape, persistence model, concurrency model, and correctness changes required. AppEnvironment, PlaybackStore, EndpointDriver, LibraryRepository, SourceResolver, and MusicDomain specifications.",
+      "category": "engineering"
+    },
+    {
+      "file": "engineering/03_Implementation_Plan.md",
+      "display_name": "Implementation Plan",
+      "description": "15 work packages in dependency order from correctness baseline through UI redesign. Each package lists affected files, implementation tasks, and acceptance criteria.",
+      "category": "engineering"
+    },
+    {
+      "file": "engineering/04_Decisions_and_Patterns.md",
+      "display_name": "Architecture Decisions and Patterns",
+      "description": "12 accepted ADRs covering platform ownership, standalone operation, canonical identity, PlaybackStore authority, endpoint drivers, Keychain, and composition root. Approved implementation patterns A\u2013H. Prohibited patterns list.",
+      "category": "engineering"
+    },
+    {
+      "file": "engineering/05_Status_and_Roadmap.md",
+      "display_name": "Status and Roadmap",
+      "description": "Current product state, confirmed defects S-001 through S-006, architecture implementation status table, milestone execution order A\u2013F, and deferred backlog. Updated at session close after each completed work package.",
+      "category": "engineering"
+    },
+    {
+      "file": "engineering/06_UI_Specification.md",
+      "display_name": "UI Specification",
+      "description": "PassioneUI and SorrivaMusicUI module definitions, token contract, design language with approved color palette and typography, component catalog, navigation framework, screen contract, and AI implementation rules.",
+      "category": "engineering"
+    },
+    {
+      "file": "handoffs/HANDOFF-scanner-hardening.md",
+      "display_name": "Scanner & NAS Reliability Handoff",
+      "description": "Complete context transfer for continuing scanner/artwork/NAS reliability work. Full reasoning trail for fScannerIdentityIntegrity, bArtworkSelectionNotBestWins, and the NWError 12 connection-leak investigation (Stage 1 done, Stage 2 not started). Written for a fresh Claude session with zero prior context.",
+      "category": "handoff"
+    },
+    {
+      "file": "handoffs/HANDOFF-playbackstore-architecture.md",
+      "display_name": "PlaybackStore Architecture Handoff",
+      "description": "Full chronology of the zone station-name staleness saga and the confirmed architectural root cause: action functions (transfer/group/station-play) mutate raw zone state instead of authoritatively declaring what's playing to the store. Includes what was tried and rejected, so it isn't re-attempted. Design not yet finalized \u2014 discuss with Tom before implementing.",
+      "category": "handoff"
+    },
+    {
+      "file": "handoffs/HANDOFF-gate-readiness-assessment.md",
+      "display_name": "Reliability Gate Readiness Assessment",
+      "description": "Honest, tiered audit of what's actually verified vs merely marked done ahead of the 7-day reliability gate. Surfaces bMissingTracksInAlbum and bScannerTestSeam as previously-unconnected High-priority gaps found via a full roadmap pass. Recommends next diagnostic steps before trusting the gate clock.",
+      "category": "handoff"
+    },
+    {
+      "file": "passione-deploy-reference.html",
+      "display_name": "Passione Deploy Reference",
+      "description": "",
+      "category": "engineering"
+    },
+    {
+      "file": "xcode-wifi-deploy.html",
+      "display_name": "Xcode Wifi Deploy",
+      "description": "",
+      "category": "unfiled"
+    }
+  ]
+}

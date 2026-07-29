@@ -1,0 +1,7 @@
+{
+  "version": "0.0.45",
+  "build": 45,
+  "released": "2026-07-27",
+  "status": "active",
+  "notes": "Fixed two real zone-grouping bugs (topology-fetch race condition, and full-array-replacement wiping live zone state on every refresh). Completed bArtworkSelectionNotBestWins: true best-wins artwork selection with header-only dimension reading. Real-world testing surfaced and fixed 3 bugs in the new artwork code, most seriously online fetch overwriting correct artwork with wrong iTunes matches -- reverted to gap-filling-only as the safe default. Fixed a second instance of the retry-loop-never-resolves bug class (embedded art). Fixed a failed tag read creating a wrong track/album from empty fallback data. NOT YET PUSHED TO GIT as of this build number -- see session notes."
+}

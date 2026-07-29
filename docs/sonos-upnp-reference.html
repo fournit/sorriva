@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Passione — Sonos UPnP Reference</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:         #F5F2EE;
+    --bg-dk:      #EDE9E3;
+    --near-black: #1A1714;
+    --muted:      #7A7470;
+    --border:     rgba(26,23,20,0.10);
+    --border-str: rgba(26,23,20,0.18);
+    --code-bg:    #EDE8E1;
+    --sorriva:    #3D5A99;
+    --success:    #1a6b3a;
+    --warning:    #7a4f00;
+    --danger:     #8b1a1a;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--near-black);
+    font-size: 15px;
+    line-height: 1.7;
+    display: flex;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    width: 240px;
+    min-width: 240px;
+    background: var(--near-black);
+    color: var(--bg);
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 32px 0 40px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .sidebar-wordmark { padding: 0 24px 28px; border-bottom: 1px solid rgba(245,242,238,0.08); margin-bottom: 16px; }
+  .sw { font-weight: 800; font-size: 20px; letter-spacing: -0.05em; color: var(--bg); display: inline-flex; align-items: flex-start; line-height: 1; }
+  .sw-dot { width: 4px; height: 4px; background: #9B2335; border-radius: 50%; margin-left: 1px; margin-top: 1px; flex-shrink: 0; }
+  .sidebar-meta { font-size: 11px; color: rgba(245,242,238,0.30); margin-top: 6px; }
+
+  .nav-label { font-size: 9px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(245,242,238,0.28); padding: 10px 12px 4px; }
+  .nav-link { display: block; font-size: 12.5px; font-weight: 500; color: rgba(245,242,238,0.60); text-decoration: none; padding: 5px 12px; border-radius: 5px; margin: 0 12px 2px; }
+  .nav-link:hover { background: rgba(245,242,238,0.07); color: var(--bg); }
+
+  .main { flex: 1; max-width: 900px; padding: 56px 56px 100px; }
+
+  h1 { font-size: 32px; font-weight: 800; letter-spacing: -0.03em; margin-bottom: 8px; }
+  h2 { font-size: 20px; font-weight: 700; margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 2px solid var(--border-str); }
+  h3 { font-size: 15px; font-weight: 700; margin: 24px 0 8px; color: var(--sorriva); }
+  p { margin-bottom: 12px; }
+  ul { margin: 8px 0 12px 20px; }
+  li { margin-bottom: 4px; }
+
+  .subtitle { font-size: 16px; color: var(--muted); margin-bottom: 32px; }
+
+  .callout { border-radius: 8px; padding: 14px 16px; margin: 16px 0; font-size: 13.5px; }
+  .callout.warn { background: #fef3cd; border-left: 3px solid #d4a017; color: var(--warning); }
+  .callout.danger { background: #fde8e8; border-left: 3px solid #c0392b; color: var(--danger); }
+  .callout.success { background: #e8f5ee; border-left: 3px solid #27ae60; color: var(--success); }
+  .callout.info { background: #e8eef8; border-left: 3px solid var(--sorriva); color: #1a2a4a; }
+
+  .code { background: var(--code-bg); border-radius: 6px; padding: 14px 16px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12.5px; line-height: 1.6; margin: 12px 0; overflow-x: auto; white-space: pre; }
+
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13.5px; }
+  th { background: var(--bg-dk); font-weight: 600; text-align: left; padding: 8px 12px; border: 1px solid var(--border-str); }
+  td { padding: 8px 12px; border: 1px solid var(--border); vertical-align: top; }
+  td code { background: var(--code-bg); padding: 1px 5px; border-radius: 3px; font-size: 11.5px; font-family: monospace; }
+
+  .tag { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
+  .tag.s2 { background: #ddeeff; color: #1a4a7a; }
+  .tag.s1 { background: #fff0dd; color: #7a4a00; }
+  .tag.works { background: #e8f5ee; color: #1a5a2a; }
+  .tag.fails { background: #fde8e8; color: #8b1a1a; }
+
+  .footer { margin-top: 80px; padding-top: 24px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<nav class="sidebar">
+  <div class="sidebar-wordmark">
+    <div class="sw">passione<span class="sw-dot"></span></div>
+    <div class="sidebar-meta">Sonos UPnP Reference</div>
+  </div>
+  <span class="nav-label">Overview</span>
+  <a class="nav-link" href="#architecture">Architecture</a>
+  <a class="nav-link" href="#ports">Ports & Services</a>
+  <a class="nav-link" href="#s1-vs-s2">S1 vs S2</a>
+  <span class="nav-label">Discovery</span>
+  <a class="nav-link" href="#discovery">Bonjour Discovery</a>
+  <a class="nav-link" href="#topology">Zone Topology</a>
+  <span class="nav-label">Control</span>
+  <a class="nav-link" href="#transport">Transport Control</a>
+  <a class="nav-link" href="#volume">Volume & EQ</a>
+  <a class="nav-link" href="#grouping">Zone Grouping</a>
+  <span class="nav-label">Metadata</span>
+  <a class="nav-link" href="#station-meta">Station Metadata</a>
+  <a class="nav-link" href="#track-meta">Track Metadata</a>
+  <a class="nav-link" href="#playback">Station Playback</a>
+  <a class="nav-link" href="#local-files">Local File Playback</a>
+  <span class="nav-label">Reference</span>
+  <a class="nav-link" href="#error-codes">Error Codes</a>
+  <a class="nav-link" href="#tested-hardware">Tested Hardware</a>
+</nav>
+
+<main class="main">
+  <h1>Sonos UPnP Reference</h1>
+  <p class="subtitle">Complete reference for Sonos UPnP/SOAP APIs used in Passione products. Covers S2 firmware. Validated against live Sonos Era 100, Era 300, Arc Ultra, Roam hardware.</p>
+
+  <div class="callout info">
+    <strong>Hard-won knowledge:</strong> This document captures findings from building Sorriva (July 2026). Several approaches that <em>should</em> work per documentation fail on S2 firmware. Read the ⚠️ warnings carefully before implementing.
+  </div>
+
+  <!-- ARCHITECTURE -->
+  <h2 id="architecture">Architecture Overview</h2>
+  <p>Sonos speakers expose a UPnP/SOAP control interface on port 1400. All household management, transport control, volume, EQ, and grouping operations are available via SOAP calls to individual speaker endpoints. No cloud dependency required for local control.</p>
+  <p>Each speaker is a UPnP device. The household topology (which speakers exist, which are grouped) is available from any single speaker via <code>GetZoneGroupState</code>. You don't need to query each speaker individually.</p>
+
+  <!-- PORTS -->
+  <h2 id="ports">Ports &amp; Service URLs</h2>
+  <table>
+    <tr><th>Port</th><th>Protocol</th><th>Use</th><th>Notes</th></tr>
+    <tr><td>1400</td><td>HTTP/UPnP</td><td>All control operations</td><td>Use this. Fully functional.</td></tr>
+    <tr><td>1443</td><td>HTTPS/TLS</td><td>Encrypted control</td><td>Avoid. Certificate complexity, no benefit for local network.</td></tr>
+  </table>
+
+  <h3>Control URLs (port 1400)</h3>
+  <table>
+    <tr><th>Service</th><th>Control URL</th><th>Used For</th></tr>
+    <tr><td>AVTransport</td><td><code>/MediaRenderer/AVTransport/Control</code></td><td>Play, pause, stop, transport state, grouping, station playback</td></tr>
+    <tr><td>RenderingControl</td><td><code>/MediaRenderer/RenderingControl/Control</code></td><td>Volume, mute, bass, treble, loudness, Arc EQ</td></tr>
+    <tr><td>ZoneGroupTopology</td><td><code>/ZoneGroupTopology/Control</code></td><td>Household topology, group state, IdleState</td></tr>
+    <tr><td>GroupManagement</td><td><code>/GroupManagement/Control</code></td><td>Rendering group membership (NOT playback grouping)</td></tr>
+    <tr><td>GroupRenderingControl</td><td><code>/MediaRenderer/GroupRenderingControl/Control</code></td><td>Group-wide rendering (volume sync)</td></tr>
+  </table>
+
+  <h3>Device Description</h3>
+  <div class="code">GET http://{host}:1400/xml/device_description.xml
+→ Returns modelName, modelNumber, all service SCPD URLs</div>
+
+  <!-- S1 VS S2 -->
+  <h2 id="s1-vs-s2">S1 vs S2 Firmware Differences</h2>
+  <div class="callout danger">
+    <strong>Critical:</strong> Most online Sonos UPnP documentation and third-party libraries (SoCo, node-sonos) were written for S1 firmware. Several approaches that work on S1 <strong>fail on S2</strong>. Always test against S2 hardware.
+  </div>
+  <table>
+    <tr><th>Operation</th><th>S1 Approach</th><th>S2 Approach</th></tr>
+    <tr><td>Join a playback group</td><td><code>x-rincon://RINCON_XXX</code> (double slash)</td><td><code>x-rincon:RINCON_XXX</code> (single colon) <span class="tag works">✓ confirmed</span></td></tr>
+    <tr><td>Group topology</td><td>Per-device /status/zp polling</td><td>Single GetZoneGroupState call returns full household</td></tr>
+    <tr><td>TLS port</td><td>Not available</td><td>Port 1443 available but avoid</td></tr>
+  </table>
+
+  <!-- DISCOVERY -->
+  <h2 id="discovery">Bonjour Discovery</h2>
+  <h3>Service Type</h3>
+  <div class="code">_sonos._tcp</div>
+
+  <h3>iOS Implementation</h3>
+  <div class="callout warn">
+    <strong>iOS 26:</strong> <code>NWBrowser</code> fails to discover Sonos speakers on iOS 26. Use <code>NetServiceBrowser</code> instead.
+  </div>
+  <div class="code">// Use NetServiceBrowser — NWBrowser fails on iOS 26
+let browser = NetServiceBrowser()
+browser.searchForServices(ofType: "_sonos._tcp", inDomain: "local.")</div>
+
+  <h3>TXT Record Fields</h3>
+  <table>
+    <tr><th>Field</th><th>Example</th><th>Notes</th></tr>
+    <tr><td><code>hhid</code></td><td><code>Sonos_GHdGrQ...KlfD9</code></td><td>Household ID — stable, use as primary key</td></tr>
+    <tr><td><code>variant</code></td><td><code>4</code></td><td>Firmware variant</td></tr>
+    <tr><td><code>mdnssequence</code></td><td><code>42</code></td><td>Sequence number</td></tr>
+  </table>
+
+  <p>Each speaker in the household advertises independently. You only need to resolve one to get the full topology.</p>
+
+  <!-- TOPOLOGY -->
+  <h2 id="topology">Zone Topology</h2>
+  <h3>GetZoneGroupState — Single Call, Full Household</h3>
+  <div class="callout success">
+    <strong>Key insight:</strong> One SOAP call to any speaker returns the complete household topology — all zones, groups, coordinators, satellites, and IdleState. No need to query each speaker.
+  </div>
+
+  <div class="code">POST http://{any_host}:1400/ZoneGroupTopology/Control
+SOAPACTION: "urn:schemas-upnp-org:service:ZoneGroupTopology:1#GetZoneGroupState"
+
+Body:
+&lt;u:GetZoneGroupState xmlns:u="urn:schemas-upnp-org:service:ZoneGroupTopology:1"/&gt;</div>
+
+  <h3>Response Structure</h3>
+  <div class="code">&lt;ZoneGroups&gt;
+  &lt;ZoneGroup Coordinator="RINCON_74CA60612AE901400" ID="RINCON_74CA60612AE901400:3428880515"&gt;
+    &lt;ZoneGroupMember UUID="RINCON_74CA60612AE901400"
+                     ZoneName="Living Room"
+                     Location="http://192.168.1.219:1400/xml/device_description.xml"
+                     Invisible="0"
+                     IdleState="0"
+                     /&gt;
+    &lt;ZoneGroupMember UUID="RINCON_C43875D79AC201400"
+                     ZoneName="Sub 4"
+                     Invisible="1"    &lt;!-- satellite — filter these out --&gt;
+                     /&gt;
+  &lt;/ZoneGroup&gt;
+  &lt;ZoneGroup Coordinator="RINCON_804AF29C40B601400" ID="RINCON_804AF29C40B601400:xxx"&gt;
+    &lt;ZoneGroupMember UUID="RINCON_804AF29C40B601400" ZoneName="Master Bath" .../&gt;
+    &lt;ZoneGroupMember UUID="RINCON_804AF29971CC01400" ZoneName="Master Bedroom" .../&gt;
+  &lt;/ZoneGroup&gt;
+&lt;/ZoneGroups&gt;</div>
+
+  <h3>Key Fields</h3>
+  <table>
+    <tr><th>Field</th><th>Notes</th></tr>
+    <tr><td><code>ZoneGroup/@Coordinator</code></td><td>RINCON UUID of the coordinator for this playback group</td></tr>
+    <tr><td><code>ZoneGroup/@ID</code></td><td>Group ID — format: <code>RINCON_XXX:{sequence}</code>. Required for some grouping operations.</td></tr>
+    <tr><td><code>ZoneGroupMember/@UUID</code></td><td>Stable RINCON identifier — use as primary key for devices</td></tr>
+    <tr><td><code>ZoneGroupMember/@ZoneName</code></td><td>User-visible zone name</td></tr>
+    <tr><td><code>ZoneGroupMember/@Location</code></td><td>Full URL to device description — extract IP from this</td></tr>
+    <tr><td><code>ZoneGroupMember/@Invisible</code></td><td><code>1</code> = satellite/sub — filter these from zone list</td></tr>
+    <tr><td><code>ZoneGroupMember/@IdleState</code></td><td><code>1</code> = idle (TV off for Arc/HDMI zones). Overrides GetTransportInfo.</td></tr>
+  </table>
+
+  <div class="callout warn">
+    <strong>IdleState vs TransportInfo:</strong> The Arc Ultra reports PLAYING via GetTransportInfo even when the TV is off (HDMI ARC stays active). Use <code>IdleState="1"</code> from topology to correctly detect TV-off state. Refresh topology every 15 seconds to keep IdleState current.
+  </div>
+
+  <h3>GetZoneGroupAttributes — Household ID</h3>
+  <div class="code">POST http://{host}:1400/ZoneGroupTopology/Control
+SOAPACTION: "urn:schemas-upnp-org:service:ZoneGroupTopology:1#GetZoneGroupAttributes"
+
+→ Returns &lt;CurrentMuseHouseholdId&gt;Sonos_GHdGrQXgKUKMxMegeS9BMtz03h.KlfD9vhatwwzqSWfHGrd&lt;/CurrentMuseHouseholdId&gt;</div>
+
+  <!-- TRANSPORT -->
+  <h2 id="transport">Transport Control</h2>
+  <h3>GetTransportInfo</h3>
+  <div class="code">POST http://{host}:1400/MediaRenderer/AVTransport/Control
+SOAPACTION: "urn:schemas-upnp-org:service:AVTransport:1#GetTransportInfo"
+
+Body: &lt;u:GetTransportInfo&gt;&lt;InstanceID&gt;0&lt;/InstanceID&gt;&lt;/u:GetTransportInfo&gt;
+
+→ &lt;CurrentTransportState&gt;PLAYING|PAUSED_PLAYBACK|STOPPED&lt;/CurrentTransportState&gt;</div>
+
+  <h3>Play / Pause / Stop</h3>
+  <div class="code">SOAPACTION: "urn:schemas-upnp-org:service:AVTransport:1#Play"
+Body: &lt;u:Play&gt;&lt;InstanceID&gt;0&lt;/InstanceID&gt;&lt;Speed&gt;1&lt;/Speed&gt;&lt;/u:Play&gt;
+
+SOAPACTION: "urn:schemas-upnp-org:service:AVTransport:1#Pause"
+Body: &lt;u:Pause&gt;&lt;InstanceID&gt;0&lt;/InstanceID&gt;&lt;/u:Pause&gt;</div>
+
+  <h3>GetPositionInfo — Current Track</h3>
+  <div class="code">SOAPACTION: "urn:schemas-upnp-org:service:AVTransport:1#GetPositionInfo"
+
+→ Contains r:streamContent with pipe-delimited track metadata:
+   "TITLE {track} | ARTIST {artist} | ALBUM {album} | ..."
+
+→ Also contains RelTimePosition (elapsed) and TrackDuration</div>
+
+  <div class="callout info">
+    Track metadata is embedded in the HLS stream and only available when the zone is actively playing. No API endpoint returns current on-air track for idle zones with iHeart digital stations.
+  </div>
+
+  <!-- VOLUME -->
+  <h2 id="volume">Volume &amp; EQ</h2>
+  <h3>GetVolume / SetVolume</h3>
+  <div class="code">POST http://{host}:1400/MediaRenderer/RenderingControl/Control
+SOAPACTION: "urn:schemas-upnp-org:service:RenderingControl:1#GetVolume"
+
+Body:
+&lt;u:GetVolume&gt;&lt;InstanceID&gt;0&lt;/InstanceID&gt;&lt;Channel&gt;Master&lt;/Channel&gt;&lt;/u:GetVolume&gt;
+→ &lt;CurrentVolume&gt;18&lt;/CurrentVolume&gt;  (0-100)
+
+SOAPACTION: "urn:schemas-upnp-org:service:RenderingControl:1#SetVolume"
+Body:
+&lt;u:SetVolume&gt;&lt;InstanceID&gt;0&lt;/InstanceID&gt;&lt;Channel&gt;Master&lt;/Channel&gt;&lt;DesiredVolume&gt;20&lt;/DesiredVolume&gt;&lt;/u:SetVolume&gt;</div>
+
+  <h3>Bass / Treble / Loudness</h3>
+  <div class="code">GetBass / SetBass — range: -10 to +10
+GetTreble / SetTreble — range: -10 to +10
+GetLoudness / SetLoudness — 0 or 1 (boolean)
+
+All use RenderingControl service, Channel=Master</div>
+
+  <h3>Arc Ultra Extended EQ (GetEQ / SetEQ)</h3>
+  <div class="callout info">
+    Arc-specific controls use <code>GetEQ</code>/<code>SetEQ</code> with an <code>EQType</code> parameter. Detect Arc by fetching <code>modelName</code> from device_description.xml — Arc Ultra = "Sonos Arc Ultra" (modelNumber S45).
+  </div>
+
+  <table>
+    <tr><th>Control</th><th>EQType</th><th>Range</th><th>Notes</th></tr>
+    <tr><td>Night Sound</td><td><code>NightMode</code></td><td>0 or 1</td><td>Reduces loud sounds, boosts quiet</td></tr>
+    <tr><td>Speech Enhancement</td><td><code>DialogLevel</code></td><td>0 or 1</td><td>Boosts dialogue clarity</td></tr>
+    <tr><td>Subwoofer Level</td><td><code>SubGain</code></td><td>-15 to +15</td><td>Built-in sub on Arc Ultra</td></tr>
+    <tr><td>Height Channel</td><td><code>HeightChannelLevel</code></td><td>-10 to +10</td><td>Upfiring Atmos drivers</td></tr>
+  </table>
+
+  <div class="code">SOAPACTION: "urn:schemas-upnp-org:service:RenderingControl:1#GetEQ"
+Body:
+&lt;u:GetEQ&gt;&lt;InstanceID&gt;0&lt;/InstanceID&gt;&lt;EQType&gt;NightMode&lt;/EQType&gt;&lt;/u:GetEQ&gt;
+→ &lt;CurrentValue&gt;0&lt;/CurrentValue&gt;
+
+SOAPACTION: "urn:schemas-upnp-org:service:RenderingControl:1#SetEQ"
+Body:
+&lt;u:SetEQ&gt;&lt;InstanceID&gt;0&lt;/InstanceID&gt;&lt;EQType&gt;NightMode&lt;/EQType&gt;&lt;DesiredValue&gt;1&lt;/DesiredValue&gt;&lt;/u:SetEQ&gt;</div>
+
+  <!-- GROUPING -->
+  <h2 id="grouping">Zone Grouping</h2>
+  <div class="callout danger">
+    <strong>S2 Firmware Critical:</strong> The widely-documented <code>x-rincon://</code> (double slash) URI format fails with error 501 on S2 firmware. Use <code>x-rincon:</code> (single colon). This took significant research to discover.
+  </div>
+
+  <h3>Joining a Playback Group</h3>
+  <p>Send <code>SetAVTransportURI</code> to the <strong>member's host</strong> with <code>x-rincon:{coordinatorUUID}</code> as the CurrentURI.</p>
+  <div class="code">POST http://{MEMBER_HOST}:1400/MediaRenderer/AVTransport/Control
+SOAPACTION: "urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI"
+
+Body:
+&lt;u:SetAVTransportURI&gt;
+  &lt;InstanceID&gt;0&lt;/InstanceID&gt;
+  &lt;CurrentURI&gt;x-rincon:RINCON_74CA60612AE901400&lt;/CurrentURI&gt;  &lt;!-- coordinator UUID --&gt;
+  &lt;CurrentURIMetaData&gt;&lt;/CurrentURIMetaData&gt;
+&lt;/u:SetAVTransportURI&gt;
+
+→ Returns SetAVTransportURIResponse (empty = success)</div>
+
+  <div class="callout warn">
+    <strong>What doesn't work on S2:</strong>
+    <ul style="margin:8px 0 0 16px;">
+      <li><code>x-rincon://RINCON_XXX</code> (double slash) → Error 501</li>
+      <li><code>GroupManagement:1 AddMember</code> → adds rendering member only, NOT playback group</li>
+      <li><code>BecomeGroupCoordinator</code> → requires exact current group state parameters</li>
+      <li><code>BecomeGroupCoordinatorAndSource</code> → same issue, error 800</li>
+    </ul>
+  </div>
+
+  <h3>Leaving a Group (Standalone)</h3>
+  <p>Send <code>BecomeCoordinatorOfStandaloneGroup</code> to the <strong>member's host</strong>.</p>
+  <div class="code">POST http://{MEMBER_HOST}:1400/MediaRenderer/AVTransport/Control
+SOAPACTION: "urn:schemas-upnp-org:service:AVTransport:1#BecomeCoordinatorOfStandaloneGroup"
+
+Body:
+&lt;u:BecomeCoordinatorOfStandaloneGroup&gt;
+  &lt;InstanceID&gt;0&lt;/InstanceID&gt;
+&lt;/u:BecomeCoordinatorOfStandaloneGroup&gt;</div>
+
+  <h3>Hardware Bonds — Never Touch</h3>
+  <p>Stereo pairs, Arc+Sub configurations, and HT satellite bonds are firmware-level and invisible in the topology (<code>Invisible="1"</code>). They appear as a single coordinator zone. Never attempt to break these — only playback groups are user-manageable.</p>
+
+  <!-- STATION METADATA -->
+  <h2 id="station-meta">Station Metadata</h2>
+  <h3>GetMediaInfo — Station Name &amp; Art</h3>
+  <div class="code">SOAPACTION: "urn:schemas-upnp-org:service:AVTransport:1#GetMediaInfo"
+Body: &lt;u:GetMediaInfo&gt;&lt;InstanceID&gt;0&lt;/InstanceID&gt;&lt;/u:GetMediaInfo&gt;
+
+→ CurrentURIMetaData contains double-encoded DIDL-Lite XML with:
+   &lt;dc:title&gt;Yacht Rock Radio&lt;/dc:title&gt;
+   &lt;upnp:albumArtURI&gt;https://i.iheart.com/v3/re/...&lt;/upnp:albumArtURI&gt;</div>
+
+  <div class="callout warn">
+    <strong>Entity decoding required — order matters:</strong>
+    <div class="code" style="margin-top:8px">// Decode in this exact order:
+raw.replace("&amp;quot;", "\"")
+   .replace("&amp;lt;",   "<")
+   .replace("&amp;gt;",   ">")
+   .replace("&amp;amp;",  "&")
+   .replace("&lt;",  "<")
+   .replace("&gt;",  ">")
+   .replace("&quot;", "\"")
+   .replace("&amp;",  "&")
+   .replace("&apos;", "'")</div>
+  </div>
+
+  <h3>HDMI Source Detection</h3>
+  <div class="code">// Check CurrentURI in GetMediaInfo response:
+if raw.contains("x-sonos-htastream") || raw.contains("x-rincon-stream") {
+    // TV/HDMI source — clear station metadata, show TV icon
+}</div>
+
+  <h3>Filtering Bad Station Names</h3>
+  <div class="code">// Reject these as station names:
+- Strings starting with "http" (raw stream URLs)
+- Strings containing ".m3u8" (HLS manifest URLs)
+- Strings starting with "RINCON_" (device IDs — appear when metadata is empty)</div>
+
+  <!-- TRACK METADATA -->
+  <h2 id="track-meta">Track Metadata</h2>
+  <h3>GetPositionInfo — r:streamContent</h3>
+  <div class="code">SOAPACTION: "urn:schemas-upnp-org:service:AVTransport:1#GetPositionInfo"
+
+→ Response contains r:streamContent (pipe-delimited):
+   "TITLE Saturday In The Park|ARTIST Chicago|ALBUM Greatest Hits|..."
+
+// Parse:
+for part in content.components(separatedBy: "|") {
+    if part.hasPrefix("TITLE ")  { track = String(part.dropFirst(6)) }
+    if part.hasPrefix("ARTIST ") { artist = String(part.dropFirst(7)) }
+}</div>
+
+  <div class="callout info">
+    <strong>Track metadata availability:</strong> Only available when zone is actively streaming. iHeart digital-only stations (HLS) do not expose now-playing via any public API — the data is embedded in the audio stream and parsed by Sonos. No external API equivalent exists for idle zones.
+  </div>
+
+  <!-- STATION PLAYBACK -->
+  <h2 id="playback">Station Playback</h2>
+  <h3>SetAVTransportURI + Play</h3>
+  <div class="code">// Step 1: Set the stream URI
+SOAPACTION: "urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI"
+
+Body:
+&lt;u:SetAVTransportURI&gt;
+  &lt;InstanceID&gt;0&lt;/InstanceID&gt;
+  &lt;CurrentURI&gt;hls-radio://http://stream.revma.ihrhls.com/zc8681/hls.m3u8&lt;/CurrentURI&gt;
+  &lt;CurrentURIMetaData&gt;{DIDL-Lite encoded}&lt;/CurrentURIMetaData&gt;
+&lt;/u:SetAVTransportURI&gt;
+
+// Step 2: Play
+SOAPACTION: "urn:schemas-upnp-org:service:AVTransport:1#Play"
+Body: &lt;u:Play&gt;&lt;InstanceID&gt;0&lt;/InstanceID&gt;&lt;Speed&gt;1&lt;/Speed&gt;&lt;/u:Play&gt;</div>
+
+  <h3>Stream URL Format</h3>
+  <table>
+    <tr><th>Source</th><th>URI Prefix</th><th>Notes</th></tr>
+    <tr><td>iHeart HLS</td><td><code>hls-radio://</code></td><td>Prefix the HTTP (not HTTPS) HLS URL</td></tr>
+    <tr><td>Sonos group member</td><td><code>x-rincon:</code></td><td>Single colon, coordinator RINCON UUID</td></tr>
+    <tr><td>TV/HDMI (Arc)</td><td><code>x-sonos-htastream:</code></td><td>Read-only — set by hardware, not controllable via API</td></tr>
+    <tr><td>Sonos Radio</td><td><code>x-sonosapi-stream:</code></td><td>Sonos's internal service format</td></tr>
+  </table>
+
+  <h3>DIDL-Lite Metadata</h3>
+  <p>Always include station name and art URL in metadata — Sonos stores this and returns it via GetMediaInfo. Without it, station name is lost after playback.</p>
+  <div class="code">// DIDL-Lite must be XML-entity-encoded when placed inside the SOAP body:
+let didl = "&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; " +
+           "xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; " +
+           "xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;" +
+           "&lt;item id=&quot;-1&quot; parentID=&quot;-1&quot; restricted=&quot;true&quot;&gt;" +
+           "&lt;dc:title&gt;{stationName}&lt;/dc:title&gt;" +
+           "&lt;upnp:albumArtURI&gt;{artURL}&lt;/upnp:albumArtURI&gt;" +
+           "&lt;upnp:class&gt;object.item.audioItem.audioBroadcast&lt;/upnp:class&gt;" +
+           "&lt;/item&gt;&lt;/DIDL-Lite&gt;"</div>
+
+  <!-- ERROR CODES -->
+  <!-- LOCAL FILE PLAYBACK -->
+  <h2 id="local-files">Local File Playback</h2>
+  <p>Sonos can play audio files served over HTTP via <code>SetAVTransportURI</code>. This is how third-party apps (Roon, Sorriva) stream local library files to Sonos without the Sonos app's NAS library feature.</p>
+
+  <div class="callout warn">
+    <strong>NAS library feature removed:</strong> The current Sonos app (post May 2024) removed NAS library configuration entirely. <code>x-file-cifs://</code> URIs cannot be used without pre-registered credentials, and there is no documented way to register credentials programmatically. Use HTTP serving instead.
+  </div>
+
+  <h3>URI Format</h3>
+  <p>Serve the audio file over HTTP from a device on the local network and pass the URL as <code>CurrentURI</code>:</p>
+  <div class="code">http://[server-ip]:[port]/track/[id].flac</div>
+
+  <div class="callout danger">
+    <strong>File extension required — Error 714:</strong> Sonos S2 returns UPnP error 714 ("Illegal MIME type") if the URI does not end with a recognised audio file extension (<code>.flac</code>, <code>.mp3</code>, <code>.m4a</code>, <code>.wav</code>, <code>.aiff</code>). The server-side handler must strip the extension before processing the request. Plain UUIDs without extensions are rejected.
+  </div>
+
+  <h3>DIDL-Lite for Local Tracks — musicTrack class</h3>
+  <p>Use <code>object.item.audioItem.musicTrack</code> for local files — not <code>object.item.audioItem.audioBroadcast</code> which is for radio streams. The metadata goes in <code>CurrentURIMetaData</code> as XML-entity-encoded DIDL-Lite.</p>
+  <div class="code">&lt;DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/"
+           xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"
+           xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"&gt;
+  &lt;item id="-1" parentID="-1" restricted="true"&gt;
+    &lt;dc:title&gt;Never Let Me Down Again&lt;/dc:title&gt;
+    &lt;dc:creator&gt;Depeche Mode&lt;/dc:creator&gt;
+    &lt;upnp:album&gt;Remixes 81-04&lt;/upnp:album&gt;
+    &lt;upnp:duration&gt;0:09:14&lt;/upnp:duration&gt;
+    &lt;upnp:class&gt;object.item.audioItem.musicTrack&lt;/upnp:class&gt;
+  &lt;/item&gt;
+&lt;/DIDL-Lite&gt;</div>
+
+  <p>When embedded in a SOAP body, the DIDL-Lite must be XML-entity-encoded (<code>&amp;lt;</code>, <code>&amp;gt;</code>, <code>&amp;quot;</code>).</p>
+
+  <h3>SetAVTransportURI SOAP call for local files</h3>
+  <div class="code">POST http://{host}:1400/MediaRenderer/AVTransport/Control
+Content-Type: text/xml; charset=utf-8
+SOAPACTION: "urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI"
+
+&lt;s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+            s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"&gt;
+  &lt;s:Body&gt;
+    &lt;u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1"&gt;
+      &lt;InstanceID&gt;0&lt;/InstanceID&gt;
+      &lt;CurrentURI&gt;http://192.168.1.205:8080/track/83C137BC-4010.flac&lt;/CurrentURI&gt;
+      &lt;CurrentURIMetaData&gt;[entity-encoded DIDL-Lite]&lt;/CurrentURIMetaData&gt;
+    &lt;/u:SetAVTransportURI&gt;
+  &lt;/s:Body&gt;
+&lt;/s:Envelope&gt;</div>
+
+  <p>Follow immediately with a <code>Play</code> transport action (see Transport Control section).</p>
+
+  <h3>HTTP server requirements</h3>
+  <ul>
+    <li>Must be reachable from Sonos speaker on the local network (same subnet)</li>
+    <li>Must respond with correct <code>Content-Type</code> header (<code>audio/flac</code>, <code>audio/mpeg</code>, etc.)</li>
+    <li>Must respond with <code>Content-Length</code> — Sonos sends <code>Connection: close</code> and expects the full content length declared upfront</li>
+    <li>Must support <code>Accept-Ranges: bytes</code> for seeking</li>
+    <li>Sonos sends <code>Connection: close</code> on initial request — does not use keep-alive for file fetching</li>
+  </ul>
+
+  <h3>Sorriva implementation notes</h3>
+  <ul>
+    <li><strong>HTTP server:</strong> <code>NWListener</code> (native Network framework) on port 8080</li>
+    <li><strong>SMB reads:</strong> 1MB chunks with fresh <code>SMBClient</code> per chunk — required for UNAS Pro which drops sessions after 2 sequential reads</li>
+    <li><strong>Backpressure:</strong> Each chunk send awaits <code>.contentProcessed</code> before reading next SMB chunk</li>
+    <li><strong>Background audio:</strong> <code>AVAudioSession .playback</code> with <code>.mixWithOthers</code> keeps iOS process alive when screen locks</li>
+    <li>See <code>sorriva-local-playback-arch.html</code> for full architecture details</li>
+  </ul>
+
+  <h2 id="error-codes">UPnP Error Codes</h2>
+  <table>
+    <tr><th>Code</th><th>Meaning</th><th>Common Cause</th></tr>
+    <tr><td>401</td><td>Invalid Action</td><td>Action name doesn't exist on this service</td></tr>
+    <tr><td>402</td><td>Invalid Args</td><td>Wrong SOAPACTION header for the body action</td></tr>
+    <tr><td>501</td><td>Action Failed</td><td>x-rincon:// (double slash) on S2 firmware; wrong URI format</td></tr>
+    <tr><td>714</td><td>Illegal MIME Type</td><td>URI missing file extension (e.g. <code>/track/uuid</code> instead of <code>/track/uuid.flac</code>), or unrecognised URI scheme. Always append audio extension to local file URIs.</td></tr>
+    <tr><td>800</td><td>Command Failed</td><td>BecomeGroupCoordinator with wrong/stale group state parameters</td></tr>
+  </table>
+
+  <!-- TESTED HARDWARE -->
+  <h2 id="tested-hardware">Tested Hardware</h2>
+  <table>
+    <tr><th>Device</th><th>Model</th><th>Notes</th></tr>
+    <tr><td>Sonos Arc Ultra</td><td>S45</td><td>Primary test device. Extended EQ confirmed (NightMode, DialogLevel, SubGain, HeightChannelLevel). HDMI ARC IdleState behavior confirmed.</td></tr>
+    <tr><td>Sonos Era 100</td><td>S36</td><td>Standard controls confirmed. No extended EQ.</td></tr>
+    <tr><td>Sonos Era 300</td><td>S38</td><td>Standard controls confirmed.</td></tr>
+    <tr><td>Sonos Roam</td><td>S27</td><td>Standard controls confirmed.</td></tr>
+  </table>
+
+  <div class="footer">Passione · Sonos UPnP Reference · July 2026 · Update as new API behaviors are discovered</div>
+</main>
+</body>
+</html>

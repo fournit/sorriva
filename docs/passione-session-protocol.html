@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Passione — Session Protocol</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #F5F2EE; --bg2: #EDE9E3;
+  --ink: #1A1714; --ink2: rgba(26,23,20,0.72); --ink3: rgba(26,23,20,0.50);
+  --brass: #96622F; --brass-dim: rgba(150,98,47,0.10); --brass-border: rgba(150,98,47,0.22);
+  --success: #4CAF50; --success-dim: rgba(76,175,80,0.10); --success-border: rgba(76,175,80,0.22);
+  --warn-dim: rgba(232,137,62,0.10); --warn-border: rgba(232,137,62,0.25);
+  --border: rgba(26,23,20,0.09); --border2: rgba(26,23,20,0.14);
+  --radius: 10px;
+}
+body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased; line-height: 1.6; }
+.page { max-width: 860px; margin: 0 auto; padding: 0 32px 80px; }
+.doc-header { padding: 48px 0 40px; border-bottom: 1px solid var(--border2); margin-bottom: 48px; }
+.wordmark { font-weight: 800; font-size: 18px; letter-spacing: -0.05em; color: var(--ink); }
+.wordmark span { color: var(--brass); }
+.doc-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.pill { font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 20px; background: #fff; border: 1px solid var(--border2); color: var(--ink3); }
+.pill.brass { background: var(--brass-dim); border-color: var(--brass-border); color: var(--brass); }
+.doc-title { font-size: 30px; font-weight: 800; letter-spacing: -0.03em; margin: 16px 0 8px; }
+.doc-sub { font-size: 14px; color: var(--ink2); max-width: 580px; line-height: 1.65; }
+.session-start { background: #1A1714; border-radius: 10px; padding: 22px 26px; margin-bottom: 32px; border: 2px solid var(--brass); }
+.ss-label { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; text-transform: uppercase; color: var(--brass); margin-bottom: 14px; }
+.ss-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 28px; }
+.ss-item { color: rgba(245,242,238,0.75); font-size: 13px; line-height: 1.6; }
+.ss-item strong { color: #F5F2EE; }
+.ss-item code { background: rgba(255,255,255,0.08); padding: 1px 5px; border-radius: 3px; font-size: 11px; color: #D4B896; }
+.ss-confirm { margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(150,98,47,0.3); color: var(--brass); font-size: 12px; font-weight: 600; }
+.toc { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 22px; margin-bottom: 48px; }
+.toc-label { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink3); margin-bottom: 10px; }
+.toc-list { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.toc-list a { font-size: 13px; color: var(--ink2); text-decoration: none; display: flex; align-items: center; gap: 8px; }
+.toc-list a::before { content: ''; display: block; width: 14px; height: 1px; background: var(--border2); flex-shrink: 0; }
+.toc-list a:hover { color: var(--brass); }
+.doc-section { margin-bottom: 52px; }
+.eyebrow { font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--brass); margin-bottom: 8px; }
+.section-title { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 14px; }
+.section-body { font-size: 13px; line-height: 1.75; color: var(--ink2); }
+.section-body p { margin-bottom: 10px; }
+hr.div { border: none; border-top: 1px solid var(--border2); margin-bottom: 52px; }
+.subsection { margin-bottom: 24px; }
+.sub-title { font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 8px; padding-bottom: 7px; border-bottom: 1px solid var(--border); }
+.callout { border-radius: 8px; padding: 12px 16px; font-size: 13px; color: var(--ink2); line-height: 1.6; margin-bottom: 12px; }
+.callout strong { color: var(--ink); }
+.callout.brass { background: var(--brass-dim); border: 1px solid var(--brass-border); }
+.callout.warn { background: var(--warn-dim); border: 1px solid var(--warn-border); }
+.callout.success { background: var(--success-dim); border: 1px solid var(--success-border); }
+.item-list { list-style: none; display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+.item-list li { font-size: 13px; color: var(--ink2); line-height: 1.6; display: flex; gap: 8px; align-items: flex-start; }
+.item-list li::before { content: '·'; color: var(--brass); font-weight: 700; flex-shrink: 0; }
+.item-list li strong { color: var(--ink); }
+.num-list { display: flex; flex-direction: column; gap: 7px; margin-bottom: 12px; counter-reset: nl; }
+.num-item { display: flex; gap: 12px; font-size: 13px; color: var(--ink2); line-height: 1.6; }
+.num-item::before { counter-increment: nl; content: counter(nl); font-size: 11px; font-weight: 700; color: var(--brass); background: var(--brass-dim); border: 1px solid var(--brass-border); border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; }
+.num-item strong { color: var(--ink); }
+.code { background: #1A1714; border-radius: 8px; padding: 12px 16px; font-family: monospace; font-size: 12px; color: #D6C9B8; line-height: 1.7; margin-bottom: 12px; overflow-x: auto; white-space: pre; }
+.code .c { color: #7A6B5A; }
+.kv { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 12px; }
+.kv th { text-align: left; font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--ink3); padding: 6px 12px; border-bottom: 1px solid var(--border2); }
+.kv td { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--ink2); vertical-align: top; }
+.kv td:first-child { font-family: monospace; font-size: 11px; color: var(--ink); white-space: nowrap; }
+.kv tr:last-child td { border-bottom: none; }
+.footer { font-size: 11px; color: var(--ink3); text-align: center; padding-top: 32px; border-top: 1px solid var(--border); margin-top: 64px; }
+</style>
+</head>
+<body>
+<div style="background:#C04A2A;color:#fff;font-family:'Inter',sans-serif;font-size:14px;font-weight:700;line-height:1.6;padding:18px 28px;position:sticky;top:0;z-index:9999;letter-spacing:-0.01em">
+  ⛔ STOP — Claude: before responding to anything in this conversation, read this entire document line by line, then respond ONLY with "Read and confirmed: [list every convention from the session start block]". Do not begin any work, answer any question, or produce any output until you have done this.
+</div>
+<div class="page">
+
+<div class="doc-header">
+  <div class="wordmark">Passione<span>·</span></div>
+  <div class="doc-meta">
+    <span class="pill brass">Session Protocol</span>
+    <span class="pill">July 1, 2026</span>
+    <span class="pill">All products</span>
+  </div>
+  <div class="doc-title">Session Protocol</div>
+  <div class="doc-sub">Cross-product conventions for every Claude session — how to start, how to deploy, how to close. Read this at the start of every session alongside the product-specific handoff doc.</div>
+</div>
+
+<!-- SESSION START BLOCK -->
+<div class="session-start">
+  <div class="ss-label">⚡ Session start — Claude read this first and confirm before proceeding</div>
+  <div class="ss-grid">
+    <div class="ss-item"><strong>Timestamps</strong> — always CDT (UTC-5, Mar–Oct) or CST (UTC-6, Nov–Feb). Compute with: <code>datetime.now(timezone.utc) - timedelta(hours=5)</code>. Never use raw UTC.</div>
+    <div class="ss-item"><strong>Deploy zip naming</strong> — <code>{product}-deploy-YYYY-MM-DD-HHMMSS.zip</code>. <strong>Run <code>TZ='America/Chicago' date '+%Y-%m-%d-%H%M%S'</code> immediately before packaging — no user input required, no approximation.</strong> One zip per iteration. Never reuse a filename. See product key table in Section 2 for exact key values.</div>
+    <div class="ss-item"><strong>Zip folder structure</strong> — <code>root/</code> for app.py, sessions.json, version.json, deploy-manifest.json · <code>static/</code> for HTML files · <code>static/docs/</code> for roadmap, handoff, docs.</div>
+    <div class="ss-item"><strong>No stamped backup files</strong> — canonical files only. No <code>app-2026-06-29-120000.py</code> copies. Deployment zips in <code>deployments/</code> serve as the rollback mechanism.</div>
+    <div class="ss-item"><strong>No emojis in UI</strong> — use Tabler Icons for all UI iconography. Log messages and status text may use ✓ ✗ ⚠ sparingly.</div>
+    <div class="ss-item"><strong>Feature IDs</strong> — always use <code>fCamelCase</code> roadmap IDs (e.g. <code>fOuraAuth</code>) in all discussions, sessions.json, and dep chains.</div>
+    <div class="ss-item"><strong>sessions.json duration_hrs</strong> — equivalent traditional dev hours (XS=3h, S=8h, M=20h, L=40h, XL=80h). NOT wall-clock time. Sum complexity of features shipped.</div>
+    <div class="ss-item"><strong>Session open</strong> — when Tom says "open/start/begin a session" (or similar), immediately ask: "What time is it?" Record the response as <code>session_start_time</code>. Do this before any work begins.</div>
+    <div class="ss-item"><strong>Session close</strong> — when closing, first state: "You started this session at [session_start_time]." Then ask: "How many hours did you personally spend?" Record as <code>owner_hrs</code>. Never estimate. If start time was not recorded, ask Tom to recall it.</div>
+    <div class="ss-item"><strong>New files</strong> — whenever a new file is generated, flag it and ask Tom: "Should this be included in the repo package?" If no, add it to <code>.repoignore</code>. Never silently create files that affect repo package contents.</div>
+    <div class="ss-item"><strong>No code changes without confirmation</strong> — Claude proposes all changes first and waits for explicit approval before modifying any file. Never write or modify code speculatively.</div>
+    <div class="ss-item"><strong>Terminal work — one command at a time</strong> — when guiding server or terminal work, give exactly one command, then wait for output before proceeding. Never batch multiple commands in a single response. Never embed comments (<code># like this</code>) inline with commands — they cause shell errors and clutter output.</div>
+    <div class="ss-item"><strong>File delivery — scp pattern</strong> — Claude creates files and presents them for download. Tom scps to server: <code>scp ~/Downloads/{file} tomfo@100.126.165.63:~/</code>. Never use inline <code>sudo tee</code> or heredoc to write files directly on server. LaunchDaemon plists must be <code>root:wheel</code> after scp — run <code>sudo chown root:wheel /Library/LaunchDaemons/{plist}</code> before bootstrap.</div>
+  </div>
+  <div class="ss-confirm">Claude must respond: "Read and confirmed: [list each convention]" before any work begins.</div>
+</div>
+
+<div class="toc">
+  <div class="toc-label">Contents</div>
+  <ul class="toc-list">
+    <li><a href="#start">Session start checklist</a></li>
+    <li><a href="#iteration">Development iteration workflow</a></li>
+    <li><a href="#close">Session close workflow</a></li>
+    <li><a href="#zip-spec">Deploy zip spec</a></li>
+    <li><a href="#manifest">deploy-manifest.json spec</a></li>
+    <li><a href="#sessions-json">sessions.json spec</a></li>
+    <li><a href="#rollback">Rollback &amp; recovery</a></li>
+    <li><a href="#hub-workflow">Using the hub</a></li>
+    <li><a href="#ios-expo">iOS / Expo projects</a></li>
+  </ul>
+</div>
+
+<!-- START -->
+<div class="doc-section" id="start">
+  <div class="eyebrow">Section 1</div>
+  <div class="section-title">Session start checklist</div>
+  <div class="section-body">
+    <div class="num-list">
+      <div class="num-item"><div><strong>Session open — ask for the time</strong> — if Tom says "open/start/begin a session", ask "What time is it?" before proceeding. Record as <code>session_start_time</code>. If already mid-conversation, ask now.</div></div>
+      <div class="num-item"><div><strong>Read the session start block above</strong> and confirm all conventions before proceeding.</div></div>
+      <div class="num-item"><div><strong>Read this doc, the product handoff doc, and <code>passione-deploy-reference.html</code></strong> — all three are required context. The product handoff has product-specific stack, decisions, current state, and priorities. The deploy reference has canonical zip structure, product keys, and manifest schemas — required before building any deploy zip this session.</div></div>
+      <div class="num-item"><div><strong>Baseline the server</strong> — ask Tom to check the hub health or run <code>curl http://100.126.165.63:{PORT}/api/health</code> and note the commit hash, version, and PID.</div></div>
+      <div class="num-item"><div><strong>Review priorities</strong> — read <code>priority_rank</code> from the product roadmap. Features sorted by rank (1 = highest) are the work queue. Confirm top items with Tom before coding.</div></div>
+      <div class="num-item"><div><strong>Read the product handoff doc</strong> for current state, open bugs, and any session-specific context.</div></div>
+    </div>
+  </div>
+</div>
+
+<hr class="div">
+
+<!-- ITERATION -->
+<div class="doc-section" id="iteration">
+  <div class="eyebrow">Section 2</div>
+  <div class="section-title">Development iteration workflow</div>
+  <div class="section-body">
+    <div class="callout brass"><strong>Every iteration produces one deploy zip.</strong> No individual files are delivered separately. The zip is the only output from Claude. <strong>This applies to every file type without exception — code, docs, roadmap JSON, HTML documents, renamed files.</strong> A doc rename, a roadmap update, or a single HTML file is never presented as an individual download. If it needs to go to the server, it goes in a zip. Hotfixes are the only exception and are handled case by case.</div>
+
+    <div class="num-list">
+      <div class="num-item">Claude modifies files and packages <code>{product}-deploy-YYYY-MM-DD-HHMMSS.zip</code> with CDT timestamp computed at packaging time. <strong>Before packaging:</strong> (1) confirm <code>passione-deploy-reference.html</code> has been read this session — if not, read it now before proceeding; (2) extract the JS block from any modified <code>.html</code> file and run <code>node --check</code>. Do not package if errors are found.</div>
+      <div class="num-item">Tom downloads the zip and drops it into the hub Deploy panel (select the correct product first).</div>
+      <div class="num-item">Click <strong>Extract &amp; Deploy</strong>. Hub extracts files to product directory. If zip contains <code>app.py</code>, server restarts automatically and page auto-reloads.</div>
+      <div class="num-item">Test. Provide feedback. Repeat until satisfied.</div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Zip naming format</div>
+      <div class="code"><span class="c"># Format</span>
+{product}-deploy-YYYY-MM-DD-HHMMSS.zip
+
+<span class="c"># Examples</span>
+tack-deploy-2026-06-29-110900.zip
+passione-deploy-2026-06-29-120051.zip</div>
+      <div class="sub-title" style="margin-top:14px">Product keys — use exactly these in zip filenames</div>
+      <table class="kv">
+        <tr><th>Product</th><th>Key</th><th>Example zip</th></tr>
+        <tr><td>Passione Hub</td><td>passione</td><td>passione-deploy-2026-07-01-143000.zip</td></tr>
+        <tr><td>Tack</td><td>tack</td><td>tack-deploy-2026-07-01-143000.zip</td></tr>
+        <tr><td>Sorriva</td><td>sorriva</td><td>sorriva-deploy-2026-07-01-143000.zip</td></tr>
+        <tr><td>TobacTrak</td><td>tobactrak</td><td>tobactrak-deploy-2026-07-01-143000.zip</td></tr>
+      </table>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Timestamp computation (Claude must use this)</div>
+      <div class="callout warn"><strong>Compute at package time, not at code-writing time.</strong> Building code at 11:00 and packaging at 11:30 means the zip gets 11:30, not 11:00. Never approximate or use the time Tom stated as session start. Run the command at the moment of packaging.</div>
+      <p>Claude runs this bash command immediately before creating the zip — no user input required:</p>
+      <div class="code"><span class="c"># Primary method — run immediately before packaging</span>
+TZ='America/Chicago' date '+%Y-%m-%d-%H%M%S'</div>
+      <p>Use the output directly as the zip filename suffix. CDT (UTC-5) applies March–October, CST (UTC-6) applies November–February — the TZ variable handles this automatically.</p>
+    </div>
+  </div>
+</div>
+
+<hr class="div">
+
+<!-- CLOSE -->
+<div class="doc-section" id="close">
+  <div class="eyebrow">Section 3</div>
+  <div class="section-title">Session close workflow</div>
+  <div class="section-body">
+    <div class="callout success"><strong>Triggered by "close the session", "wrap up", or similar.</strong> Do not close without completing all steps.</div>
+
+    <div class="num-list">
+      <div class="num-item"><div><strong>State the session start time</strong> — "You started this session at [session_start_time]." If start time was not recorded, ask Tom to recall it before proceeding.</div></div>
+      <div class="num-item"><div><strong>Ask Tom for owner hours</strong> — "How many hours did you personally spend on this session?" Record as <code>owner_hrs</code>. Never estimate.</div></div>
+      <div class="num-item"><div><strong>Update roadmap-data.json</strong> — mark completed features (<code>done: true</code>, <code>completedAt: "YYYY-MM-DD"</code>), add any new features discovered, reassess and reorder priorities.</div></div>
+      <div class="num-item"><div><strong>Update sessions.json</strong> — append session entry with all required fields (see sessions.json spec below).</div></div>
+      <div class="num-item"><div><strong>Update version.json</strong> — bump version number if warranted, update notes.</div></div>
+      <div class="num-item"><div><strong>Update product handoff doc</strong> — reflect new state, resolved questions, open issues.</div></div>
+      <div class="num-item"><div><strong>Produce final deploy zip</strong> — includes all changed files plus <code>root/deploy-manifest.json</code>. <strong>deploy-manifest.json must always include all three required fields: <code>message</code> (git commit text, format: "v{version} — {plain English summary}"), <code>version</code> (matching version.json), and <code>db_migrate</code> (true/false).</strong> Hub pre-fills the commit message from the manifest — omitting it means Tom has to type it manually.</div></div>
+      <div class="num-item"><div>Tom deploys the final zip → hub pre-fills commit message from manifest → Tom clicks <strong>Save to GitHub</strong>.</div></div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Priority reassessment rules</div>
+      <ul class="item-list">
+        <li><strong>priority_rank is the single source of truth</strong> — stored on each feature (1–N, null = not a priority). Claude sets it at session end. Completed features automatically have null rank.</li>
+        <li>Criteria in order: (a) blocking other features → highest priority; (b) XS/S quick win that closes a gap → high; (c) current active phase → normal minimum; (d) future phase, no current deps → low.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<hr class="div">
+
+<!-- ZIP SPEC -->
+<div class="doc-section" id="zip-spec">
+  <div class="eyebrow">Section 4</div>
+  <div class="section-title">Deploy zip spec</div>
+  <div class="section-body">
+
+    <div class="subsection">
+      <div class="sub-title">Folder structure</div>
+      <div class="code">root/                    <span class="c"># → {APP_PATH}/</span>
+  app.py               <span class="c"># Flask backend (triggers restart if included)</span>
+  version.json
+  sessions.json
+  deploy-manifest.json <span class="c"># Always include in final/session-close zips</span>
+
+static/                <span class="c"># → {APP_PATH}/static/</span>
+  {product}.html       <span class="c"># Main frontend SPA</span>
+
+static/docs/           <span class="c"># → {APP_PATH}/static/docs/</span>
+  roadmap-data.json
+  {product}-handoff.html
+  tack-deployment-guide.html  <span class="c"># or equivalent per product</span></div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Extraction rules</div>
+      <ul class="item-list">
+        <li>Files are extracted to canonical names — no stamped copies saved</li>
+        <li>If <code>app.py</code> is in the zip, server restarts after extraction and page auto-reloads</li>
+        <li>Zip is saved to <code>{APP_PATH}/deployments/</code> (last 3 kept) for rollback</li>
+        <li>Known routing folders (<code>root</code>, <code>static</code>, <code>docs</code>) are never stripped as a common prefix</li>
+      </ul>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Allowed extensions</div>
+      <div class="code">.py .json .html .htm .css .js .sh .txt .md .plist .png .jpg .jpeg .gif .svg .webp</div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Web assets convention</div>
+      <div class="callout brass"><strong>Always deploy asset files and web-assets.json together in the same zip.</strong> Deploying files without updating the manifest means the Web panel won't know they exist. Deploying a manifest without the files means the panel shows assets that 404 on preview.</div>
+      <ul class="item-list">
+        <li><strong>Asset files</strong> — go in <code>static/web/</code> inside the deploy zip → extracts to <code>{APP_PATH}/static/web/</code></li>
+        <li><strong>Manifest</strong> — <code>web-assets.json</code> goes in <code>static/docs/</code> inside the deploy zip → extracts to <code>{APP_PATH}/static/docs/web-assets.json</code></li>
+        <li><strong>Repo package</strong> — <code>web-assets.json</code> is included in the repo package automatically (lives in <code>static/docs/</code>). Always pull a fresh repo package at session start when working on web assets.</li>
+        <li><strong>Design docs</strong> — go in <code>static/docs/</code> via the Docs panel, not <code>static/web/</code>. Do not add design docs to <code>web-assets.json</code>.</li>
+      </ul>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Docs convention</div>
+      <div class="callout brass"><strong>Always deploy doc files and docs-manifest.json together in the same zip.</strong> The Docs panel is manifest-driven — a file on disk without a manifest entry will not appear in the panel.</div>
+      <ul class="item-list">
+        <li><strong>Doc files</strong> — go in <code>static/docs/</code> inside the deploy zip. Any file type is supported (HTML, JSON, PDF, etc.).</li>
+        <li><strong>Manifest</strong> — <code>docs-manifest.json</code> goes in <code>static/docs/</code>. Must be updated whenever a doc is added or removed.</li>
+        <li><strong>Repo package</strong> — <code>docs-manifest.json</code> is included in the repo package automatically. Always pull a fresh repo package at session start when working on docs.</li>
+        <li><strong>Upload via Hub UI</strong> — the Docs panel has a <code>+ Upload doc</code> button. Uploading through the UI automatically updates <code>docs-manifest.json</code> on the server — no session needed for simple uploads.</li>
+        <li><strong>Edit metadata via Hub UI</strong> — each doc row has an Edit button to update display name, description, and category directly in the browser. Writes to <code>docs-manifest.json</code> immediately.</li>
+        <li><strong>Audit button</strong> — compares manifest against disk. Flags orphaned files (on disk, not in manifest) and missing files (in manifest, not on disk).</li>
+        <li><strong>Every product needs its own <code>docs-manifest.json</code></strong> — without it the Docs panel shows empty state.</li>
+      </ul>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">docs-manifest.json — full schema</div>
+      <p>The manifest lives at <code>{APP_PATH}/static/docs/docs-manifest.json</code>.</p>
+      <div class="code">{
+  "product": "tack",
+  "docs": [
+    {
+      "file":         "tack-handoff.html",       <span class="c"># Filename only — must exist in static/docs/</span>
+      "display_name": "Handoff",                 <span class="c"># Name shown in the Docs panel</span>
+      "description":  "Current state and...",    <span class="c"># Optional. Shown below display name</span>
+      "category":     "handoff"                  <span class="c"># Controls grouping — see categories below</span>
+    }
+  ]
+}</div>
+      <table class="kv">
+        <tr><th>Field</th><th>Required</th><th>Notes</th></tr>
+        <tr><td>file</td><td>Yes</td><td>Filename only — no path. Must exist in <code>static/docs/</code>. Any file type.</td></tr>
+        <tr><td>display_name</td><td>Yes</td><td>Human-readable name shown in the panel.</td></tr>
+        <tr><td>description</td><td>No</td><td>Short description shown below the display name.</td></tr>
+        <tr><td>category</td><td>Yes</td><td><code>handoff</code> · <code>arch</code> · <code>design</code> · <code>marketing</code> · <code>testing</code> · <code>api</code> · <code>other</code>. Controls panel grouping.</td></tr>
+      </table>
+      <div class="callout warn"><strong>System files excluded from audit:</strong> <code>docs-manifest.json</code>, <code>web-assets.json</code>, <code>roadmap-data.json</code>, <code>deploy-manifest.json</code>, and <code>*.meta.json</code> sidecars are never flagged as orphans.</div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">web-assets.json — full schema</div>
+      <p>The manifest lives at <code>{APP_PATH}/static/docs/web-assets.json</code>. It is a JSON object with a single top-level key <code>assets</code> — an array of asset entries.</p>
+      <div class="code">{
+  "assets": [
+    {
+      "label":    "My Feature Mockup",   <span class="c"># Display name — groups versions together</span>
+      "file":     "my-mockup-v2.html",   <span class="c"># Filename only — no path. Must exist in static/web/</span>
+      "type":     "mockup",              <span class="c"># One of: mockup | prototype | marketing | reference</span>
+      "version":  2,                     <span class="c"># Integer. Used for sorting (desc) and grouping</span>
+      "latest":   true,                  <span class="c"># true on the newest version, false on older ones</span>
+      "live_url": "https://example.com"  <span class="c"># Optional. Adds Live button linking to production URL</span>
+    }
+  ]
+}</div>
+      <table class="kv">
+        <tr><th>Field</th><th>Required</th><th>Type</th><th>Notes</th></tr>
+        <tr><td>label</td><td>Yes</td><td>string</td><td>Human-readable name. Entries sharing the same label are grouped as versions of the same asset.</td></tr>
+        <tr><td>file</td><td>Yes</td><td>string</td><td>Filename only — no subdirectory path. File must be deployed to <code>static/web/</code>.</td></tr>
+        <tr><td>type</td><td>Yes</td><td>string</td><td><code>mockup</code> · <code>prototype</code> · <code>marketing</code> · <code>reference</code>. Controls filter bar and color coding in the Web panel.</td></tr>
+        <tr><td>version</td><td>Yes</td><td>integer</td><td>Numeric version. Higher = newer. Used for sort order within a label group.</td></tr>
+        <tr><td>latest</td><td>Yes</td><td>boolean</td><td><code>true</code> on the current version, <code>false</code> on all older versions. Older versions are collapsed by default in the panel.</td></tr>
+        <tr><td>live_url</td><td>No</td><td>string</td><td>Full URL to production. When present, a green Live button appears. Omit for non-public assets.</td></tr>
+      </table>
+      <div class="callout warn"><strong>file is a filename, not a path.</strong> Do not include subdirectory segments (e.g. <code>web/my-file.html</code> is wrong — use <code>my-file.html</code>). The hub always serves files from <code>static/web/</code> regardless of what is written here.</div>
+      <div class="callout brass"><strong>Multiple versions of the same asset</strong> — give them the same <code>label</code>, different <code>version</code> integers, and set <code>latest: true</code> on only one. The panel groups them and collapses older versions.</div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Development iteration vs session-close zips</div>
+      <table class="kv">
+        <tr><th></th><th>Dev iteration</th><th>Session close</th></tr>
+        <tr><td>Contains</td><td>Only changed files</td><td>All changed files + deploy-manifest.json</td></tr>
+        <tr><td>deploy-manifest.json</td><td>Optional</td><td>Required</td></tr>
+        <tr><td>sessions.json</td><td>No</td><td>Yes</td></tr>
+        <tr><td>roadmap-data.json</td><td>No</td><td>Yes</td></tr>
+        <tr><td>Git push expected</td><td>No</td><td>Yes</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<hr class="div">
+
+<!-- MANIFEST -->
+<div class="doc-section" id="manifest">
+  <div class="eyebrow">Section 5</div>
+  <div class="section-title">deploy-manifest.json spec</div>
+  <div class="section-body">
+    <p>Place in <code>root/</code> folder inside the zip. Hub reads it on extraction, pre-fills the git commit message, and shows DB migrate warning if flagged.</p>
+    <div class="code">{
+  "message": "v0.3.6 — Human-readable summary of what this deploy contains",
+  "version": "0.3.6",
+  "db_migrate": false
+}</div>
+    <table class="kv">
+      <tr><th>Field</th><th>Required</th><th>Description</th></tr>
+      <tr><td>message</td><td>Yes</td><td>Git commit message. Written by Claude at session close. Should summarize the session in plain English.</td></tr>
+      <tr><td>version</td><td>Yes</td><td>Version string matching version.json</td></tr>
+      <tr><td>db_migrate</td><td>Yes</td><td>true if this deploy requires a DB schema migration. Hub will show a warning and migrate button in post-deploy actions.</td></tr>
+    </table>
+    <div class="callout brass">The manifest commit message survives page reloads via sessionStorage. When the page auto-reloads after an app.py restart, the commit message field is automatically restored.</div>
+  </div>
+</div>
+
+<hr class="div">
+
+<!-- SESSIONS JSON -->
+<div class="doc-section" id="sessions-json">
+  <div class="eyebrow">Section 6</div>
+  <div class="section-title">sessions.json spec</div>
+  <div class="section-body">
+    <p>Every product maintains a <code>sessions.json</code> at <code>{APP_PATH}/sessions.json</code>. Tracks development velocity, cost savings, and owner time investment.</p>
+
+    <div class="subsection">
+      <div class="sub-title">Top-level structure</div>
+      <div class="code">{
+  "blended_rate": 170,           <span class="c"># $/hr for cost savings calculation</span>
+  "claude_monthly_cost": 20,     <span class="c"># Claude subscription cost</span>
+  "sessions": [...]
+}</div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Session entry fields</div>
+      <table class="kv">
+        <tr><th>Field</th><th>Required</th><th>Description</th></tr>
+        <tr><td>session_id</td><td>Yes</td><td>YYYY-MM-DD-N format (N = session number that day, starting at 1)</td></tr>
+        <tr><td>date</td><td>Yes</td><td>YYYY-MM-DD</td></tr>
+        <tr><td>version</td><td>Yes</td><td>Product version at end of session</td></tr>
+        <tr><td>duration_hrs</td><td>Yes</td><td>Equivalent traditional dev hours — sum of complexity: XS=3h, S=8h, M=20h, L=40h, XL=80h. NOT wall-clock.</td></tr>
+        <tr><td>owner_hrs</td><td>Yes</td><td>Tom's actual hours in the session. Always ask, never estimate.</td></tr>
+        <tr><td>estimated</td><td>Yes</td><td>true if duration_hrs is estimated, false if calculated precisely</td></tr>
+        <tr><td>features_shipped</td><td>Yes</td><td>Array of fCamelCase feature IDs completed this session</td></tr>
+        <tr><td>notes</td><td>Yes</td><td>Plain-English summary of what was accomplished. One paragraph.</td></tr>
+      </table>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Example entry</div>
+      <div class="code">{
+  "session_id": "2026-06-29-2",
+  "date": "2026-06-29",
+  "version": "0.3.6",
+  "duration_hrs": 65,
+  "owner_hrs": 7,
+  "estimated": true,
+  "features_shipped": ["fDeployZipRetention", "fRollbackUI", "fNewListFilter"],
+  "notes": "Deployment zip retention with rollback UI. Stop saving stamped backup files.
+New filter in List view. Sessions.json path fix. Release panel version fix."
+}</div>
+    </div>
+  </div>
+</div>
+
+<hr class="div">
+
+<!-- ROLLBACK -->
+<div class="doc-section" id="rollback">
+  <div class="eyebrow">Section 7</div>
+  <div class="section-title">Rollback &amp; recovery</div>
+  <div class="section-body">
+
+    <div class="subsection">
+      <div class="sub-title">Rollback via hub (preferred — between commits)</div>
+      <p>Use when a deployed iteration breaks something and you haven't committed yet.</p>
+      <div class="num-list">
+        <div class="num-item">Open hub → Select product → Deploy panel</div>
+        <div class="num-item">Scroll to Rollback section — shows last 3 deployment zips with timestamps and sizes</div>
+        <div class="num-item">Click ↺ Redeploy on the target zip — inline confirm row appears</div>
+        <div class="num-item">Click "Yes, redeploy" — files are re-extracted, server restarts if app.py was in that zip</div>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Git revert via hub (preferred — after commit)</div>
+      <p>Use when you've committed bad code to GitHub.</p>
+      <div class="num-list">
+        <div class="num-item">Open hub → Select product → Deploy panel → Commit History</div>
+        <div class="num-item">Click ↩ on the commit to revert</div>
+        <div class="num-item">Hub runs <code>git revert {hash} --no-edit</code>, amends with "Revert: {original message}", pushes to GitHub</div>
+        <div class="num-item">Revert commits show orange in the history log</div>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Terminal fallback (hub is down)</div>
+      <div class="code"><span class="c"># Restart hub</span>
+sudo launchctl stop system/com.passione.hub && sudo launchctl start system/com.passione.hub
+
+<span class="c"># Restart any product daemon</span>
+sudo launchctl kickstart -k system/com.passione.{product}
+
+<span class="c"># Git revert manually</span>
+cd /var/app/{product}
+sudo git revert HEAD --no-edit
+sudo git push origin main</div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Hub not reachable</div>
+      <div class="code"><span class="c"># Check if hub is running</span>
+curl http://localhost:5200/api/health
+
+<span class="c"># Check logs</span>
+sudo tail -20 /var/app/passione-hub/logs/server.log
+
+<span class="c"># Restart hub</span>
+sudo launchctl stop system/com.passione.hub && sudo launchctl start system/com.passione.hub</div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Product server not responding (502 / timeout)</div>
+      <p>Use when a product URL returns 502 or times out. <code>kickstart -k</code> works from both SSH and GUI session. <code>launchctl load/unload</code> only works from a GUI session on the Mac Mini itself.</p>
+      <div class="code"><span class="c"># Restart product daemon</span>
+sudo launchctl kickstart -k system/com.passione.{product}
+
+<span class="c"># If that fails, load the service first</span>
+sudo launchctl load /Library/LaunchDaemons/com.passione.{product}.plist</div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Cloudflare tunnel down (Error 1033)</div>
+      <p>Use the Cloudflare Tunnel card in the Hub Ops panel, or from terminal:</p>
+      <div class="code">pkill cloudflared
+sleep 2
+cloudflared tunnel run {product} &amp;</div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Webhook not firing</div>
+      <div class="code"><span class="c"># Check GitHub → repo Settings → Webhooks → Recent Deliveries for errors</span>
+<span class="c"># Verify GITHUB_WEBHOOK_SECRET in /var/app/{product}/.env matches GitHub webhook settings</span>
+<span class="c"># Check deploy log</span>
+sudo tail -20 /var/app/{product}/logs/deploy.log
+
+<span class="c"># Verify server is reachable</span>
+curl https://{product-domain}/api/health</div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Git pull failing (credential error)</div>
+      <p>The PAT is embedded in the remote URL. If it expires, regenerate at <code>github.com/settings/tokens</code> and update:</p>
+      <div class="code">cd /var/app/{product}
+git remote set-url origin https://&lt;NEW_PAT&gt;@github.com/{org}/{repo}.git</div>
+      <p>Also update <code>GITHUB_TOKEN</code> in <code>/var/app/{product}/.env</code>. Never commit <code>.env</code> to git — it is in <code>.gitignore</code>. Rotate both the remote URL PAT and the env var if a token is compromised.</p>
+    </div>
+  </div>
+</div>
+
+<hr class="div">
+
+<!-- HUB WORKFLOW -->
+<div class="doc-section" id="hub-workflow">
+  <div class="eyebrow">Section 8</div>
+  <div class="section-title">Using the hub</div>
+  <div class="section-body">
+
+    <div class="subsection">
+      <div class="sub-title">Hub access</div>
+      <table class="kv">
+        <tr><th>Method</th><th>URL</th></tr>
+        <tr><td>Primary (Tailscale)</td><td>http://100.126.165.63:5200</td></tr>
+        <tr><td>Local network</td><td>http://192.168.1.30:5200</td></tr>
+      </table>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Sidebar navigation</div>
+      <table class="kv">
+        <tr><th>Section</th><th>Purpose</th></tr>
+        <tr><td>Portfolio</td><td>All products health summary</td></tr>
+        <tr><td>Velocity</td><td>Cross-product dev hours, cost savings</td></tr>
+        <tr><td>[Product] → Roadmap</td><td>Feature list, priorities, swimlane, progress</td></tr>
+        <tr><td>[Product] → Sessions</td><td>Session history table</td></tr>
+        <tr><td>[Product] → Releases</td><td>Version changelog from sessions.json</td></tr>
+        <tr><td>[Product] → Deploy</td><td>Upload zip, git deploy, rollback, activity log</td></tr>
+        <tr><td>[Product] → Ops</td><td>Server health, restart, tunnel, DB tools, logs</td></tr>
+      </table>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Typical session workflow in the hub</div>
+      <div class="num-list">
+        <div class="num-item">Select product in the project switcher (top left)</div>
+        <div class="num-item">Click <strong>Roadmap → Priorities</strong> to review the work queue</div>
+        <div class="num-item">Click <strong>Deploy</strong> to deploy iteration zips during development</div>
+        <div class="num-item">At session close: deploy final zip, verify health, click <strong>Commit &amp; push</strong></div>
+        <div class="num-item">Check <strong>Ops</strong> if anything looks wrong with the server</div>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Repo package download</div>
+      <p>The Deploy panel has a "Download repo package" button that zips all project files (app.py, HTML, docs, roadmap, sessions.json) for dropping into a new Claude session. Use this at session start to give Claude the latest codebase.</p>
+      <ul class="item-list">
+        <li><strong>Flat structure</strong> — all files land at the zip root with no subfolders, regardless of whether they came from <code>app_path/</code>, <code>static/</code>, or <code>static/docs/</code>.</li>
+        <li><strong>Exclusions via <code>.repoignore</code></strong> — place a <code>.repoignore</code> file at the product's app root to exclude specific files by filename (one per line). Lines starting with <code>#</code> are comments. Files already excluded by default: <code>logs/</code>, <code>deployments/</code>, <code>__pycache__/</code>, <code>.git/</code>, hidden files, and timestamped files.</li>
+        <li><strong>New file protocol</strong> — whenever a new file is created during a session, Claude must ask whether it should be included in the repo package. If no, add it to <code>.repoignore</code>.</li>
+        <li><strong>Deploy zip vs repo package</strong> — these are different formats. Deploy zips use <code>root/</code>, <code>static/</code>, <code>static/docs/</code> folder structure for hub extraction routing. Repo packages are flat for Claude context use. Never confuse the two.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<hr class="div">
+
+<!-- IOS / EXPO -->
+<div class="doc-section" id="ios-expo">
+  <div class="eyebrow">Section 9</div>
+  <div class="section-title">iOS / Expo projects</div>
+  <div class="section-body">
+    <div class="callout brass"><strong>Expo projects follow a different iteration model than Flask products.</strong> Hot reload replaces the deploy zip for UI changes. The hub deploy zip still handles backend code, docs, sessions, roadmap, and versioning — exactly as always. Expo source code is managed separately via Xcode git integration.</div>
+
+    <div class="subsection">
+      <div class="sub-title">Two repos, two commit paths</div>
+      <table class="kv">
+        <tr><th>Repo</th><th>Contents</th><th>Who commits</th><th>Where it lives</th></tr>
+        <tr><td>{product} (backend)</td><td>app.py, sessions.json, version.json, roadmap-data.json, docs, handoff</td><td>Hub — Deploy panel → Commit &amp; push</td><td>/var/app/{product}/</td></tr>
+        <tr><td>{product}-app (mobile)</td><td>Expo/React Native source, package.json, assets</td><td>Xcode git integration</td><td>~/projects/{product}-app/</td></tr>
+      </table>
+      <div class="callout warn"><strong>The hub never touches the Expo repo.</strong> The Expo project is not a server process — it is never registered as a launchctl daemon and never deployed via the hub's Extract &amp; Deploy flow. Hub and Expo git operations are fully independent.</div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Project location standard</div>
+      <ul class="item-list">
+        <li><strong>Expo project root</strong> — <code>~/projects/{product}-app/</code> on the Mac Mini. Not in <code>/var/app/</code> — Expo is a dev toolchain, not a server daemon.</li>
+        <li><strong>Backend project root</strong> — <code>/var/app/{product}/</code> as always. No change.</li>
+        <li><strong>sessions.json, version.json, roadmap-data.json</strong> — live in <code>/var/app/{product}/</code> with the backend. They track the product as a whole, not just mobile code. Hub manages them as always.</li>
+      </ul>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Development iteration — Expo (UI changes)</div>
+      <div class="callout success"><strong>Hot reload is the iteration loop for UI work.</strong> No deploy zip needed for Expo source changes during active development.</div>
+      <div class="num-list">
+        <div class="num-item">Claude produces changed <code>.tsx</code> / <code>.ts</code> / asset files and presents them for download</div>
+        <div class="num-item">Tom scps files to <code>~/projects/{product}-app/</code> on the Mac Mini: <code>scp ~/Downloads/{file} tomfo@100.126.165.63:~/projects/{product}-app/{path}</code></div>
+        <div class="num-item">Expo dev server hot-reloads automatically — no restart needed for most changes</div>
+        <div class="num-item">View result in iOS Simulator. Provide feedback. Repeat.</div>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Development iteration — backend changes</div>
+      <p>Backend changes (app.py, schema, API endpoints) during an iOS session follow the standard deploy zip protocol exactly. No change. Hub extracts, Flask restarts, Expo picks up the new API automatically.</p>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Session close — iOS / Expo session</div>
+      <div class="num-list">
+        <div class="num-item"><strong>Hub deploy zip (standard)</strong> — package any backend changes + updated sessions.json, version.json, roadmap-data.json, handoff doc, deploy-manifest.json. Deploy via hub → Commit &amp; push to backend repo. Follows full session close protocol (Sections 3–5).</div>
+        <div class="num-item"><strong>Expo git commit (Xcode)</strong> — commit and push Expo source changes from Xcode git panel to the mobile repo. This is independent of the hub. No deploy-manifest needed for the mobile repo.</div>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Expo dev server</div>
+      <table class="kv">
+        <tr><th>Action</th><th>Command</th></tr>
+        <tr><td>Start dev server</td><td><code>cd ~/projects/{product}-app &amp;&amp; npx expo start</code></td></tr>
+        <tr><td>Open iOS Simulator</td><td>Press <code>i</code> in Expo CLI, or open Simulator.app manually first</td></tr>
+        <tr><td>Reload</td><td><code>r</code> in Expo CLI, or shake gesture in Simulator</td></tr>
+        <tr><td>Stop dev server</td><td><code>Ctrl+C</code></td></tr>
+      </table>
+      <div class="callout warn"><strong>Simulator workflow (starter):</strong> Run Expo dev server on Mac Mini, view in iOS Simulator via screen share. <strong>Local dev (upgrade path):</strong> Install Node/Expo CLI on local Mac, point at live API — faster iteration, no screen share lag. Document which workflow is active in the product handoff doc.</div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Versioning</div>
+      <ul class="item-list">
+        <li><strong>version.json</strong> — tracks the product version as a whole (backend + mobile together). Follows the same semantic versioning convention as all other products. Lives in <code>/var/app/{product}/</code>, managed by the hub.</li>
+        <li><strong>app.json (Expo)</strong> — contains the iOS build version (<code>version</code> and <code>buildNumber</code>). Keep in sync with version.json at session close. Claude updates both when bumping the version.</li>
+        <li><strong>App Store build numbers</strong> — increment independently of product version. Managed in Xcode / App Store Connect. Not tracked in sessions.json.</li>
+      </ul>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">File delivery — scp paths</div>
+      <table class="kv">
+        <tr><th>File type</th><th>Destination</th></tr>
+        <tr><td>Expo source (.tsx, .ts, assets)</td><td><code>tomfo@100.126.165.63:~/projects/{product}-app/{path}</code></td></tr>
+        <tr><td>Backend (app.py, docs, JSON)</td><td>Via hub deploy zip — standard protocol</td></tr>
+        <tr><td>New Expo files</td><td>Flag per new-file protocol. Ask whether to include in Expo repo (Xcode tracks this, not .repoignore).</td></tr>
+      </table>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">What does NOT apply to Expo projects</div>
+      <ul class="item-list">
+        <li>No launchctl plist — Expo dev server is not a system daemon</li>
+        <li>No hub Extract &amp; Deploy for Expo source</li>
+        <li>No <code>node --check</code> syntax gate before scp (hot reload surfaces errors immediately in the simulator)</li>
+        <li>No deploy zip for Expo-only changes — scp individual files directly</li>
+        <li>No <code>/var/app/</code> directory for the Expo project</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<hr class="div">
+
+<!-- SWIFT / XCODE -->
+<div class="doc-section" id="ios-swift">
+  <div class="eyebrow">Section 10</div>
+  <div class="section-title">iOS / Swift projects</div>
+  <div class="section-body">
+    <div class="callout brass"><strong>Swift/SwiftUI projects use a native Xcode workflow — not Expo.</strong> There is no hot reload dev server. UI iteration happens via Xcode build and run to the iOS Simulator. The hub deploy zip still handles backend code, docs, sessions, roadmap, and versioning — exactly as always. Swift source code is managed via Xcode's git integration.</div>
+
+    <div class="subsection">
+      <div class="sub-title">Two repos, two commit paths</div>
+      <table class="kv">
+        <tr><th>Repo</th><th>Contents</th><th>Who commits</th><th>Where it lives</th></tr>
+        <tr><td>{product} (backend)</td><td>app.py, sessions.json, version.json, roadmap-data.json, docs, handoff</td><td>Hub — Deploy panel → Commit &amp; push</td><td>/var/app/{product}/</td></tr>
+        <tr><td>{product}-app (mobile)</td><td>Swift/SwiftUI source, Assets.xcassets, Info.plist, project file</td><td>Xcode git integration (Source Control panel)</td><td>~/projects/{product}-app/</td></tr>
+      </table>
+      <div class="callout warn"><strong>The hub never touches the Swift repo.</strong> The Xcode project is not a server process — it is never registered as a launchctl daemon and never deployed via the hub's Extract &amp; Deploy flow. Hub and Xcode git operations are fully independent.</div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Project location standard</div>
+      <ul class="item-list">
+        <li><strong>Xcode project root</strong> — <code>~/projects/{product}-app/</code> on the Mac Mini. Not in <code>/var/app/</code> — the Xcode project is a dev workspace, not a server daemon.</li>
+        <li><strong>Backend project root</strong> — <code>/var/app/{product}/</code> as always. No change.</li>
+        <li><strong>sessions.json, version.json, roadmap-data.json</strong> — live in <code>/var/app/{product}/</code> with the backend. They track the product as a whole, not just mobile code. Hub manages them as always.</li>
+      </ul>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Development iteration — Swift/SwiftUI (UI changes)</div>
+      <div class="callout success"><strong>Xcode build + run is the iteration loop for UI work.</strong> No deploy zip needed for Swift source changes during active development.</div>
+      <div class="num-list">
+        <div class="num-item">Claude produces changed <code>.swift</code> / asset files and presents them for download</div>
+        <div class="num-item">Tom scps files to <code>~/projects/{product}-app/</code> on the Mac Mini: <code>scp ~/Downloads/{file} tomfo@100.126.165.63:~/projects/{product}-app/{path}</code></div>
+        <div class="num-item">In Xcode: Product → Run (⌘R) to build and launch in iOS Simulator</div>
+        <div class="num-item">View result in iOS Simulator. Provide feedback. Repeat.</div>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Development iteration — backend changes</div>
+      <p>Backend changes (app.py, schema, API endpoints) during a Swift session follow the standard deploy zip protocol exactly. No change. Hub extracts, Flask restarts, the Swift app picks up the new API automatically.</p>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Session close — Swift / Xcode session</div>
+      <div class="num-list">
+        <div class="num-item"><strong>Hub deploy zip (standard)</strong> — package any backend changes + updated sessions.json, version.json, roadmap-data.json, handoff doc, deploy-manifest.json. Deploy via hub → Commit &amp; push to backend repo. Follows full session close protocol (Sections 3–5).</div>
+        <div class="num-item"><strong>Xcode git commit</strong> — commit and push Swift source changes from Xcode's Source Control panel to the mobile repo. This is independent of the hub. No deploy-manifest needed for the mobile repo.</div>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">File delivery — scp paths</div>
+      <table class="kv">
+        <tr><th>File type</th><th>Destination</th></tr>
+        <tr><td>Swift source (.swift, assets)</td><td><code>tomfo@100.126.165.63:~/projects/{product}-app/{path}</code></td></tr>
+        <tr><td>Backend (app.py, docs, JSON)</td><td>Via hub deploy zip — standard protocol</td></tr>
+        <tr><td>New Swift files</td><td>Flag per new-file protocol. Ask whether to include in Xcode repo. Add to Xcode project navigator manually after scp.</td></tr>
+      </table>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Versioning</div>
+      <ul class="item-list">
+        <li><strong>version.json</strong> — tracks the product version as a whole (backend + mobile together). Lives in <code>/var/app/{product}/</code>, managed by the hub.</li>
+        <li><strong>Xcode project version</strong> — CFBundleShortVersionString and CFBundleVersion in Info.plist or project settings. Keep in sync with version.json at session close.</li>
+        <li><strong>App Store build numbers</strong> — increment independently of product version. Managed in Xcode / App Store Connect. Not tracked in sessions.json.</li>
+      </ul>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">What does NOT apply to Swift/Xcode projects</div>
+      <ul class="item-list">
+        <li>No Expo dev server — no <code>npx expo start</code>, no Metro bundler, no hot reload</li>
+        <li>No launchctl plist for the Xcode project — it is not a system daemon</li>
+        <li>No hub Extract &amp; Deploy for Swift source</li>
+        <li>No deploy zip for Swift-only changes — scp individual files directly, then build in Xcode</li>
+        <li>No <code>/var/app/</code> directory for the Xcode project</li>
+        <li>No <code>node --check</code> syntax gate — Xcode build surfaces Swift errors at compile time</li>
+      </ul>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-title">Products using this workflow</div>
+      <ul class="item-list">
+        <li><strong>Sorriva</strong> — Swift/SwiftUI, iOS/iPadOS primary, tvOS Phase 6</li>
+        <li><strong>Tack</strong> — Swift/SwiftUI, iOS</li>
+        <li><strong>Lumvara</strong> — Swift/SwiftUI, iOS</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="footer">Passione Session Protocol · July 2, 2026 · Update when workflow changes</div>
+
+</div>
+</body>
+</html>

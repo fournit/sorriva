@@ -1,0 +1,2667 @@
+{
+  "app": "sorriva",
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Foundation",
+      "desc": "Xcode project, Expo Bare setup, App Store Connect, cloud backend skeleton, user accounts, library scanner, basic playback. Nothing else works without this.",
+      "features": [
+        {
+          "id": "fXcodeProject",
+          "complexity": "S",
+          "done": true,
+          "priority": "Critical",
+          "completedAt": "2026-07-15",
+          "name": "Xcode project + Expo Bare setup",
+          "desc": "Pure Swift/SwiftUI iOS project. Configured build schemes, signing, and bundle identifiers. GRDB SQLite, SMBClient, and core dependencies in place. (Name corrected from \"Xcode project + Expo Bare setup\" \u2014 React Native references removed.)",
+          "tag": "feature",
+          "createdAt": "2026-06-24",
+          "requires": []
+        },
+        {
+          "id": "fAppStoreConnect",
+          "complexity": "XS",
+          "done": false,
+          "priority": "Critical",
+          "name": "App Store Connect records",
+          "desc": "Create app records for iOS, iPadOS, tvOS, and macOS in App Store Connect. Configure TestFlight for internal testing.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fCloudBackend",
+          "complexity": "S",
+          "done": false,
+          "priority": "Critical",
+          "name": "Cloud backend skeleton",
+          "desc": "Provision cloud hosting (Railway, Fly.io, or Render). Initialize backend service with health endpoint, environment config, and PostgreSQL database connection.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fUserAccounts",
+          "complexity": "M",
+          "done": false,
+          "priority": "Critical",
+          "name": "User accounts + auth",
+          "desc": "User registration, login, and session management via Clerk or Auth0. user_id FK present on all database records from day one. Auth middleware stub in app \u2014 bypassed locally, enabled for commercial launch.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fHouseholdProfiles",
+          "complexity": "S",
+          "done": false,
+          "priority": "High",
+          "name": "Household profiles",
+          "desc": "Multi-profile support within a single account. Each profile has its own play history, favorites, watch status, and preferences. Profile switcher in settings.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fLibraryScanner",
+          "complexity": "L",
+          "done": true,
+          "priority": "Critical",
+          "completedAt": "2026-07-14",
+          "name": "Library scanner \u2014 SMB + local + USB-C",
+          "desc": "Scan music library from three source types: NAS via SMB share, local device storage, and external USB-C drive (iPadOS 13+ Files app access). Index files into local SQLite cache. Formats: FLAC, ALAC, MP3, AAC, WAV, AIFF.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": []
+        },
+        {
+          "id": "fBasicPlayback",
+          "complexity": "M",
+          "done": false,
+          "priority": "Low",
+          "name": "Basic local file playback",
+          "desc": "Single track local file playback to Sonos via HTTP server. Superseded by fXFileCIFS architecture \u2014 Sonos fetches directly from NAS via x-file-cifs://, no HTTP server required for Sonos/Bluesound zones.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fLocalSQLiteCache",
+          "complexity": "S",
+          "done": true,
+          "priority": "Critical",
+          "completedAt": "2026-07-15",
+          "name": "Local SQLite cache",
+          "desc": "Per-device SQLite database for offline library index, play queue, and cached metadata. Syncs with cloud backend when online.",
+          "tag": "feature",
+          "createdAt": "2026-06-24",
+          "requires": []
+        },
+        {
+          "id": "fGitHubRepo",
+          "complexity": "XS",
+          "done": true,
+          "priority": "Critical",
+          "completedAt": "2026-07-15",
+          "name": "GitHub repo",
+          "desc": "github.com/fournit/sorriva. Initialized with README, .gitignore. Commit discipline enforced \u2014 milestone commits after every working feature. (Org corrected from tomfo to fournit.)",
+          "tag": "feature",
+          "createdAt": "2026-06-24",
+          "requires": []
+        },
+        {
+          "id": "fSessionsJson",
+          "complexity": "XS",
+          "done": true,
+          "priority": "High",
+          "name": "sessions.json + roadmap-data.json initialized",
+          "desc": "Initialize velocity tracking and roadmap files. sessions.json carries forward entries from planning sessions.",
+          "tag": "feature",
+          "createdAt": "2026-06-24",
+          "requires": [],
+          "completedAt": "2026-07-15"
+        },
+        {
+          "id": "fSkippedTrackRetry",
+          "name": "Skipped Track Retry Queue",
+          "desc": "Tracks that fail tag reads during scan are inserted into a scan_skips table. A retry pass runs post-scan (before artwork) with fresh SMB connections, up to 5 attempts. On success, updates the track record with parsed tags and marks resolved. On failure after 5 attempts, track remains with path-derived metadata.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-14",
+          "completedAt": "2026-07-18",
+          "requires": [
+            "fLibraryScanner"
+          ]
+        },
+        {
+          "id": "fScanResume",
+          "name": "Scan resume after interruption",
+          "desc": "When a full scan is interrupted mid-process (app killed, crash), resume from the last successfully completed folder rather than restarting from the beginning. Requires persisting a scan cursor (last completed folder path) to the DB during the scan loop. On restart, skip already-processed folders and continue from the cursor. Critical for large libraries where a full rescan takes 30+ minutes.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-18",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fOverlappingShareDetection",
+          "name": "Overlapping share detection",
+          "desc": "When two library sources share an overlapping folder path (e.g. /Music II and /Music II/Pat Metheny Group), scanning the subfolder share will find files already indexed by the parent share under a different sourceId. The subfolder scan produces 0 tracks in its report because the album record belongs to the parent sourceId. Detect this condition at scan start by checking if any existing source covers the same folder path, and surface a warning rather than silently producing an empty scan. Deduplication key is folderPath \u2014 same folder always resolves to the same album record.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-18",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fArtworkManagement",
+          "name": "Manual Artwork Override",
+          "desc": "Context menu on albums allows user to set custom artwork from photo library or camera, or delete existing art. Setting artwork writes artManualOverride=true, blocking all automated passes. Deleting artwork resets artManualOverride=false and clears artPathFull/artPathThumb, re-enabling all automated passes on next foreground.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "feature",
+          "done": false,
+          "priority_rank": 5,
+          "createdAt": "2026-07-14",
+          "completedAt": null,
+          "requires": [
+            "fLibraryScanner"
+          ]
+        },
+        {
+          "id": "fAlbumSplitInvestigation",
+          "name": "Album Split Edge Cases",
+          "desc": "Superseded by the 2026-07-25 fix that removed resolveAlbum's title+artist fallback. That fallback was causing wrong MERGES \u2014 compilation folders sharing an ALBUM tag collapsed into one album via the shared 'Various Artists' artist row. folderPath is now the sole album deduplication key; one folder is one album. What this record originally called 'splitting' (e.g. multi-disc siblings, same album stored in separate folders) is the accepted, intended behavior of that design, not a defect. Closed rather than reworked \u2014 reopening the old title+artist fallback to 'fix' folder-based splits would reintroduce the merge bug this record predates. See sorriva-scanner-handoff-2026-07-25.md \u00a71.3 and \u00a78.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "bug",
+          "done": true,
+          "priority_rank": 3,
+          "createdAt": "2026-07-14",
+          "completedAt": "2026-07-26",
+          "requires": [
+            "fLibraryScanner"
+          ]
+        },
+        {
+          "id": "fMusicBrainzCoverArt",
+          "name": "MusicBrainz Cover Art Archive",
+          "desc": "Add MusicBrainz Cover Art Archive (CAA) as a second artwork fallback, running after folder art pass and before iTunes Search API. Better data quality for jazz, classical, and non-mainstream releases. Query MusicBrainz MBID lookup first, then fetch from CAA if found.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "feature",
+          "done": false,
+          "priority_rank": 6,
+          "createdAt": "2026-07-14",
+          "completedAt": null,
+          "requires": [
+            "fLibraryScanner"
+          ]
+        },
+        {
+          "id": "fLogViewer",
+          "name": "In-App Log Viewer",
+          "desc": "Filterable log viewer in Settings for system visibility without Xcode. Captures messages from SCAN, ARTWORK, SORRIVA, and SORRIVA DB subsystems. Ring buffer retains last 500 entries. Timestamped with severity levels (info, warning, error). Filter by subsystem, severity, or free text. Performance-conscious: async writes to buffer, zero overhead on hot paths. Replaces the need for a Mac connection during troubleshooting.",
+          "priority": "Normal",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-14",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fEmbeddedArtRetry",
+          "name": "Embedded Art Retry Logic",
+          "desc": "Add embeddedArtFailed flag distinct from embeddedArtScanned. When embedded art read errors (not genuine no-art), set embeddedArtFailed=true and embeddedArtScanned=false so the pass retries on next foreground. After 5 failed attempts, set embeddedArtScanned=true permanently. artManualOverride=true blocks retries. Pairs with fSkippedTrackRetry for comprehensive resilience.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-14",
+          "completedAt": "2026-07-18",
+          "requires": [
+            "fLibraryScanner"
+          ]
+        },
+        {
+          "id": "fShazamLibraryImport",
+          "name": "Import user's existing Shazam history via ShazamKit Library API",
+          "desc": "Import user's existing Shazam history via ShazamKit Library API. Resolve each recognized track against local library (do you own it?) and Apple Music (is it streamable?). Surface ownership gaps. Create playlists from Shazam history. Free with Apple Developer membership \u2014 no quota or cost overhead.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-15",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fShazamRecognition",
+          "name": "Live audio recognition via ShazamKit",
+          "desc": "Live audio recognition via ShazamKit. Hear something playing anywhere \u2014 tap to identify. Sorriva immediately resolves the track against your library (do you own it?), Apple Music (streamable?), and queues or adds it on the spot. Recognized tracks feed Deriva as high-confidence taste signals. Audio never leaves the device \u2014 ShazamKit generates an audio signature locally. Free with Apple Developer membership.",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-15",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fDynamicIsland",
+          "name": "Persistent Now Playing presence via ActivityKit Live Activities",
+          "desc": "Persistent Now Playing presence via ActivityKit Live Activities. Compact view: album art + track name visible while in other apps. Expanded view (long press): playback controls, zone name, volume. Keeps whole-home awareness without switching back to Sorriva. iPhone 14 Pro and later only. Strong App Store screenshot story.",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-15",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fFlaskBackend",
+          "name": "Flask backend provisioned on Mac Mini at port 8085",
+          "desc": "Flask backend provisioned on Mac Mini at port 8085. LaunchDaemon com.passione.sorriva registered and confirmed healthy. Port collision with ContoTrak on 8084 discovered and resolved.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-07",
+          "completedAt": "2026-07-07",
+          "requires": []
+        },
+        {
+          "id": "fWifiDeploy",
+          "name": "WiFi deploy pipeline established \u2014 scp to Mac Mini, cp to Xcode project, \u2318R i...",
+          "desc": "WiFi deploy pipeline established \u2014 scp to Mac Mini, cp to Xcode project, \u2318R iteration loop.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-09",
+          "completedAt": "2026-07-09",
+          "requires": []
+        },
+        {
+          "id": "fSorrivaDatabase",
+          "name": "GRDB SQLite introduced",
+          "desc": "GRDB SQLite introduced. Households, devices, stations, zone_state tables with v1+v2 migrations. Foundation for all persistent data in Sorriva.",
+          "complexity": "M",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fDeviceCapabilities",
+          "name": "Device capabilities stored per RINCON from device_description.xml model name ...",
+          "desc": "Device capabilities stored per RINCON from device_description.xml model name parsing. Arc Ultra gets night_sound, speech_enhancement, subwoofer, height_channel capabilities. EQSheet shows extended controls conditionally.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fArcUltraEQ",
+          "name": "Arc Ultra extended EQ controls: night sound, speech enhancement, subwoofer le...",
+          "desc": "Arc Ultra extended EQ controls: night sound, speech enhancement, subwoofer level, height channel balance. Shown only when device capabilities include these features.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fIosDeploy",
+          "name": "iosdeploy shell function \u2014 custom zsh function on MacBook that scps files to ...",
+          "desc": "iosdeploy shell function \u2014 custom zsh function on MacBook that scps files to Mac Mini and auto-deletes from Downloads. Deploy commands combine unzip + iosdeploy in one line. Documented in passione-deploy-reference.html.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fDBMigrationRecovery",
+          "name": "DB migrations v3\u2013v5 added",
+          "desc": "DB migrations v3\u2013v5 added. Migration recovery path for interrupted or failed migrations. Schema versioning robust against app update scenarios.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-11",
+          "completedAt": "2026-07-11",
+          "requires": []
+        },
+        {
+          "id": "fMinimalBackend",
+          "name": "Passione Hub backend \u2014 health endpoint only",
+          "desc": "Flask app on Mac Mini serving /api/health. Hub integration for sessions, roadmap, and doc management. No app logic \u2014 Sorriva is pure iOS with CloudKit sync.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-03",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fScannerIdentityIntegrity",
+          "name": "Scanner identity integrity \u2014 test seam + WP-02 completion",
+          "desc": "Blocking, constitutional (I-009 no silent critical failures). SMBScanner mints a new UUID for Track.id on every scan and calls the non-idempotent upsertTrack, so rescanning an existing library silently fails to update rows or risks orphaning legacy_track_map \u2014 nothing surfaces the failure. ScannerTests cannot catch this: it never instantiates SMBScanner, only a hand-written test double (bScannerTestSeam). Sequence per sorriva-scanner-handoff-2026-07-25.md \u00a76: (1) build MediaSourceReader protocol seam \u2014 SMB + fixture-backed implementations, do not change the existing SMB connection pattern (200ms throttle, 64KB reads, fresh connection per file); (2) rewrite the 4 existing acceptance tests to drive the real scanner through the seam \u2014 expect 1\u20133 to fail, reproducing the WP-02 defect under test; (3) implement remaining WP-02 items (path normalization, upsertTrackIdempotent as the production call, folder-level GRDB transactions, thrown errors in place of try? writes, ScanReport failure counts) until tests 1\u20135 are green; (4) add regression tests for the 2026-07-25 artist/album fixes (tests 6\u201317); (5) then run diagnostics against bMissingTracksInAlbum \u2014 may already be resolved by the folder-transaction fix in step 3. Prerequisite for trusting any other scanner work, including the cosmetic-polish batch in fScannerPolish. PROGRESS 2026-07-26: step 1 (MediaSourceReader protocol seam) built and verified against the real NAS \u2014 476 tracks, clean scan, no regression. Step 2 (rewrite acceptance tests to drive the real scanner) done for the primary reproduction: testScannerRescanUpdatesChangedTags now fails cleanly and correctly, proving the WP-02 defect under test for the first time \u2014 confirmed via direct SQLite error capture (UNIQUE constraint failed: tracks.filePath) before reverting to try?. Also required and completed an unplanned but necessary prerequisite: SorrivaDatabase.shared had no test isolation and would have written fixture data into the real device library \u2014 fixed by routing to an isolated temp-directory sqlite file when XCTestConfigurationFilePath is present. Step 3 (implement the actual fix: upsertTrackIdempotent as the production call, path normalization, folder-level transactions, thrown errors, ScanReport failure counts) not yet started \u2014 that is what turns the new red test green. Committed as v0.0.38. COMPLETE 2026-07-26: full 1-17 test list from the handoff now exists and passes as designed (v0.0.39, v0.0.40). Tests 1-2 (identity defect) were red then fixed. Tests 6-14 (artist/album regression) all pass, and caught a real, previously-unknown fillFromPath bug along the way (single-folder-depth case missing the same albumArtist guard the default case had) \u2014 fixed same session. Tests 15, 17 pass as regression guards. Test 16 correctly documents a known, deferred limitation (large PICTURE block preceding VORBIS_COMMENT within the 64KB header read window) \u2014 tracked under fScanFailureUtility, not fixed here by design. Test 3 (legacy_track_map preservation) and tests 4/5 (folder-transaction rollback) as originally envisioned were superseded by a smaller, safer design: per-file write retry + fallback into the existing scan_skips mechanism, after Tom correctly challenged why a single bad write should lose an entire folder instead of just that one file. clearLocalLibrary() now also clears scan_skips. Two new roadmap items opened from this work: bScanConnectionExhaustionOnRepeatedScans (real, observed, not yet investigated) and fScannerDatabaseInjection (future, not urgent).",
+          "priority": "Critical",
+          "complexity": "L",
+          "tag": "feature",
+          "done": true,
+          "priority_rank": 4,
+          "createdAt": "2026-07-25",
+          "completedAt": "2026-07-26",
+          "requires": [
+            "fLibraryScanner"
+          ]
+        },
+        {
+          "id": "fScannerPolish",
+          "complexity": "M",
+          "done": false,
+          "priority": "Normal",
+          "name": "Scanner polish batch \u2014 artwork, duplicates, tag-edit detection, genre",
+          "desc": "Cosmetic/UX scanner defects, split out from fScannerHardening. Not blocking and should not be scheduled ahead of fScannerIdentityIntegrity, since none of these are verifiable by test until the scanner test seam exists. Groups: bArtworkSelectionNotBestWins, bDuplicateAlbumDetection, bTagEditsNotDetected, bAlbumGenreFromFirstTrack. fScanFailureUtility reclassified out on 2026-07-27 \u2014 it's new feature surface area, not a scanner correction; see its own record.",
+          "tag": "feature",
+          "createdAt": "2026-07-26",
+          "completedAt": null,
+          "requires": [
+            "fScannerIdentityIntegrity"
+          ]
+        },
+        {
+          "id": "bMissingTracksInAlbum",
+          "name": "Albums indexed with fewer tracks than the folder contains",
+          "desc": "Some albums appear in the library with only one track while the corresponding NAS folder holds a full album. Root cause not yet identified \u2014 needs testing before a fix is proposed. Ruled out by code inspection: file enumeration in collectAudioFiles is recursive, lowercases extensions and correctly skips dotfiles; read failures do not cause missing rows because a Track is still written from path data when a header read fails; and the albumCache folderKey is checked first so every file in a folder always resolves to the same album. Remaining candidates, in order of likelihood: (1) an interrupted incremental scan \u2014 deleteTracksInFolder removes every track in a changed folder before re-adding them one at a time, so cancellation or backgrounding partway leaves the folder partially populated, and fScanResume is not built yet so nothing repairs it; (2) SMBClient listDirectory returning a truncated entry set on large folders, consistent with known UNAS Pro session behaviour; (3) a full scan cancelled mid-folder. Diagnostics to run next session, cheapest first: pick one affected album, count the files in that folder on the NAS, then grep the scan log for the 'SCAN: folder done' line on that path and compare its reported count; check filesFound on the 'SCAN: START' line against the true library total; query scan_skips for that folder to confirm skips are not involved. UPDATE 2026-07-28 (gate-readiness audit): a real, newly-discovered interaction with bFailedReadCreatesWrongAlbumFromFallback (fixed same session). This record's own 'ruled out' reasoning explicitly relied on 'a Track is still written from path data when a header read fails' -- that exact behavior was removed by the fallback fix, for good reason (it was causing wrong album names). Side effect, not previously considered: a track that now fails BOTH its initial read AND all 5 retry attempts has ZERO representation in the library, where before it would have had at least a path-derived stub row. This may be making this bug worse for that specific case. Not yet confirmed either way -- needs checking as part of whatever session investigates this next, using the diagnostics already specified below.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-25",
+          "completedAt": null,
+          "requires": [
+            "fLibraryScanner"
+          ]
+        },
+        {
+          "id": "bDuplicateAlbumDetection",
+          "name": "No warning for duplicate albums present on disk",
+          "desc": "Library contains parent folders holding two parallel sets of the same discs \u2014 for example 12 Inch 80s - Pop (CD1) alongside 12 Inch 80s - Pop [Disc 1]. This is a data condition on the NAS, not something the scanner produces, and Sorriva should not attempt to resolve it automatically: choosing which copy survives is a destructive user decision. Scope is a post-scan report that warns the user which albums appear to be genuine duplicates, never automatic action. Detection should use the MD5 of the decoded audio stream carried in the FLAC STREAMINFO block, which already sits inside the first 42 bytes of every file and is therefore captured for free during the existing 64KB tag read \u2014 one new column, no additional I/O. Matching on audio MD5 ignores tag and filename differences entirely. Known limits: identifies copied files rather than the same CD independently ripped twice, since separate rips produce different PCM, and is FLAC-only as MP3 and M4A carry no equivalent.",
+          "priority": "Normal",
+          "complexity": "M",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-25",
+          "completedAt": null,
+          "requires": [
+            "fLibraryScanner"
+          ]
+        },
+        {
+          "id": "bScannerTestSeam",
+          "name": "Scanner acceptance tests cannot observe the code they certify",
+          "desc": "ScannerTests never instantiates SMBScanner \u2014 the string does not appear in the file. testFullScanTwicePreservesIDs, testMetadataChangeUpdatesExistingTrack, testDeletedFileRemovedOnFolderRescan and testFailedWriteDoesNotMarkFolderComplete all drive SorrivaDatabaseTestable, a test double that carries its own hand-written copy of upsertTrackIdempotent annotated as the WP-02 fix. The tests therefore validate a reimplementation of the algorithm rather than the production scan path, and pass regardless of what SMBScanner actually calls. This is how WP-02 was logged complete on 2026-07-23 while the scanner still called the non-idempotent upsertTrack. Fix requires a source seam on SMBScanner so it can run against local fixture files without a live NAS \u2014 extract the SMB read and directory-walk operations behind a protocol, supply a fixture-backed implementation in tests, and rewrite the four acceptance tests to drive the real scanner through it. Until that seam exists the only honest verification of scan idempotency is manual: scan twice against the NAS and compare row counts and Track.id values. The seam is a prerequisite for verifying WP-02 and is not in WP-02's task list as written. UPDATE 2026-07-28 (gate-readiness audit): precisely scoped rather than left as a blanket concern. All 16 tests in ScannerTests.swift checked individually. 10 cover unrelated components (playback coordinator, keychain, DB migration, app environment, source resolver) where the fake database is a harmless convenience, not a risk. 2 more (testFullScanTwicePreservesIDs, testMetadataChangeUpdatesExistingTrack) genuinely overlap with newer tests built under fScannerIdentityIntegrity that DO exercise the real scanner via MediaSourceReader -- those specific behaviors are independently verified elsewhere despite this file's own version being untrustworthy on its own. That leaves exactly 2 tests with real, unverified exposure: testDeletedFileRemovedOnFolderRescan and testFailedWriteDoesNotMarkFolderComplete -- genuine scanner behaviors with no real-path equivalent found anywhere else. Recommended resolution: port these 2 specifically to the MediaSourceReader-based seam rather than reworking the whole file.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-25",
+          "completedAt": null,
+          "requires": [
+            "fLibraryScanner"
+          ]
+        },
+        {
+          "id": "bArtworkSelectionNotBestWins",
+          "name": "Artwork selection takes first acceptable image, not best available",
+          "desc": "Three artwork passes run in fixed order \u2014 folder, online fetch, embedded \u2014 and the last to run wins unconditionally. Two defects result. First, the folder pass accepts the first candidate that clears the 200px floor rather than comparing all candidates in the folder: one album accepted AlbumArt_*.jpg at 450x450 without ever examining Folder.jpg in the same folder, while another reached 1000x882 only because Folder.jpg happened to sort first, and a third landed on 720x634 by accident after a timeout eliminated its first choice. Second, albumsNeedingEmbeddedArtScan filters only on embeddedArtScanned == false, so the embedded pass runs against every album including those that already have artwork, and it applies no dimension check or logging of any kind. Observed consequence: three albums whose folder pass found 1000x882 Folder.jpg were overwritten by the embedded pass with art of unknown size, and an album whose art came from online fetch was likewise overwritten. The embedded-is-always-better assumption was intentional and is usually correct for this library, since most rejected folder images were WMP-generated 200x200 Folder.jpg thumbnails, but it is currently unverifiable because embedded saves log no dimensions. Proposed solution: select by highest pixel area across all candidates from all three sources, treating format as irrelevant since dimensions are already extracted. Use pixel area rather than width, because the library contains 450x292 and 450x398 images alongside 450x450. Measure candidates by reading image headers only \u2014 PNG IHDR carries width and height at bytes 16 through 24 so 33 bytes suffices, and JPEG SOF0/SOF2 markers are almost always within the first 2KB \u2014 then perform one full read for the winner. This is cheaper than current behaviour on folders where the first candidate is rejected and a second is downloaded in full. Tie-break equal areas by filename preference: cover, then folder, then AlbumArt_*, then others. Persist the winning dimensions in two additive columns on albums so the embedded pass, which runs from a separate DB query, can compare against what the folder pass measured \u2014 this requires a v14 additive migration. Online fetch then becomes just another candidate that must beat the stored dimensions rather than a special case for albums with no art. Consequence for the 200px floor: under best-wins a 200x200 image is a legitimate winner when nothing better exists, so the floor should flag the album as low resolution rather than reject the image and leave the album blank. One open judgment: pure area selection prefers 450x450 over 450x292, which is usually right but will also discard legitimately wide cover art \u2014 decide deliberately rather than inherit it from the algorithm. SCOPING NOTE 2026-07-26: read the actual current implementation before starting (runFolderArtPass + runEmbeddedArtPass in ScanCoordinator.swift, plus an online-fetch path in ArtworkCache.swift not yet read). Confirmed the roadmap's diagnosis is accurate \u2014 folder pass fully decodes each candidate via UIImage(data:) just to check dimensions (wasteful; header-only PNG IHDR / JPEG SOF read is the fix), sorts by file SIZE in bytes as a quality proxy and takes the first candidate that clears 300px (not comparing all candidates), and albumsNeedingEmbeddedArtScan filters only on a boolean flag with no dimension comparison at all. Genuinely larger than anything else done in the 2026-07-25/26 scanner sessions \u2014 touches 2+ files, needs a v15 migration (two new dimension columns), new header-only image parsing, and redesigned album eligibility querying. Deferred to a fresh session rather than rushed. IMPORTANT CONSTRAINT for that session: the three separate passes (folder/embedded/online) must be RETAINED as separate passes \u2014 they exist to avoid concurrent NAS session pressure and per-connection timeouts, not merely as an artifact of the current (buggy) last-wins design. Best-wins selection must compare results ACROSS the passes' stored outcomes (via the new dimension columns), not collapse the passes into one combined operation. COMPLETE 2026-07-27. v15 migration, ImageDimensionReader (header-only PNG/JPEG dimension reading, verified against real generated images before writing Swift), ArtworkBestWins (pure, testable candidate selection). Embedded pass reordered first; folder pass always does a cheap header-check regardless of what embedded found, only the expensive download is conditional on winning; online fetch reverted to gap-filling-only after real testing found it overwriting correct existing artwork with wrong iTunes matches (see bArtworkArtistQuery, fArtworkManualSearchUtility). Real-world testing (not just unit tests) surfaced and fixed 3 genuine bugs in the new code before this closed: folder-pass hang on connection timeout (no reconnect \u2014 also found the download-timeout reconnect had been lost in the same rewrite), embedded pass stopping at the first track with any art instead of checking all up-to-3 and keeping the best (real case: Pat Metheny 'We Live Here' saved 200x200 over an available 1280x1280), and the online-fetch overwrite issue. 10 new tests (ArtworkSelectionTests).",
+          "priority": "Normal",
+          "complexity": "M",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-07-25",
+          "completedAt": "2026-07-27",
+          "requires": [
+            "fLibraryScanner"
+          ]
+        },
+        {
+          "id": "bCanonicalIdentityBackfillStale",
+          "complexity": "S",
+          "done": false,
+          "priority": "Normal",
+          "name": "v13 canonical backfill carries pre-fix artist IDs \u2014 reopens WP-12",
+          "desc": "WP-12 (canonical identity, Milestone C) is recorded complete, but only the schema and one-time backfill landed \u2014 the v13 migration copied artist_id into music_tracks using SMBScanner's pre-2026-07-25 (buggy) artist resolution, before the ALBUMARTIST/ARTIST precedence fix. Currently harmless: LegacyMusicMapper.musicTrack(from:canonicalID:) builds MusicTrack from the live legacy Track row, not from music_tracks.artist_id, so nothing reads the stale column yet. It will surface the moment anything queries music_tracks directly. No ongoing importer-role sync exists (I-007) to keep canonical tables current as the scanner writes/updates rows going forward \u2014 that role is unimplemented. Resolution: once fScannerIdentityIntegrity lands (correct artist resolution + idempotent upsert), re-run the v13 backfill against corrected legacy rows, and scope the ongoing importer-role sync as its own record. See sorriva-scanner-handoff-2026-07-25.md \u00a72.4, \u00a78.",
+          "tag": "bug",
+          "createdAt": "2026-07-26",
+          "completedAt": null,
+          "requires": [
+            "fScannerIdentityIntegrity"
+          ]
+        },
+        {
+          "id": "fScannerDatabaseInjection",
+          "complexity": "L",
+          "done": false,
+          "priority": "Normal",
+          "name": "Full database injection seam for SMBScanner",
+          "desc": "SMBScanner calls SorrivaDatabase.shared directly at ~15 call sites, with no way to inject an isolated in-memory queue the way TestDatabase.makeQueue() already provides for repository/service-layer tests. 2026-07-26 solved the immediate safety problem with a smaller fix (SorrivaDatabase.shared now detects XCTestConfigurationFilePath and routes to an isolated temp-directory file per test run) \u2014 sufficient for scanner identity tests today, but not the same as real per-test isolation: it is one shared file across every test method in a run (already caused one cross-test collision during fScannerIdentityIntegrity, worked around with unique fixture paths per test), it is slower than in-memory, and it does not compose with parallel test execution. Proper fix mirrors the MediaSourceReader seam but for the database layer: thread an injectable database dependency through SMBScanner's ~15 call sites so tests can supply TestDatabase.makeQueue()-style isolated queues per test method. Also the natural point to finally migrate SMBScanner onto LibraryRepository \u2014 already flagged as unaddressed in sorriva-scanner-handoff-2026-07-25.md \u00a78 (\"one more call site for whoever migrates the scanner to the repository\"). Not urgent \u2014 current temp-file isolation is safe, just not ideal.",
+          "tag": "feature",
+          "createdAt": "2026-07-26",
+          "completedAt": null,
+          "requires": [
+            "fScannerIdentityIntegrity"
+          ]
+        },
+        {
+          "id": "bScanConnectionExhaustionOnRepeatedScans",
+          "complexity": "M",
+          "done": false,
+          "priority": "High",
+          "name": "Repeated back-to-back scans cause cascading read failures",
+          "desc": "2026-07-26: after many consecutive full scans in one session (heavy testing, not normal once-a-day use), a rescan failed 445 of 476 files with 'NSPOSIXErrorDomain Code=12 Cannot allocate memory' on the per-file SMBClient login() call \u2014 consistent with connection/socket/file-descriptor exhaustion from the fresh-connection-per-file read pattern (intentional, empirically required for the UNAS Pro \u2014 see SMBMediaSourceReader). A scan run earlier in the same session, same device, same NAS, completed with 0 failures. The scan_skips retry-visibility fix shipped the same night is confirmed working correctly independent of this issue \u2014 all 445 skips were written and immediately found as pending (see fScannerIdentityIntegrity notes). Suspected cause: sustained rapid back-to-back scanning without recovery time between runs, not necessarily present in normal daily use. Tom's plan: observe whether the condition self-clears with normal time between scans before treating as urgent. If it recurs under normal (non-testing) use, investigate socket/connection lifecycle in SMBMediaSourceReader.readHeader more closely \u2014 possible candidates: OS-level ephemeral port/file-descriptor exhaustion, SMBClient not fully releasing resources on teardown, or the 200ms per-file throttle being insufficient under sustained load. MAJOR UPDATE 2026-07-27, researched properly rather than assumed: this is very likely NOT specific to the UNAS Pro's own session-dropping behavior after all. Same 'NWError 12 - Cannot allocate memory' reproduced on a COMPLETELY DIFFERENT device (Tom's Mac mini, plain SMB, no UNAS Pro involved) just listing shares, not even scanning. Found a directly relevant Apple Developer Forums thread with a CONFIRMED ANSWER FROM AN APPLE DTS ENGINEER describing a documented per-process ceiling on simultaneous nw_connection_t objects (cited threshold: 512+), where affected connections enter nw_connection_state_waiting and report exactly this error - and CRITICALLY, per the DTS engineer, 'these connections remain stuck indefinitely, even after other connections are deallocated and resources should theoretically be available again.' This means even fully correct connection hygiene on Sorriva's side (proper disconnectShare/logoff on every teardown path, already the case) may not fully prevent this - it can be an OS-level accounting bug, not necessarily an app-level leak. Fits the observed pattern precisely: worsens over a long continuous app session (many hundreds to low thousands of fresh per-file SMB connections accumulate across a full scan + retry + 3 artwork passes), and is tied to the app PROCESS's cumulative lifetime, not which NAS device is being talked to. REAL RISK FOR THE FULL 10K+ TRACK LIBRARY: Apple's cited 512+ threshold is well within reach of a single full scan pipeline at that scale, independent of anything wrong in Sorriva's own code. NO EASY FIX: genuine architectural tension between the NAS's own constraint (fresh connection per file, required - UNAS Pro drops sessions after ~2 sequential reads on one connection) and iOS's per-process connection ceiling (fewer total connections over a session's lifetime). Options worth investigating, not yet decided: batching a large scan into smaller chunks with a full app restart between batches; investigating whether more aggressive connection-level cleanup beyond SMBClient's own disconnect/logoff is possible. Immediate mitigation when it occurs: force-quit and relaunch the app; a full device reboot if that doesn't clear it, since this can be a genuinely stuck OS-level resource, not just app state. This deserves a dedicated investigation session before attempting a 10k+ file library scan, not a quick patch.",
+          "tag": "bug",
+          "createdAt": "2026-07-26",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bLocalQueueContextAdvanceTestFlaky",
+          "complexity": "S",
+          "done": false,
+          "priority": "Low",
+          "name": "testLocalQueueContextAdvancesOnURIChange intermittently fails",
+          "desc": "2026-07-26: observed failing repeatedly across an entire scanner test-seam session (ScannerTests.swift:521), unrelated to any scanner/database work done that session. Tests PlaybackContextService.advanceLocalContext advancing to track 2 after simulateURIChange(). Suspected cause: the assertion checks contexts[zoneID]?.track synchronously immediately after calling simulateURIChange, but advanceLocalContext performs its update inside an async Task { @MainActor in ... } \u2014 the test can race ahead of that update completing, depending on scheduling. Not confirmed via code reading this session, only inferred from repeated observed failures with no code changes to PlaybackContextService in between. Low priority \u2014 does not indicate a product defect, only a test needing an expectation/await instead of an immediate synchronous assertion.",
+          "tag": "bug",
+          "createdAt": "2026-07-26",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bGroupingUIStaleForExtendedPeriod",
+          "complexity": "M",
+          "done": true,
+          "priority": "High",
+          "name": "Zone card doesn't reflect grouping for extended period after group command",
+          "desc": "2026-07-27: grouped a zone via the app; SOAP commands succeeded (coordinator kept playing correctly) but the newly-grouped zone's card kept showing idle with its previous media for approximately ONE HOUR, not a single missed poll cycle. Self-resolved without any user action while the phone was away/likely locked (coffee break) \u2014 consistent with the foreground-refresh path (sorrivaAppDidBecomeActive -> handleNetworkRestored()) correcting what the regular periodic polling loop was not correcting on its own. No log was captured during the actual broken window \u2014 the exported log was from after it had already resolved, so root cause is NOT diagnosed, only the symptom and approximate duration are known. groupZone() itself (ZoneDiscoveryService.swift) was read and looks structurally correct on its face \u2014 does have a deliberate post-group refresh sequence (sleep 1.5s -> fetchTransportStates -> refreshIdleStates -> sleep 0.5s -> fetchTopology). Suspect candidates, unconfirmed: (1) PlaybackContextService's stateless handleZoneUpdate rewrite has no explicit case for 'zone just joined a group, inherit coordinator's context' \u2014 a grouped member's own prior isPlaying/currentTrackURI could persist if Sonos reports lagging/inconsistent transport info for a non-coordinator member vs the actual coordinator; (2) something in the idleState/grace-period handling (added for direct-play, e.g. togglePlayPause/playStation/persistStationPlay) was never extended to the group-join path, so a member's stale idleState could persist through normal polling indefinitely rather than just through one grace window. NEXT TIME THIS OCCURS: export the debug log immediately, WHILE still broken, before doing anything that might trigger a foreground refresh (do not background/foreground the app first) \u2014 that log is the missing piece needed to actually diagnose this. ROOT CAUSE FOUND AND FIXED 2026-07-27, same day it was logged \u2014 a fresh reproduction with the debug log captured live (per the instruction left in this record) gave the evidence needed. Two distinct bugs, both real: (1) fetchTopology had six independent call sites (discovery, foreground/network-restored, group, ungroup, transfer) with no concurrency guard \u2014 grouping the same zone twice in quick succession could let an older, now-stale topology fetch complete after a newer one and silently overwrite correct group state. Fixed with a single topology-refresh coordinator: at most one fetch in flight, concurrent requests coalesce into one guaranteed follow-up rather than racing. (2) fetchTopology's 'zones = parsed.sorted{...}' unconditionally replaced every zone's entire struct on every refresh \u2014 TopologyParser only knows id/name/host/idleState/groupMembers, so every OTHER field (station info, current track, position, volume, grace period) reset to bare defaults on every single topology fetch, not just during grouping. Invisible for an already-idle zone with nothing to lose, but visibly blipped any actively-playing zone's now-playing info to blank before several separate async steps restored it moments later. Fixed by merging fresh topology into existing zones (preserving live state for matching IDs) instead of replacing wholesale.",
+          "tag": "bug",
+          "createdAt": "2026-07-27",
+          "completedAt": "2026-07-27",
+          "requires": []
+        },
+        {
+          "id": "bID3v2EmbeddedArtRejectedWholeFile",
+          "complexity": "S",
+          "done": true,
+          "priority": "High",
+          "name": "MP3 tags lost entirely when embedded cover art pushed declared tag size past 64KB",
+          "desc": "RESOLVED 2026-07-27. Discovered while investigating an unrelated track-length report \u2014 Tom noticed the scanner retrying files where the read had succeeded but tags came back empty and correctly questioned whether that was a real read failure or a parser gap. parseID3v2's upfront guard (size + 10 <= data.count) rejected the ENTIRE file whenever the declared ID3 tag size \u2014 which includes embedded artwork \u2014 exceeded the scanner's 64KB read window, even though the real text frames (TIT2/TALB/TPE2/etc.) almost always sit within the first ~1KB of the tag, comfortably inside that window. Confirmed by replicating the exact Swift parsing logic in Python against a real uploaded MP3's bytes before writing any fix: with the guard removed, all 15 useful frames parsed correctly, and the frame-walking loop's existing per-frame guard already stopped cleanly at the oversized APIC frame on its own \u2014 the file-level guard was pure liability, protecting nothing. Unlike the analogous FLAC PICTURE-before-VORBIS_COMMENT gap (fScanFailureUtility / ScannerParsingEdgeCaseTests test 16, left as a documented known limitation since it requires the newer larger-read utility to fix properly), this MP3 case is NOT a rare edge case \u2014 any file with embedded cover art over ~64KB (routine output from EAC/dbPoweramp CD rips) was silently losing all tags. Fixed outright by removing the premature guard. New regression test (ID3v2EmbeddedArtTests) uses a real MP3 (uploaded directly during diagnosis, trimmed to 100KB, byte-identical to the original for the first 64KB the scanner actually reads) as its fixture rather than a synthetic one. RECOMMENDATION: run a full library rescan \u2014 previously-affected MP3s currently have folder/filename-derived fallback metadata instead of their real tags and will need to be re-read to recover it.",
+          "tag": "bug",
+          "createdAt": "2026-07-27",
+          "completedAt": "2026-07-27",
+          "requires": []
+        },
+        {
+          "id": "fArtworkPassTestSeam",
+          "complexity": "M",
+          "done": false,
+          "priority": "Normal",
+          "name": "Test seam for the artwork pass orchestration (folder/embedded/online)",
+          "desc": "2026-07-27: bArtworkSelectionNotBestWins extracted the two pure, testable pieces (ImageDimensionReader, ArtworkBestWins) into their own files with real coverage (ArtworkSelectionTests.swift, using real generated PNG/JPEG fixtures). The pass orchestration itself \u2014 runFolderArtPass, runEmbeddedArtPass, ArtworkCache.fetchArtwork \u2014 still talks directly to SMBClient/URLSession with no seam, same situation SMBScanner was in before fScannerIdentityIntegrity's MediaSourceReader work. Mirrors that same pattern: a protocol seam would let the actual pass logic (eligibility, ordering, reconnect/retry handling) run against fixtures instead of a live NAS. Not urgent \u2014 the decision logic most likely to have subtle bugs is already covered; this would mainly guard the I/O plumbing around it.",
+          "tag": "feature",
+          "createdAt": "2026-07-27",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fArtworkManualSearchUtility",
+          "complexity": "M",
+          "done": false,
+          "priority": "Normal",
+          "name": "Manual artwork search utility \u2014 user picks from multiple sources",
+          "desc": "2026-07-27, following two confirmed cases of wrong automated iTunes artwork matches (a VA compilation and a single-artist \"Greatest Hits\" album, both with generic/common titles) \u2014 no amount of query tuning can fully guarantee a correct automated match when two different albums share a similar or identical name. Rather than keep trying to make automated matching perfectly reliable, put a human in the loop for the final decision: user sees a low-res or wrong album cover in the library, launches a utility, Sorriva searches one or more sources (Apple/iTunes, Discogs, MusicBrainz CAA per fMusicBrainzCoverArt) for that specific album, presents the candidate results, user picks the correct one (or none) to apply. Distinct from fScanFailureUtility (that's for scans that failed outright with a bigger-read retry \u2014 different trigger, different sources, different flow) despite both being Settings-adjacent utilities. Sets artManualOverride on apply, same as existing manual artwork override, so future scans never touch it again.",
+          "tag": "feature",
+          "createdAt": "2026-07-27",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bEmbeddedArtRetryNeverResolves",
+          "complexity": "S",
+          "done": true,
+          "priority": "High",
+          "name": "Embedded art retry loop never resolves a confirmed 'no art' result",
+          "desc": "RESOLVED 2026-07-27. Same bug class as an earlier scan_skips fix (retrying a confirmed negative result forever instead of accepting it as final). The retry loop's 'no art in file' branch (a successful read, genuinely no embedded art) called markEmbeddedArtScanned, which only set embeddedArtScanned=1 \u2014 but the retry queue's own eligibility query (albumsNeedingEmbeddedArtRetry) filters on a DIFFERENT flag, embeddedArtFailed, which was never cleared. Real repro: an album retried indefinitely showing 'attempt 2/5' without ever incrementing, since nothing in the no-art branch touched either flag the retry queue actually depends on. Fixed by having markEmbeddedArtScanned clear embeddedArtFailed too, matching its actual intent (no further scanning OR retrying needed) everywhere it's called, not just this one call site.",
+          "tag": "bug",
+          "createdAt": "2026-07-27",
+          "completedAt": "2026-07-27",
+          "requires": []
+        },
+        {
+          "id": "bFailedReadCreatesWrongAlbumFromFallback",
+          "complexity": "M",
+          "done": true,
+          "priority": "High",
+          "name": "A failed tag read created a track/album from empty fallback data instead of skipping",
+          "desc": "RESOLVED 2026-07-27. When a file's header read failed, the scanner still fell through to buildTrack with an empty ParsedMetadata, relying on fillFromPath's folder-name fallback. For the first track scanned in a folder, this meant a transient NAS read timeout (not a genuine content issue) could permanently create the ALBUM with wrong data \u2014 real repro: 'Various Artists - 12 Inch Dance 80s Remix (CD 2)' track 1 timed out, fillFromPath ran with no artist context (both albumArtist and artist were nil), couldn't correctly strip the folder name's 'Various Artists - ' prefix, and created the album under the wrong, unstripped name. Worse: the retry pass later successfully re-read the SAME file's tags correctly, but only ever updates a track's own row \u2014 it never propagates corrected data back to fix an album record that was already wrongly created upstream, so the bad album persisted even after the underlying read issue resolved itself. Tom identified the structurally correct fix: a failed read should never create anything from empty data in the first place \u2014 just record the skip and move on, so whichever read succeeds first (this pass or on retry) is what defines the track and album. Implemented by moving buildTrack/write inside the read-succeeded branch only; FolderStat and progress bookkeeping stayed unconditional so a folder containing a skip can still complete once retry resolves it, rather than never completing.",
+          "tag": "bug",
+          "createdAt": "2026-07-27",
+          "completedAt": "2026-07-27",
+          "requires": []
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Music Graph",
+      "desc": "MusicBrainz MBID matching, source de-duplication, unified track model, metadata enrichment pipeline. Everything else depends on the graph.",
+      "features": [
+        {
+          "id": "fMusicGraphModel",
+          "complexity": "L",
+          "done": false,
+          "priority": "Critical",
+          "name": "Unified music graph data model",
+          "desc": "Core Track entity with source array (local, Spotify, Apple Music, Qobuz). One track identity across all sources. Source resolved at playback time. Schema supports user_id, play count, last played, playlist membership.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fMusicBrainzMBID",
+          "complexity": "L",
+          "done": false,
+          "priority": "Critical",
+          "name": "MusicBrainz MBID matching",
+          "desc": "Assign canonical MusicBrainz IDs to local library tracks. Acoustic fingerprinting via AcoustID for files without embedded IDs. Cross-platform ID mapping to bridge Spotify IDs and Apple Music IDs. 90%+ match rate target; flag low-confidence matches for manual review.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fSourceDeduplication",
+          "complexity": "M",
+          "done": false,
+          "priority": "Critical",
+          "name": "Cross-source de-duplication",
+          "desc": "Identify tracks available in multiple sources (local + Spotify + Apple Music). Present as single track entry with source list. 'Available on X sources' indicator. User configures preferred source order in settings.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fContextAwareResolution",
+          "complexity": "M",
+          "done": false,
+          "priority": "Critical",
+          "name": "Context-aware source resolution",
+          "desc": "At playback time: detect home network vs away. Home = local FLAC preferred, fallback to Apple Music then Spotify. Away = Apple Music then Spotify. Transparent to user \u2014 it just plays. Network detection uses local IP range check.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fMetadataAlbumArt",
+          "complexity": "M",
+          "done": true,
+          "priority": "High",
+          "name": "Metadata pipeline \u2014 album art",
+          "desc": "Fetch and cache hi-res album art for all library tracks. Multiple sizes (thumbnail, full, backdrop). Served from local cache. Sources: embedded file tags, MusicBrainz Cover Art Archive, iTunes Search API fallback.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": "2026-07-14"
+        },
+        {
+          "id": "fMetadataEnrichment",
+          "complexity": "L",
+          "done": false,
+          "priority": "High",
+          "name": "Metadata pipeline \u2014 bio, reviews, credits",
+          "desc": "Artist biography (Last.fm primary, Discogs fallback). Album reviews (Pitchfork, AllMusic, RateYourMusic). Credits \u2014 producer, engineer, session musicians (MusicBrainz). Genre/tags (Last.fm + MusicBrainz). Related artists.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fSourceBadge",
+          "complexity": "S",
+          "done": false,
+          "priority": "High",
+          "name": "Source badge system",
+          "desc": "Visual source attribution on every track cell and now playing screen. Spotify green, Apple Music gradient, Qobuz blue, local library icon. Always visible, never hidden. Core to the product's honest positioning.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fPlayHistory",
+          "complexity": "S",
+          "done": false,
+          "priority": "High",
+          "name": "Play history + statistics tracking",
+          "desc": "Log every play event: track, source, profile, timestamp, duration played. Per-profile play count, last played date, total hours. Foundation for Deriva AI and annual wrap-up.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fTagScanner",
+          "name": "Tag-based SMB scanner with 8MB read size (UNAS Pro requirement)",
+          "desc": "Tag-based SMB scanner with 8MB read size (UNAS Pro requirement). ID3v2, Vorbis Comment, and MP4 atom parsers. Path fallback for untagged files. Artist-Album-NN-Title filename parsing. Artist prefix strip in path fallback and iTunes query.",
+          "complexity": "L",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-13",
+          "completedAt": "2026-07-13",
+          "requires": []
+        },
+        {
+          "id": "fIncrementalRescan",
+          "name": "Per-folder FolderStat table (v9 migration) for incremental rescan",
+          "desc": "Per-folder FolderStat table (v9 migration) for incremental rescan. App foreground triggers stat check \u2014 only rescans changed folders. Interrupted scan detection on app launch: resets stale scanning state to error and surfaces restart option.",
+          "complexity": "M",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-13",
+          "completedAt": "2026-07-13",
+          "requires": []
+        },
+        {
+          "id": "fScanConfirmation",
+          "name": "Scan confirmation alert with auto-lock disable message shown before initiatin...",
+          "desc": "Scan confirmation alert with auto-lock disable message shown before initiating full library scan.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-13",
+          "completedAt": "2026-07-13",
+          "requires": []
+        },
+        {
+          "id": "bTagEditsNotDetected",
+          "name": "On-disk tag edits not detected by folder change detection",
+          "desc": "FolderStat change detection compares fileCount and totalBytes per folder. External taggers such as dbPoweramp, Picard, Yate and Mp3tag write tag changes into the FLAC PADDING block reserved for that purpose, so neither file count nor total byte size changes and the folder is never flagged for rescan. Sorriva shows stale metadata indefinitely after a user retags their library. Requires a stronger change signal, such as per-file modified timestamp in FolderStat, or a user-triggered rescan that bypasses FolderStat entirely.",
+          "priority": "Normal",
+          "complexity": "M",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-25",
+          "completedAt": null,
+          "requires": [
+            "fIncrementalRescan"
+          ]
+        },
+        {
+          "id": "bAlbumGenreFromFirstTrack",
+          "name": "Album genre taken from first scanned track only",
+          "desc": "resolveAlbum sets album genre from whichever track is processed first and never revisits it. Correct for single-artist albums, arbitrary for compilations \u2014 a VA compilation spanning multiple genres takes the genre of track 1 for the entire album. Per-track genre is stored correctly on Track and is unaffected; only the album-level rollup is wrong. Interim fix is to take the most common genre across the album's tracks during scan finalize. Expected to be resolved properly by external metadata enrichment. RESOLVED 2026-07-26, differently than originally scoped: rather than \"most common genre wins\" (still an arbitrary single answer for a genuinely mixed-genre compilation), built a proper v14 album_genres many-to-many table \u2014 mirrors station_genres' structural pattern (composite PK, cascade FK) but stores raw freeform genre strings rather than joining to a curated taxonomy, since local tag genres aren't drawn from a fixed list. Album.genre (single-value) is untouched \u2014 confirmed nothing in the UI reads it today, so this is purely additive. Populated from the distinct genres actually present across an album's tracks at scan finalize; rescans clear-then-rewrite so retagging doesn't accumulate stale entries. 3 new tests (AlbumGenreTests.swift), all passing.",
+          "priority": "Low",
+          "complexity": "S",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-07-25",
+          "completedAt": "2026-07-26",
+          "requires": [
+            "fLibraryScanner"
+          ]
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "name": "Streaming Sources",
+      "desc": "Spotify Connect, MusicKit (Apple Music), Qobuz Connect, context-aware source resolution. Core value proposition.",
+      "features": [
+        {
+          "id": "fSpotifyConnect",
+          "complexity": "L",
+          "done": true,
+          "priority": "Critical",
+          "name": "Spotify Connect integration",
+          "desc": "DESCOPED. Spotify Web API extended access requires 250k MAU minimum, registered organization, and active launched service before approval \u2014 making it structurally unavailable at launch. Dev mode caps at 25 users with no bridge to production. Revisit when Sorriva reaches scale or if Spotify opens access to indie developers. Sorriva v1 targets Apple Music, Tidal, and Qobuz as primary streaming sources. Priority lowered to Low.",
+          "tag": "feature",
+          "createdAt": "2026-06-24",
+          "requires": [],
+          "completedAt": "2026-07-15"
+        },
+        {
+          "id": "fAppleMusicKit",
+          "complexity": "L",
+          "done": false,
+          "priority": "Critical",
+          "name": "Apple Music \u2014 MusicKit integration",
+          "desc": "In-app Apple Music playback via MusicKit framework. Full catalog search and streaming inside Sorriva UI. Apple Music developer entitlement required. Library sync from user's Apple Music library.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fQobuzConnect",
+          "complexity": "M",
+          "done": false,
+          "priority": "High",
+          "name": "Qobuz Connect integration",
+          "desc": "In-app Qobuz hi-res streaming via Qobuz Connect API. Catalog search, library browse, hi-res quality selection. Source badge displays Qobuz logo.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fIHeartRadio",
+          "complexity": "M",
+          "done": true,
+          "priority": "Normal",
+          "name": "iHeartRadio \u2014 live radio stations",
+          "desc": "Live radio station search and playback via iHeartRadio API. Station browse by genre/location. Integration depth TBD \u2014 see open questions.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": "2026-07-14"
+        },
+        {
+          "id": "fStreamingServiceSettings",
+          "complexity": "S",
+          "done": false,
+          "priority": "Critical",
+          "name": "Streaming service connection settings",
+          "desc": "Settings screen for connecting/disconnecting streaming services. OAuth flow per service. Shows connection status, account info, and subscription tier. User configures preferred source order for context-aware resolution.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fLiveStationMetadata",
+          "name": "Live station metadata fetched from iHeart API for currently playing station",
+          "desc": "Live station metadata fetched from iHeart API for currently playing station. Track and artist name displayed in zone card and Now Playing screen.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-09",
+          "completedAt": "2026-07-09",
+          "requires": []
+        },
+        {
+          "id": "fRadioLibrary",
+          "name": "RadioStationBrowser with iHeart API integration",
+          "desc": "RadioStationBrowser with iHeart API integration. Station search and browse by genre. Station art, name, and play action.",
+          "complexity": "M",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-09",
+          "completedAt": "2026-07-09",
+          "requires": []
+        },
+        {
+          "id": "fStationCache",
+          "name": "Station logo prefetch on app launch",
+          "desc": "Station logo prefetch on app launch. URLCache 100MB memory / 500MB disk config. CachedAsyncImage component using URLCache replacing AsyncImage throughout app.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fSomaFM",
+          "name": "SomaFM 46 channels integrated",
+          "desc": "SomaFM 46 channels integrated. Channel browse, stream URL resolution, play via Sonos SetAVTransportURI.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-11",
+          "completedAt": "2026-07-11",
+          "requires": []
+        },
+        {
+          "id": "fServiceContextMenus",
+          "name": "IHeartServiceView and SomaFMServiceView migrated from SavedStationActionSheet...",
+          "desc": "IHeartServiceView and SomaFMServiceView migrated from SavedStationActionSheet to SorrivaContextMenu. Station delete fixed: FK constraint resolved by deleting station_genres and zone_state children first. Station delete confirmation added.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-13",
+          "completedAt": "2026-07-13",
+          "requires": []
+        },
+        {
+          "id": "fStationSourceBadge",
+          "name": "Station source badge \u2014 iHeartRADIO",
+          "desc": "Visual source badge on station cards and Now Playing screen. iHeartRADIO badge in station action sheet already exists. Extend to zone card and Now Playing art overlay.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-11",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fStationSeeding",
+          "name": "Station catalog seeding strategy",
+          "desc": "Expand beyond 5 hardcoded stations. Options: curated catalog of IDs extracted from iHeart URLs, user-paste flow (paste iHeart URL \u2192 extract ID \u2192 fetch metadata), or genre-browse endpoint. Cache all metadata (name, logo, stream URL) in SQLite on first fetch.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-11",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bArtworkArtistQuery",
+          "name": "Artwork API lookup omits artist name",
+          "desc": "CORRECTED 2026-07-27: original diagnosis (\"query sends only album title, not artist name\") is stale and does not match the current code \u2014 ArtworkCache.searchURL(artist:album:) has always built the query as \"\\(artist) \\(cleanAlbum)\", including both. Re-confirmed affected via a second real case tonight: Johnny Cash '18 Greatest Hits' received Al Green's artwork despite the artist name being present in the query. The real problem is broader than a missing query term \u2014 iTunes Search API's own relevance ranking plus ArtworkCache.parseArtworkURL's unconditional acceptance of results.first (zero verification the returned result is even plausibly related) is unreliable for generic/common titles (\"Greatest Hits\", \"Various Artists\" compilations) regardless of what's in the query. KEPT OPEN deliberately \u2014 worth a real discussion and some query-tuning experiments (e.g. quoting/formatting changes, or checking the response's own artistName/collectionName fields against the query before accepting a match) before deciding whether better query construction alone can meaningfully improve this, versus needing the human-in-the-loop approach in fArtworkManualSearchUtility instead. IMMEDIATE MITIGATION 2026-07-27: online fetch (ArtworkCache.fetchArtwork) reverted to only running for albums with zero existing art (matches original, pre-2026-07-27-redesign behavior) \u2014 a wrong match can no longer overwrite correct existing artwork, only fill a genuine gap. See bArtworkSelectionNotBestWins for what changed and why.",
+          "priority": "High",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-22",
+          "completedAt": null,
+          "requires": [
+            "fLibraryScanner"
+          ]
+        },
+        {
+          "id": "fStationPlayback",
+          "name": "iHeart station playback via Sonos UPnP",
+          "desc": "Fetch HLS stream URL from iHeart v2 API. Prepend hls-radio:// prefix. SetAVTransportURI with DIDL-Lite metadata (station name + art). Play action. Stream URL and logo cached in SQLite.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-04",
+          "completedAt": "2026-07-04",
+          "requires": []
+        },
+        {
+          "id": "fShazamManagement",
+          "name": "Shazam management in Discover",
+          "desc": "Shazam history management UI in the Discover tab. View all Shazam'd tracks with filter by genre, artist, and title. Remove duplicates. Create a playlist from the current view or via Claude/Deriva. Remove tracks from Shazam history once they have been added to a playlist. Pairs with fShazamLibraryImport (history import) and fShazamRecognition (live capture).",
+          "priority": "Normal",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-22",
+          "completedAt": null,
+          "requires": [
+            "fShazamLibraryImport"
+          ]
+        }
+      ]
+    },
+    {
+      "phase": 4,
+      "name": "Zones & AirPlay 2",
+      "desc": "AirPlay 2 multi-room, device discovery, saved groups, EQService abstraction, Sonos/BluOS control layer. Multi-room is core value.",
+      "features": [
+        {
+          "id": "fDeviceDiscovery",
+          "complexity": "L",
+          "done": true,
+          "priority": "Critical",
+          "name": "Unified device discovery",
+          "desc": "Discover all audio endpoints on the local network: AirPlay 2 devices via mDNS/Bonjour, Sonos via local API, Bluesound via BluOS. Present as one unified zone list. No protocol awareness required from user. Sonos native groups and stereo pairs surface as single zones.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": "2026-07-14"
+        },
+        {
+          "id": "fSonosNativeGroups",
+          "complexity": "S",
+          "done": false,
+          "priority": "Critical",
+          "name": "Sonos native group + stereo pair preservation",
+          "desc": "Sonos hardware groups and stereo pairs are defined at firmware level and must be respected as-is. Sorriva discovers and treats them as single opaque zones. Never regroups or breaks Sonos native configuration. Users do not need to regroup anything in Sorriva.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fAirPlayMultiRoom",
+          "complexity": "L",
+          "done": false,
+          "priority": "Critical",
+          "name": "AirPlay 2 multi-room streaming",
+          "desc": "Simultaneous playback to multiple AirPlay 2 endpoints. Independent volume per zone. Latency-matched sync handled by AirPlay 2 protocol. Apple TV initiates streams natively.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fSavedZoneGroups",
+          "complexity": "M",
+          "done": false,
+          "priority": "High",
+          "name": "Saved zone groups",
+          "desc": "User creates named zone groups (e.g. 'Downstairs', 'Party Mode', 'Bedroom Only') combining any mix of AirPlay 2 endpoints. One tap to recall \u2014 Sorriva automates multi-target AirPlay 2 selection. Groups persist across sessions. Each member zone maintains its own internal Sonos/Bluesound configuration.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fAdHocZoneGroups",
+          "complexity": "S",
+          "done": false,
+          "priority": "High",
+          "name": "Ad-hoc zone groups",
+          "desc": "Temporary zone groupings for the current session. Dissolve when session ends. Quick-create from zone list without naming or saving.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fEQService",
+          "complexity": "L",
+          "done": false,
+          "priority": "High",
+          "name": "EQService abstraction layer",
+          "desc": "Single EQ UI (bass, mid, treble, loudness toggle) that translates to each device's native API. Sonos HTTP API: bass, treble, loudness, balance, Trueplay status. BluOS API: tone controls. Plain AirPlay 2 (HomePod etc.): volume only with honest reduced-state explanation. New device type = new driver, UI unchanged.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fSonosAPIControl",
+          "complexity": "M",
+          "done": true,
+          "priority": "High",
+          "name": "Sonos local API control layer",
+          "desc": "Sonos HTTP API integration for device configuration: bass, treble, loudness, balance, Trueplay status read/write. Volume control. Runs in parallel with AirPlay 2 audio delivery \u2014 separate layers, not mutually exclusive.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": "2026-07-14"
+        },
+        {
+          "id": "fBluOSAPIControl",
+          "complexity": "M",
+          "done": false,
+          "priority": "High",
+          "name": "BluOS API control layer",
+          "desc": "Bluesound BluOS HTTP API integration for device configuration: EQ, tone controls, balance, device config. Volume control. Runs in parallel with AirPlay 2 audio delivery.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fVolumeControl",
+          "complexity": "S",
+          "done": true,
+          "priority": "High",
+          "name": "Per-zone and per-group volume control",
+          "desc": "Independent volume control for each zone and each saved group. Via AirPlay 2 protocol for audio level, supplemented by device native API where available.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": "2026-07-14"
+        },
+        {
+          "id": "fLocalHTTPServer",
+          "name": "In-app HTTP file server \u2014 SMB to HTTP bridge",
+          "desc": "Lightweight HTTP server using NWListener (native Network framework) that reads raw file bytes from the NAS via SMBClient in 1MB chunks and serves them over HTTP to Sonos. Fresh SMBClient connection per chunk works around UNAS Pro session drop after 2 sequential reads on same connection. Backpressure: awaits send completion before reading next chunk. Appends file extension (.flac etc) to URI to resolve Sonos error 714 (illegal MIME type). Declares background audio session so iOS keeps the process alive when screen locks. Zero audio processing \u2014 bytes passed through opaque, bit-perfect.",
+          "complexity": "S",
+          "priority": "Critical",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "done": true,
+          "completedAt": "2026-07-15",
+          "tag": "feature"
+        },
+        {
+          "id": "fLocalSonosPlayback",
+          "name": "Local library \u2192 Sonos playback",
+          "desc": "Wire library UI to Sonos playback via HTTP server. Track tap and context menu Play on... wired to zone picker and LocalPlaybackService.playTrack. Album Play button (tap=selected zone, long press=zone picker) wired to LocalPlaybackService.playAlbum. Remaining: full album queue via AddMultipleURIsToQueue, now-playing state update for local tracks, album art in mini player for local media.",
+          "complexity": "M",
+          "priority": "Critical",
+          "createdAt": "2026-07-14",
+          "requires": [
+            "fLocalHTTPServer",
+            "fNavigationRefactor"
+          ],
+          "done": true,
+          "completedAt": "2026-07-16",
+          "tag": "feature"
+        },
+        {
+          "id": "fSorrivaCoreTransfer",
+          "name": "Sorriva Core transfer \u2014 iPhone to iPad handoff",
+          "desc": "One-tap transfer of local library serving responsibility from iPhone to iPad. iPhone advertises active local playback session via Multipeer Connectivity. iPad running Sorriva detects it and shows a Transfer prompt. On transfer: iPad starts its own HTTP server, queries Sonos GetPositionInfo for current track and position, issues new SetAVTransportURI with iPad IP at current position, signals iPhone to release. Seamless and position-preserving. After transfer, iPhone becomes a pure remote control and can leave the home network. iPad holds the background audio session and serves indefinitely.",
+          "complexity": "S",
+          "priority": "High",
+          "createdAt": "2026-07-14",
+          "requires": [
+            "fLocalHTTPServer",
+            "fLocalSonosPlayback"
+          ],
+          "done": false,
+          "completedAt": null,
+          "tag": "feature",
+          "priority_rank": 5
+        },
+        {
+          "id": "fSorrivaCoreIndicator",
+          "name": "Sorriva Core status indicator",
+          "desc": "Persistent subtle UI indicator when a device is actively serving local library to a Sonos zone. Shows zone name being served. On iPhone: shows Transfer to iPad button when an iPad running Sorriva is detected on the same network via Multipeer. Graceful stop action. Makes the serving state visible without being intrusive. Persistent local notification as a secondary signal that also prevents accidental force-quit.",
+          "complexity": "XS",
+          "priority": "High",
+          "createdAt": "2026-07-14",
+          "requires": [
+            "fLocalHTTPServer"
+          ],
+          "done": false,
+          "completedAt": null,
+          "tag": "feature",
+          "priority_rank": 3
+        },
+        {
+          "id": "fSonosDiscovery",
+          "name": "SonosDevice.swift (UUID-keyed data model, SonosGroup struct), ZoneDiscoverySe...",
+          "desc": "SonosDevice.swift (UUID-keyed data model, SonosGroup struct), ZoneDiscoveryService.swift (NWBrowser for _sonos._tcp Bonjour discovery, fetches /status/zp for zone topology, @Published device and group lists, foreground-continuous discovery). ZonesView updated with Playing/Available sections and ZoneCard component.",
+          "complexity": "M",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-08",
+          "completedAt": "2026-07-08",
+          "requires": []
+        },
+        {
+          "id": "fSonosTopology",
+          "name": "GetZoneGroupState topology parsing",
+          "desc": "GetZoneGroupState topology parsing. Sonos groups and coordinators identified from topology response. Zone group state drives Playing/Available section split in ZonesView.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-09",
+          "completedAt": "2026-07-09",
+          "requires": []
+        },
+        {
+          "id": "fTransportState",
+          "name": "Transport state polling via GetTransportInfo",
+          "desc": "Transport state polling via GetTransportInfo. Play/pause/stop state drives zone card UI. 5-second polling cycle.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-09",
+          "completedAt": "2026-07-09",
+          "requires": []
+        },
+        {
+          "id": "fZoneCardRedesign",
+          "name": "Zone card redesign with EQ bars animation and station art",
+          "desc": "Zone card redesign with EQ bars animation and station art. Collapsed/expanded states. Volume +/- buttons. Now Playing button drill-in.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-09",
+          "completedAt": "2026-07-09",
+          "requires": []
+        },
+        {
+          "id": "fEQControls",
+          "name": "EQSheet with bass, treble, loudness toggle",
+          "desc": "EQSheet with bass, treble, loudness toggle. Arc Ultra extended controls (night sound, speech enhancement, subwoofer, height channel) shown conditionally based on device capabilities.",
+          "complexity": "M",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-09",
+          "completedAt": "2026-07-09",
+          "requires": []
+        },
+        {
+          "id": "fStaleStateCleanup",
+          "name": "Fixed stale state on zone cards",
+          "desc": "Fixed stale state on zone cards. HDMI detection via x-sonos-htastream. IdleState from topology overrides GetTransportInfo for Arc Ultra TV-off scenario. Track/artist cleared on transport stop.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fIdleStateDetection",
+          "name": "IdleState detection from topology response via regex",
+          "desc": "IdleState detection from topology response via regex. Lightweight 15s refresh cycle. Overrides GetTransportInfo for TV-connected Sonos zones when HDMI source is active.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fZoneCardEquatable",
+          "name": "Zone card Equatable conformance + EquatableView wrapper to prevent full list ...",
+          "desc": "Zone card Equatable conformance + EquatableView wrapper to prevent full list repaints on polling updates. Only changed zones re-render.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fPollingRefactor",
+          "name": "GetMediaInfo removed from 5s polling cycle (fires only on idle\u2192playing state ...",
+          "desc": "GetMediaInfo removed from 5s polling cycle (fires only on idle\u2192playing state transition). iHeart idle polling removed. Lightweight IdleState refresh via regex on topology response every 15s \u2014 no zone array replacement.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fZonePickerContext",
+          "name": "Zone picker enhanced with current playing context per zone \u2014 EQ bars, station...",
+          "desc": "Zone picker enhanced with current playing context per zone \u2014 EQ bars, station\u00b7track, or last-played station shown per zone row.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fOptimisticZoneUpdate",
+          "name": "Optimistic zone update on station play \u2014 isPlaying/stationName/logoURL set im...",
+          "desc": "Optimistic zone update on station play \u2014 isPlaying/stationName/logoURL set immediately in memory before Sonos confirms. Eliminates perceived lag on play action.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fGracePeriod",
+          "name": "5-second grace period prevents fetchTransportStates from overriding optimisti...",
+          "desc": "5-second grace period prevents fetchTransportStates from overriding optimistic state during Sonos startup delay after play command.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fSheetItemPattern",
+          "name": "sheet(item:) pattern replaces sheet(isPresented:) with if-let for zone picker...",
+          "desc": "sheet(item:) pattern replaces sheet(isPresented:) with if-let for zone picker \u2014 cleaner lifecycle, no pre-warm needed.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fGroupMemberVolume",
+          "name": "setMemberVolume added for independent per-zone volume control within a group",
+          "desc": "setMemberVolume added for independent per-zone volume control within a group. Handles coordinator case when memberID equals zoneID. VolumeControlView extended with optional memberID parameter.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fGroupVolumeSync",
+          "name": "Sync button in expanded grouped card equalizes all member zones to coordinato...",
+          "desc": "Sync button in expanded grouped card equalizes all member zones to coordinator volume. Pre-mute volumes captured per-zone for restore on unmute.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fGroupUngroup",
+          "name": "Ungroup button added to expanded grouped card (rectangle.on.rectangle.slash i...",
+          "desc": "Ungroup button added to expanded grouped card (rectangle.on.rectangle.slash icon). Sends UPnP BecomeCoordinatorOfStandaloneGroup to each member to dissolve group.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-11",
+          "completedAt": "2026-07-11",
+          "requires": []
+        },
+        {
+          "id": "fGroupMemberDisplay",
+          "name": "Member zones removed from flat zone list and displayed inside coordinator car...",
+          "desc": "Member zones removed from flat zone list and displayed inside coordinator card at same font weight (15pt semibold). Grouped zones are visually contained within their coordinator.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-11",
+          "completedAt": "2026-07-11",
+          "requires": []
+        },
+        {
+          "id": "fGroupPickerSheet",
+          "name": "GroupPickerSheet \u2014 flat all-rooms list including coordinator members",
+          "desc": "GroupPickerSheet \u2014 flat all-rooms list including coordinator members. EQ bars and station/track context per zone. Brass checkmark circle for selected zones. Coordinator name shown for zones in other groups. Apply label. x-rincon: (single colon) UPnP format confirmed working on S2 firmware.",
+          "complexity": "M",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-11",
+          "completedAt": "2026-07-11",
+          "requires": []
+        },
+        {
+          "id": "fGroupVolumeMute",
+          "name": "Group master mute explicitly sets all members to 0 via muteGroup method",
+          "desc": "Group master mute explicitly sets all members to 0 via muteGroup method. Delta approach replaced \u2014 missed zones at different starting volumes. Pre-mute volumes captured per-zone for restore.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-11",
+          "completedAt": "2026-07-11",
+          "requires": []
+        },
+        {
+          "id": "fVolumeThumbResize",
+          "name": "Volume slider thumb reduced from 22pt to 16pt across all VolumeControlView in...",
+          "desc": "Volume slider thumb reduced from 22pt to 16pt across all VolumeControlView instances. EQ button disabled when zone has group members \u2014 ambiguous which speaker would be adjusted.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-11",
+          "completedAt": "2026-07-11",
+          "requires": []
+        },
+        {
+          "id": "fGroupMemberButton",
+          "name": "Group button on member zone \u2014 show coordinator picker",
+          "desc": "When Group is tapped on a zone that is currently a member of another group, show the coordinator's GroupPickerSheet rather than opening a new picker. Prevents confusing nested group flows.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-11",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fBonjour",
+          "name": "Bonjour discovery \u2014 NetServiceBrowser",
+          "desc": "NetServiceBrowser discovers any one Sonos speaker on _sonos._tcp. Single speaker resolves enough to fetch full household topology. NWBrowser failed on iOS 26 \u2014 NetServiceBrowser is correct approach.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-04",
+          "completedAt": "2026-07-04",
+          "requires": []
+        },
+        {
+          "id": "fZoneDiscovery",
+          "name": "Zone discovery + display",
+          "desc": "ZoneDiscoveryService publishes zones array. ZonesView renders zone cards sorted alpha. SonosZone struct with id/name/host/isPlaying/volume/stationName/logoURL/currentTrack/currentArtist/isHDMI/idleState/capabilities/groupMembers.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-04",
+          "completedAt": "2026-07-04",
+          "requires": []
+        },
+        {
+          "id": "fEQSheet",
+          "name": "EQ sheet \u2014 capability-driven",
+          "desc": "Bottom sheet EQ controls driven by device capability array. All devices: Bass, Treble, Loudness. Arc Ultra adds: Night Sound, Speech Enhancement, Subwoofer, Height. Dynamic sheet height via sheetHeight(). Disabled when zone has group members.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-04",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fSonosGroups",
+          "name": "Sonos playback groups \u2014 native and ad-hoc",
+          "desc": "Sonos native group topology display (coordinator + members in card). Ad-hoc grouping via x-rincon: SetAVTransportURI to member host. Ungroup via BecomeCoordinatorOfStandaloneGroup. GroupPickerSheet for group management. Hardware bonds (Arc+Sub, stereo pairs) never touched.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-06-24",
+          "completedAt": "2026-07-11",
+          "requires": []
+        },
+        {
+          "id": "fZoneCard",
+          "name": "Zone card \u2014 redesign with EQ bars and station art",
+          "desc": "48pt station art thumbnail, zone name + EQ bars inline, group members at same font weight, station name in brass, track\u00b7artist line. Expandable with volume controls and action row. EquatableView wrapper prevents full list repaints.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-04",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fZoneGroupVolume",
+          "name": "Group volume \u2014 master delta + per-member",
+          "desc": "Master VolumeControlView applies same delta to all group members. Per-member individual volume rows. Sync button equalizes all to coordinator. muteGroup() sets all to 0 explicitly with pre-mute restore.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-06-24",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fTransportControl",
+          "name": "Transport controls \u2014 play/pause/skip",
+          "desc": "Play, Pause, Next, Previous via AVTransport SOAP. Optimistic UI toggle. togglePlayPause, skipNext, skipPrevious on ZoneDiscoveryService.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-04",
+          "completedAt": "2026-07-04",
+          "requires": []
+        },
+        {
+          "id": "fScannerDuration",
+          "name": "Scanner: populate track duration at index time",
+          "desc": "Extract duration from audio file metadata (FLAC, MP3, M4A headers) during SMB scan and store in tracks.duration column. Duration is read once at scan time and stored in DB \u2014 never re-read at playback time. Required for DIDL metadata, Now Playing seek bar, and accurate track length display.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-16",
+          "completedAt": "2026-07-16",
+          "requires": [
+            "fLocalSonosPlayback"
+          ]
+        },
+        {
+          "id": "fLocalNowPlaying",
+          "name": "Local track Now Playing \u2014 mini player and Now Playing sheet update",
+          "desc": "When a local track starts playing via LocalPlaybackService, update the zone state directly with track title, artist, album, and artwork path so the mini player and Now Playing sheet reflect the current track. ZoneDiscoveryService GetMediaInfo returns empty CurrentURIMetaData for local HTTP URIs \u2014 zone state must be pushed by LocalPlaybackService at playback initiation rather than pulled via UPnP.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "feature",
+          "done": false,
+          "priority_rank": 1,
+          "createdAt": "2026-07-16",
+          "completedAt": null,
+          "requires": [
+            "fLocalSonosPlayback"
+          ]
+        },
+        {
+          "id": "fAlbumQueue",
+          "name": "Full album queue \u2014 AddMultipleURIsToQueue",
+          "desc": "When playing an album via LocalPlaybackService.playAlbum, enqueue all tracks using Sonos AddMultipleURIsToQueue UPnP call rather than SetAVTransportURI on the first track only. Enables track-to-track progression within an album. Each track URI and DIDL entry is included in the bulk queue call.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-16",
+          "completedAt": "2026-07-16",
+          "requires": [
+            "fLocalSonosPlayback"
+          ]
+        },
+        {
+          "id": "fXFileCIFS",
+          "name": "x-file-cifs:// direct NAS playback \u2014 Sonos native",
+          "desc": "Replace HTTP server streaming with x-file-cifs:// URIs for local library playback to Sonos and Bluesound zones. Sonos fetches files directly from NAS \u2014 no iOS HTTP server, no background restrictions, screen can lock, phone calls do not interrupt. Requires one-time NAS share registration via Sonos CreateObject UPnP call (port 1400, no desktop app required). Confirmed working: full album queue via AddURIToQueue, both tracks played completely with zero iOS involvement after queuing.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "feature",
+          "done": true,
+          "priority_rank": 2,
+          "createdAt": "2026-07-16",
+          "completedAt": "2026-07-21",
+          "requires": [
+            "fLocalSonosPlayback"
+          ]
+        },
+        {
+          "id": "fPlaybackConductor",
+          "name": "Playback Conductor \u2014 unified multi-source queue orchestration",
+          "desc": "Replace LocalPlaybackService with a Playback Conductor that owns the canonical mixed-source queue and routes each track to the correct transport. Zone capability table maps each zone to primary (Sonos/Bluesound/AirPlay) and secondary (AirPlay) transports. Source routing: local FLAC to Sonos/Bluesound via x-file-cifs (native, no app needed after queue); Apple Music via MusicKit to AirPlay (background audio keeps alive); Tidal/Qobuz via Connect protocols; radio via HTTP. Mixed queues containing Apple Music route everything via MusicKit/AirPlay. Conductor detects queue composition at play time and selects transport path automatically. Known issue with interim LocalPlaybackService: SorrivaHTTPServer trackDidStartNotification fires on Sonos prefetch (buffering) rather than true track start, causing handleTrackStart to cascade-enqueue all tracks immediately and breaking multi-track album playback after track 1. This is a fundamental limitation of the HTTP-based approach \u2014 conductor must use x-file-cifs URIs throughout and detect track advancement via zone poll (GetPositionInfo TrackURI change) rather than HTTP request interception. Single track playback is unaffected.",
+          "priority": "High",
+          "complexity": "L",
+          "tag": "feature",
+          "done": false,
+          "priority_rank": 3,
+          "createdAt": "2026-07-16",
+          "completedAt": null,
+          "requires": [
+            "fXFileCIFS"
+          ]
+        },
+        {
+          "id": "fMusicKitAdapter",
+          "name": "MusicKit adapter \u2014 Apple Music unified library and playback",
+          "desc": "Integrate Apple Music into the unified library via MusicKit. ApplicationMusicPlayer manages Apple Music queue in background via iOS background audio mode. Local FLAC files inserted as local URLs; Apple Music tracks use MusicKit protected pipeline. Mixed queues route via MusicKit/AirPlay. Quality badge surfaces when hi-res content is forced to AirPlay path. Apple Music browsing, search, and library in unified Sorriva library view.",
+          "priority": "High",
+          "complexity": "L",
+          "tag": "feature",
+          "done": false,
+          "priority_rank": 4,
+          "createdAt": "2026-07-16",
+          "completedAt": null,
+          "requires": [
+            "fPlaybackConductor"
+          ]
+        },
+        {
+          "id": "fZoneCapabilityStore",
+          "name": "Zone capability store \u2014 transport routing table",
+          "desc": "Build and persist zone capability table from zone discovery data. Each zone has a primary transport (Sonos, Bluesound, or AirPlay-only) and secondary (always AirPlay). Ad-hoc groups of mixed-ecosystem zones (Sonos + Bluesound) automatically resolve to AirPlay-only. Used by Playback Conductor to select correct transport per track per zone.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "feature",
+          "done": false,
+          "priority_rank": 2,
+          "createdAt": "2026-07-16",
+          "completedAt": null,
+          "requires": [
+            "fLocalSonosPlayback"
+          ]
+        },
+        {
+          "id": "fDBBackup",
+          "name": "Library DB backup and restore to NAS",
+          "desc": "On-demand backup of sorriva.sqlite + artwork folder as a timestamped zip file uploaded to a user-configured SMB share. Backup location picker reuses SMBServerDetailView and SMBFolderBrowserView with onFolderSelected mode parameter \u2014 no duplicate code. New Folder creation supported in backup mode. BackupView added to Settings. Restore deferred to follow-up session.",
+          "priority": "Critical",
+          "complexity": "M",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-16",
+          "completedAt": "2026-07-22",
+          "requires": []
+        },
+        {
+          "id": "fPollingOptimization",
+          "name": "Zone polling optimization \u2014 reduce interval during active playback",
+          "desc": "Reduce ZoneDiscoveryService polling from 5s to 1s for zones actively playing local tracks. Fixes: Now Playing position timer jumping in 5-second increments, volume/mute flash on track transition, play\u2192stop\u2192play flash when advancing queue. Polling returns to 5s when zone is idle.",
+          "priority": "Normal",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-16",
+          "completedAt": null,
+          "requires": [
+            "fLocalSonosPlayback"
+          ]
+        },
+        {
+          "id": "fTrackArtwork",
+          "name": "Track artwork in TracksView and library home",
+          "desc": "Album artwork displays on track cards in TracksView and library home tracks section. TrackCard gets optional album param and uses AlbumArtView when showAlbum=true. TracksView builds albumsById dict from allAlbums() \u2014 one DB call per load, zero per-row. LibraryView passes album to track LibraryMediaItems. LazyVStack handles prefetch naturally.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "priority_rank": null,
+          "createdAt": "2026-07-20",
+          "completedAt": "2026-07-20",
+          "requires": []
+        },
+        {
+          "id": "fZoneExpandCollapse",
+          "name": "Zone expand/collapse all with persist",
+          "desc": "Two icon buttons in ZonesView nav bar: expand all (arrow.up.and.line.horizontal.and.arrow.down) and collapse all (arrow.down.and.line.horizontal.and.arrow.up). Persisted via @AppStorage JSON-encoded Set<String> of expanded zone IDs. ZoneCard gets forceExpanded param and onExpandedChanged callback. Grouped zones that dissolve are silently ignored on restore.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "priority_rank": null,
+          "createdAt": "2026-07-20",
+          "completedAt": "2026-07-20",
+          "requires": []
+        },
+        {
+          "id": "fTransferZone",
+          "name": "Transfer zone \u2014 move playback to another zone",
+          "desc": "Transfer button (arrow.left.arrow.right) in zone card action row. Grayed when not playing or grouped. TransferZoneSheet presents all zones except source \u2014 tap to transfer immediately. UPnP sequence: destination joins source group via SetAVTransportURI x-rincon:, 2s sync, source calls BecomeCoordinatorOfStandaloneGroup \u2014 destination inherits queue and continues playing. Brief pause on transfer is expected Sonos behavior. ZoneDiscoveryService.transferPlayback(fromZoneID:toZoneID:) added. TransferZoneSheet.swift is standalone file reusable from NowPlaying and MiniPlayer.",
+          "priority": "Normal",
+          "complexity": "M",
+          "tag": "feature",
+          "done": true,
+          "priority_rank": null,
+          "createdAt": "2026-07-20",
+          "completedAt": "2026-07-20",
+          "requires": []
+        },
+        {
+          "id": "bLocalPlaybackStateSync",
+          "name": "Local playback state not syncing to UI on track change or skip",
+          "desc": "Now Playing, MiniPlayer, and zone cards do not update artist/track info when the current track changes during local (x-file-cifs) playback. Affects: track advance, skip forward, skip back. Zone picker does not register that local playback is active at all \u2014 zone appears idle. Root cause is likely that local playback state is not being pushed into ZoneDiscoveryService state on track transition.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-22",
+          "completedAt": null,
+          "requires": [
+            "fLocalSonosPlayback"
+          ]
+        },
+        {
+          "id": "bNowPlayingZoneSwitchDismiss",
+          "name": "Now Playing dismisses when switching zones",
+          "desc": "Switching zones from within the Now Playing sheet causes it to close. Now Playing should remain open after a zone switch \u2014 the zone picker completes and the sheet stays presented showing the new zone.",
+          "priority": "High",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-22",
+          "completedAt": null,
+          "requires": [
+            "fNowPlayingSheet"
+          ]
+        },
+        {
+          "id": "bArtworkRevertOnPause",
+          "name": "Artwork and track info reverts to last station after pausing local playback",
+          "desc": "When local playback is paused for a period of time, the artwork, artist, and track info in Now Playing and MiniPlayer reverts to the last radio station that was played. Once reverted, the display does not update again when local playback resumes. Likely caused by polling overwriting cached local playback state with station metadata from a zone that was previously playing radio.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-22",
+          "completedAt": null,
+          "requires": [
+            "fLocalSonosPlayback"
+          ]
+        },
+        {
+          "id": "bZoneCardIconSpacing",
+          "name": "Action icon spacing incorrect on zone card",
+          "desc": "Action icons in the zone card action row have incorrect spacing. Requires visual alignment fix.",
+          "priority": "Normal",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-22",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bSomaTrackInfo",
+          "name": "Soma Radio track info not received \u2014 Sonos shows it, Sorriva does not",
+          "desc": "Soma FM stations surface track and artist metadata in the Sonos native app but Sorriva does not display it. Sonos is receiving the metadata via the stream \u2014 Sorriva's polling is either not fetching it or not parsing it correctly for radio streams. Investigate GetPositionInfo / GetMediaInfo responses for Soma stations to identify where the track data is present and wire it into the Now Playing display.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-22",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bZoneListMiniPlayerObstruction",
+          "name": "Last zone in Zones view obstructed by mini player",
+          "desc": "The last zone card in the Zones view is partially cut off by the persistent mini player bar in both collapsed and expanded zone card states. The zone list needs sufficient bottom padding or content inset to clear the mini player height so all zone cards are fully visible and tappable.",
+          "priority": "Normal",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-22",
+          "completedAt": null,
+          "requires": [
+            "fSorrivaMiniPlayer"
+          ]
+        },
+        {
+          "id": "fZoneCardArtistTrack",
+          "name": "Artist and track name on zone card",
+          "desc": "Display current artist and track name on the zone card when local library playback is active. Currently zone cards show this info for radio stations but not for local tracks. Should appear in the same position as station name/track info on radio zone cards.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-22",
+          "completedAt": null,
+          "requires": [
+            "bLocalPlaybackStateSync"
+          ]
+        }
+      ]
+    },
+    {
+      "phase": 5,
+      "name": "UI \u2014 iPhone & iPad",
+      "desc": "Library, Now Playing, Artist, Album, Zones, Queue, Settings screens. Proven UI before TV.",
+      "features": [
+        {
+          "id": "fLibraryScreen",
+          "complexity": "L",
+          "done": true,
+          "priority": "Critical",
+          "name": "Library screen \u2014 album grid + list",
+          "desc": "Unified album grid and list toggle. Shows local library and streaming service libraries merged. Source badges on all entries. Filter by genre, decade, source, unplayed. Sort by title, year, date added, play count, rating. Search across all sources.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": "2026-07-14"
+        },
+        {
+          "id": "fNowPlayingScreen",
+          "complexity": "L",
+          "done": true,
+          "priority": "Critical",
+          "name": "Now Playing screen",
+          "desc": "Full album art, track info, scrub bar, volume, source badge, zone indicator. Content tabs: Info / Review / Credits / Lyrics. Queue peek. AirPlay 2 zone selector. Like/favorite action.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": "2026-07-14"
+        },
+        {
+          "id": "fArtistScreen",
+          "complexity": "M",
+          "done": false,
+          "priority": "High",
+          "name": "Artist screen",
+          "desc": "Artist bio, stats, full discography across all sources, related artists rail. Albums sorted by year. 'Play all' and 'Shuffle' actions.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fAlbumScreen",
+          "complexity": "M",
+          "done": true,
+          "priority": "High",
+          "name": "Album screen",
+          "desc": "Album art (full bleed), track list with play counts, album review, credits panel, source availability row. All tracks show which sources they're available on.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": "2026-07-14"
+        },
+        {
+          "id": "fZonesPanel",
+          "complexity": "L",
+          "done": true,
+          "priority": "Critical",
+          "name": "Zones panel",
+          "desc": "Unified device list: all AirPlay 2 endpoints, Sonos zones, Bluesound zones in one list. Saved group recall. Ad-hoc group creation. Per-zone EQ panel. Volume controls. Active zone indicator. Zone status (playing/idle/offline).",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": "2026-07-14"
+        },
+        {
+          "id": "fQueueScreen",
+          "complexity": "M",
+          "done": false,
+          "priority": "High",
+          "name": "Play queue",
+          "desc": "Current queue with drag-to-reorder. Play next vs add to end. Save queue as playlist. Clear queue. Session history \u2014 view and replay past sessions. Significantly more capable than Sonos/Bluesound queue implementations.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fSearchScreen",
+          "complexity": "M",
+          "done": false,
+          "priority": "Critical",
+          "name": "Universal search",
+          "desc": "Single search across local library, Spotify catalog, Apple Music catalog, Qobuz catalog. Results grouped by source. Instant local results; streaming results load progressively. Tap result to go to artist, album, or add to queue.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fFavoritesPlaylists",
+          "complexity": "M",
+          "done": false,
+          "priority": "High",
+          "name": "Favorites + playlists",
+          "desc": "Favorite tracks, albums, artists per profile. User-created playlists \u2014 add from any source. Playlist detail with mixed-source track list and source badges. Smart playlists (rules-based) deferred to Phase 8.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fSettingsScreen",
+          "complexity": "M",
+          "done": true,
+          "priority": "Critical",
+          "name": "Settings screen",
+          "desc": "Library source configuration (SMB paths, local, USB-C). Streaming service connections. Household profile management. Preferred source order. Network home detection config. Offline download management.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": "2026-07-14"
+        },
+        {
+          "id": "fOfflineDownloads",
+          "complexity": "M",
+          "done": false,
+          "priority": "High",
+          "name": "Offline downloads \u2014 owned music",
+          "desc": "Mark albums, playlists, or tracks as 'available offline'. Sorriva downloads from local library to device storage. Mixed playlist offline state \u2014 clear visual treatment: checkmark (downloaded) vs cloud icon (needs network). Streaming service downloads remain DRM-sandboxed \u2014 accepted limitation.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fNavigationRefactor",
+          "name": "iOS 26 navigation refactor",
+          "desc": "Replace ZStack opacity-toggle navigation with native iOS 26 TabView with floating auto-hiding tab bar. One NavigationStack per tab. All drill-downs converted from sheets to NavigationLink pushes. AlbumDetailView, ArtistsView, TracksView become push destinations inside LibraryView NavigationStack. Eliminates nested sheet problem blocking local playback UI wiring. Tab bar floats above mini player and auto-hides on scroll or when drilling into content. Targets iOS 26 minimum deployment \u2014 iPad mini 5th gen (2019) minimum supported hardware.",
+          "priority": "Critical",
+          "complexity": "M",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-15",
+          "completedAt": "2026-07-15",
+          "requires": []
+        },
+        {
+          "id": "fSorrivaMiniPlayer",
+          "name": "Sorriva mini player \u2014 persistent global playback bar",
+          "desc": "Persistent playback bar fixed at the bottom of the window, visible on every screen. Shows current track or station name, artist, zone name, and play/pause button. Sits below the floating tab bar. Tapping opens NowPlayingSheet. Replaces MiniPlayerView which currently only appears contextually. Aware of both local library playback (SorrivaHTTPServer) and streaming playback (radio, Connect services).",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-15",
+          "completedAt": "2026-07-15",
+          "requires": [
+            "fNavigationRefactor"
+          ]
+        },
+        {
+          "id": "fNowPlayingSheet",
+          "name": "Now Playing sheet",
+          "desc": "Full now-playing experience presented as a sheet from the mini player. Shows expanded artwork, track metadata, transport controls (play/pause, skip, previous), progress bar, zone name and switching, and volume control. Replaces and supersedes the current NowPlayingView. Zone switching triggers ZonePickerSheet from within this sheet. Signal path indicator shows delivery protocol and quality.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "priority_rank": 3,
+          "createdAt": "2026-07-15",
+          "completedAt": null,
+          "requires": [
+            "fSorrivaMiniPlayer"
+          ]
+        },
+        {
+          "id": "fNavShell",
+          "name": "Four-tab TabView (Library, Zones, Discover, Settings), persistent MiniPlayerV...",
+          "desc": "Four-tab TabView (Library, Zones, Discover, Settings), persistent MiniPlayerView bar above tab bar, custom TabBarButton component, all tabs stubbed with placeholder content. Color+Theme.swift created as single-source palette file.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-08",
+          "completedAt": "2026-07-08",
+          "requires": []
+        },
+        {
+          "id": "fBranding",
+          "name": "SorrivaWordmark component and SplashView",
+          "desc": "SorrivaWordmark component and SplashView. App icon: soundwave dot concept \u2014 filled dot center, 3 concentric fading rings, #1A3048 background, #89B4D4 rings. 1024x1024 PNG added to Assets.xcassets.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-09",
+          "completedAt": "2026-07-09",
+          "requires": []
+        },
+        {
+          "id": "fLibraryDashboard",
+          "name": "Library redesigned as row-based dashboard",
+          "desc": "Library redesigned as row-based dashboard. Favorites and Radio horizontal scroll rows with See All \u2192 2-column grid drill-in.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fFavorites",
+          "name": "Shared favoriteIDs + loadedLogos state lifted to LibraryView, passed as @Bind...",
+          "desc": "Shared favoriteIDs + loadedLogos state lifted to LibraryView, passed as @Binding to all child views for instant sync. Heart toggle persists to DB and updates all views immediately.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fNowPlayingTrackCache",
+          "name": "Now Playing track cached in @State (cachedTrack/cachedArtist) so pause does n...",
+          "desc": "Now Playing track cached in @State (cachedTrack/cachedArtist) so pause does not clear the display. Track and artist persist until new track starts.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fMiniPlayerRemoval",
+          "name": "MiniPlayerView removed from ContentView",
+          "desc": "MiniPlayerView removed from ContentView. Replaced by zone card Now Playing state and full Now Playing screen navigation.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fGradientUpdate",
+          "name": "Gradient updated to three-stop Option B (#5580A8 \u2192 #3A6880 \u2192 #1E4E60) across ...",
+          "desc": "Gradient updated to three-stop Option B (#5580A8 \u2192 #3A6880 \u2192 #1E4E60) across all screens. Full-screen LinearGradient top to bottom replacing flat background.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fZonesBackgroundFix",
+          "name": "ZonesView background fixed from sBackground to clear so gradient shows throug...",
+          "desc": "ZonesView background fixed from sBackground to clear so gradient shows through consistently across all tabs.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fLongPressActionSheet",
+          "name": "Long-press action sheet replaces SwiftUI contextMenu \u2014 instant appearance, no...",
+          "desc": "Long-press action sheet replaces SwiftUI contextMenu \u2014 instant appearance, no freeze. Station art + name + iHeartRADIO badge + Favorite/Play on actions. Fixes contextMenu lag bug.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fFavoritesIndicator",
+          "name": "Bare brass heart overlay (Option C) as favorite indicator on station art",
+          "desc": "Bare brass heart overlay (Option C) as favorite indicator on station art. Visible at a glance in grid and list views.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-10",
+          "completedAt": "2026-07-10",
+          "requires": []
+        },
+        {
+          "id": "fServicesRedesign",
+          "name": "ServicesView redesigned with Connected / Available / Coming Soon sections",
+          "desc": "ServicesView redesigned with Connected / Available / Coming Soon sections. Clear service status at a glance.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-11",
+          "completedAt": "2026-07-11",
+          "requires": []
+        },
+        {
+          "id": "fDeleteBlockedSheet",
+          "name": "Station delete blocked sheet \u2014 shown when user attempts to remove a station t...",
+          "desc": "Station delete blocked sheet \u2014 shown when user attempts to remove a station that is currently playing. Prevents accidental removal of active station.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-11",
+          "completedAt": "2026-07-11",
+          "requires": []
+        },
+        {
+          "id": "fLocalLibraryStub",
+          "name": "Local Library stub added to Services view as Coming Soon",
+          "desc": "Local Library stub added to Services view as Coming Soon. Placeholder for SMB and local file source management.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-11",
+          "completedAt": "2026-07-11",
+          "requires": []
+        },
+        {
+          "id": "fNavigationStackFix",
+          "name": "NavigationStack isolated to ContentView only",
+          "desc": "NavigationStack isolated to ContentView only. .allowsHitTesting applied to all tabs. Fixes white screen crash caused by nested NavigationStack in SettingsView.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-11",
+          "completedAt": "2026-07-11",
+          "requires": []
+        },
+        {
+          "id": "fLocalLibraryPhase1a",
+          "name": "SMB local library source management complete",
+          "desc": "SMB local library source management complete. Three-screen NavigationLink flow: AddSMBSourceView (discovery) \u2192 SMBSharePickerView (credentials + share listing) \u2192 SMBConfigureSourceView (name, root path, test, save). LocalLibraryView groups LibrarySource by host, one ServerLibraryCard per server.",
+          "complexity": "L",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-12",
+          "completedAt": "2026-07-12",
+          "requires": []
+        },
+        {
+          "id": "fSMBBonjour",
+          "name": "Bonjour auto-discovery via NWBrowser finds SMB devices on network (_smb._tcp)",
+          "desc": "Bonjour auto-discovery via NWBrowser finds SMB devices on network (_smb._tcp). NSBonjourServices updated in Info.plist. Discovered devices listed in AddSMBSourceView.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-12",
+          "completedAt": "2026-07-12",
+          "requires": []
+        },
+        {
+          "id": "fSMBSharePicker",
+          "name": "SMBSharePickerView \u2014 credentials entry + share listing",
+          "desc": "SMBSharePickerView \u2014 credentials entry + share listing. Credential persistence .forSession. disconnectShare() wrapped in try? to avoid POSIX error 96. Pre-filled credentials when adding additional shares from existing server.",
+          "complexity": "M",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-12",
+          "completedAt": "2026-07-12",
+          "requires": []
+        },
+        {
+          "id": "fSMBCredentials",
+          "name": "SMB credential entry with username/password",
+          "desc": "SMB credential entry with username/password. SecureField for password. Credential persistence .forSession required (not .none). Split into separate NavigationLink views to resolve AutoFill keyboard delays.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-12",
+          "completedAt": "2026-07-12",
+          "requires": []
+        },
+        {
+          "id": "fSMBTestConnection",
+          "name": "Test connection button in SMBConfigureSourceView",
+          "desc": "Test connection button in SMBConfigureSourceView. Validates SMB credentials and share path before saving. Clear success/failure feedback.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-12",
+          "completedAt": "2026-07-12",
+          "requires": []
+        },
+        {
+          "id": "fSMBSaveSource",
+          "name": "Save SMB source to SorrivaDatabase",
+          "desc": "Save SMB source to SorrivaDatabase. Navigation pop-to-root via isActive binding on NavigationLink after save. SorrivaDatabase: addLibrarySource, allLibrarySourcesByHost methods.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-12",
+          "completedAt": "2026-07-12",
+          "requires": []
+        },
+        {
+          "id": "fServerDetailView",
+          "name": "SMBServerDetailView \u2014 server header card with share list",
+          "desc": "SMBServerDetailView \u2014 server header card with share list. Long-press \u2192 ServerActionSheet (Add Share / Edit Server / Remove Server). Share cards show ellipsis icon with long-press \u2192 ShareActionSheet.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-12",
+          "completedAt": "2026-07-12",
+          "requires": []
+        },
+        {
+          "id": "fServerActionSheet",
+          "name": "ServerActionSheet \u2014 bottom sheet with Add Share, Edit Server, Remove Server a...",
+          "desc": "ServerActionSheet \u2014 bottom sheet with Add Share, Edit Server, Remove Server actions. Remove uses .alert for centered confirm. Triggered by long-press on server card.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-12",
+          "completedAt": "2026-07-12",
+          "requires": []
+        },
+        {
+          "id": "fShareActionSheet",
+          "name": "ShareActionSheet \u2014 Scan Now placeholder and Remove Share actions",
+          "desc": "ShareActionSheet \u2014 Scan Now placeholder and Remove Share actions. Remove uses .alert for centered confirm. Triggered by long-press on share card.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-12",
+          "completedAt": "2026-07-12",
+          "requires": []
+        },
+        {
+          "id": "fEditServer",
+          "name": "SMBEditServerView \u2014 update server name and credentials across all shares for ...",
+          "desc": "SMBEditServerView \u2014 update server name and credentials across all shares for that host. SorrivaDatabase: updateServerCredentials method.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-12",
+          "completedAt": "2026-07-12",
+          "requires": []
+        },
+        {
+          "id": "fSMBMacSupport",
+          "name": "Mac SMB share enumeration working via SMBClient",
+          "desc": "Mac SMB share enumeration working via SMBClient. macOS requires Windows File Sharing enabled per-user in System Settings for NTLM authentication. Helper note added to SMBSharePickerView. Guest connect returns friendly Mac-specific error message.",
+          "complexity": "M",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-12",
+          "completedAt": "2026-07-12",
+          "requires": []
+        },
+        {
+          "id": "fSMBClientLibrarySwap",
+          "name": "AMSMB2 replaced with kishikawakatsumi/SMBClient (v0.3.1)",
+          "desc": "AMSMB2 replaced with kishikawakatsumi/SMBClient (v0.3.1). Fixes macOS SMB share enumeration \u2014 AMSMB2 returned error code 1 on IPC$ (known unresolved limitation). SMBClient handles both NAS and macOS shares correctly.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-12",
+          "completedAt": "2026-07-12",
+          "requires": []
+        },
+        {
+          "id": "fSMBHostnameSanitization",
+          "name": "Bonjour hostname sanitization: derives resolvable .local hostname from comput...",
+          "desc": "Bonjour hostname sanitization: derives resolvable .local hostname from computer name by stripping apostrophes and replacing spaces with hyphens. \"Tom's MacBook Pro\" \u2192 \"Toms-MacBook-Pro.local\".",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-12",
+          "completedAt": "2026-07-12",
+          "requires": []
+        },
+        {
+          "id": "fSMBExistingHostFilter",
+          "name": "Connected servers excluded from Available on Network list in AddSMBSourceView",
+          "desc": "Connected servers excluded from Available on Network list in AddSMBSourceView. continue bug fixed \u2014 was using return instead of continue in for loop, dropping subsequent devices.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-12",
+          "completedAt": "2026-07-12",
+          "requires": []
+        },
+        {
+          "id": "fSMBDollarShareFilter",
+          "name": "IPC$ and all $-containing shares filtered from share list UI",
+          "desc": "IPC$ and all $-containing shares filtered from share list UI. Administrative shares hidden from user.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-12",
+          "completedAt": "2026-07-12",
+          "requires": []
+        },
+        {
+          "id": "fSMBMacHelperNote",
+          "name": "Helper note added to SMBSharePickerView informing user that Windows File Shar...",
+          "desc": "Helper note added to SMBSharePickerView informing user that Windows File Sharing must be enabled per-user in System Settings \u2192 General \u2192 Sharing for SMBClient authentication to work on macOS.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-12",
+          "completedAt": "2026-07-12",
+          "requires": []
+        },
+        {
+          "id": "fSMBErrorDisplay",
+          "name": "Error display improved: white text with red * prefix, readable on dark backgr...",
+          "desc": "Error display improved: white text with red * prefix, readable on dark background. Guest button .disabled(false) to override inherited disabled state from NavigationStack.",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-12",
+          "completedAt": "2026-07-12",
+          "requires": []
+        },
+        {
+          "id": "fLocalLibraryPhase1b",
+          "name": "LocalFilesPickerView built using UIDocumentPickerViewController in folder mode",
+          "desc": "LocalFilesPickerView built using UIDocumentPickerViewController in folder mode. Security-scoped bookmark saved as LibrarySource type:files. UX deferred \u2014 Open button is ambiguous (drills into AND selects). Local Files card greyed back out pending better UX design.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-12",
+          "completedAt": "2026-07-12",
+          "requires": []
+        },
+        {
+          "id": "fSorrivaContextMenu",
+          "name": "SorrivaContextMenu shared component \u2014 SorrivaContextMenuModifier, SorrivaCont...",
+          "desc": "SorrivaContextMenu shared component \u2014 SorrivaContextMenuModifier, SorrivaContextMenuSheet with album art/logo/placeholder support, SorrivaContextActions factory (track, album, artist, radioStation). Applied across all library media: AlbumsView, ArtistsView, TracksView, LibraryView home rows, AlbumDetailView.",
+          "complexity": "M",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-13",
+          "completedAt": "2026-07-13",
+          "requires": []
+        },
+        {
+          "id": "fLibraryBrowser",
+          "name": "Library browser \u2014 albums, artists, tracks",
+          "desc": "Full library grid and list views. Filter rail: genre, decade, source, unplayed. Sort controls. Recently Added and Continue Listening rails. Foundation for music graph display.",
+          "complexity": "L",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-06-24",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fZoneIconSet",
+          "name": "Zone icon set",
+          "desc": "Two-library strategy: Streamline or Hugeicons Pro for standard room icons + 8\u201312 custom SVGs for Sonos-specific hardware (Arc Ultra, Era 100, Era 300, Roam, Sub). Icon assigned per zone based on model name from device_description.xml.",
+          "complexity": "S",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-03",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bTabBarStateInheritance",
+          "name": "Tab bar inherits visibility state on push to album and artist detail views",
+          "desc": "Album detail and artist detail views inherit the tab bar visibility state from the parent view rather than resetting it. If the tab bar was hidden before navigating in (e.g. from scrolling), it does not reappear in the detail view. If it was visible, it does not auto-hide as expected. Affects both album detail (from Library and album grid) and artist detail views. Tab bar state should reset to a defined default on push into detail views.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-22",
+          "completedAt": null,
+          "requires": [
+            "fNavigationRefactor"
+          ]
+        },
+        {
+          "id": "bTabBarContrast",
+          "name": "Tab bar active/inactive contrast insufficient",
+          "desc": "Inactive tab icons fade too far into the background and the active tab is not bright enough to read clearly at a glance. Active tab needs higher brightness/opacity; inactive tabs need a more intentional dim treatment with enough contrast to distinguish the two states.",
+          "priority": "Normal",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-22",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bPlaybackNavigationInconsistency",
+          "name": "Playing a station navigates to zone card; playing an album does not",
+          "desc": "Tapping play on a radio station navigates the user back to the zone card view. Tapping play on an album keeps the user in the album detail view. These behaviors are inconsistent and the station behavior is unexpected \u2014 playback actions should not force navigation. Both should keep the user in context and rely on the mini player and Now Playing sheet for playback status.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-22",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bAlbumDetailScrollLayout",
+          "name": "Album detail view scrolls entire page instead of track list only",
+          "desc": "The entire album detail view scrolls as one unit, including the album art and header. Only the track list should scroll \u2014 album art and album metadata header should remain fixed. Requires restructuring the view so the header is outside the scroll container.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-22",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bAlbumDetailPlayState",
+          "name": "Play button in album detail does not reflect playing state",
+          "desc": "The Play button in album detail view does not change to a Pause state once the album is playing, and is not disabled while playback is active. At minimum the button should be disabled while the album is playing; ideally it toggles to Pause so the user can stop playback from the same control.",
+          "priority": "Normal",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-22",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fMiniPlayerEnhancements",
+          "name": "Mini player enhancements \u2014 height, zone name, handedness setting",
+          "desc": "Three improvements to the persistent mini player: (1) increase height for better tap targets and readability; (2) display the name of the currently selected zone; (3) add a setting to swap the position of the playback controls and zone selector \u2014 users are accidentally hitting pause when intending to tap the zone selector, and left/right-handed preference should control the layout.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-22",
+          "completedAt": null,
+          "requires": [
+            "fSorrivaMiniPlayer"
+          ]
+        },
+        {
+          "id": "fFavoritesArrangement",
+          "name": "Favorites screen \u2014 user arrangement and sort options",
+          "desc": "Allow users to manually arrange items on the Favorites screen. The current manual order drives the horizontal scroll row on the main Library screen. Sort options: manual order (default), alphabetical, by type then alphabetical, and ranked by listening habits. Arrangement should persist per profile.",
+          "priority": "Normal",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-22",
+          "completedAt": null,
+          "requires": [
+            "fFavoritesPlaylists"
+          ]
+        },
+        {
+          "id": "fLibrarySortAlpha",
+          "name": "Alphabetical segmentation of album and track views",
+          "desc": "Album and track list views should be segmented alphabetically based on the active sort key (title, artist, etc.). Section headers show the letter group. Users can jump to a section via a scrubber or index. Sort order and segmentation should be consistent across all album and track views in the library.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-22",
+          "completedAt": null,
+          "requires": [
+            "fLibraryScanner"
+          ]
+        }
+      ]
+    },
+    {
+      "phase": 6,
+      "name": "Apple TV",
+      "desc": "Lean-back browse, Deriva prompt, zone control, cinematic now playing. Primary living room client.",
+      "features": [
+        {
+          "id": "fATVNowPlaying",
+          "complexity": "L",
+          "done": false,
+          "priority": "Critical",
+          "name": "Apple TV \u2014 cinematic now playing",
+          "desc": "Full-bleed album art backdrop, track info overlay, source badge, zone status. Focus ring navigation. Info / Review / Credits content tabs. Lean-back optimized \u2014 minimal interaction required during playback.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fATVLibraryBrowse",
+          "complexity": "L",
+          "done": false,
+          "priority": "Critical",
+          "name": "Apple TV \u2014 library browse",
+          "desc": "Poster grid with focus-ring navigation optimized for 10-foot experience. Filter rail: genre, decade, source, unplayed. Sort control. Recently Added and Continue Listening rails.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fATVSearch",
+          "complexity": "M",
+          "done": false,
+          "priority": "High",
+          "name": "Apple TV \u2014 universal search",
+          "desc": "On-screen keyboard search across all sources. Results grouped clearly. Optimized for remote navigation.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fATVZoneControl",
+          "complexity": "M",
+          "done": false,
+          "priority": "Critical",
+          "name": "Apple TV \u2014 zone control",
+          "desc": "Zone selector overlay during playback. Saved group recall. Volume per zone. AirPlay 2 target management from Apple TV.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fATVDerivaPrompt",
+          "complexity": "M",
+          "done": false,
+          "priority": "High",
+          "name": "Apple TV \u2014 Deriva AI prompt entry",
+          "desc": "Natural language prompt entry on Apple TV home screen. On-screen keyboard or iPhone/iPad as keyboard via Continuity. Returns curated shortlist with one-line reasoning per pick.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fATVHomeScreen",
+          "complexity": "M",
+          "done": false,
+          "priority": "Critical",
+          "name": "Apple TV \u2014 home screen",
+          "desc": "Continue Listening rail. Recently Added rail. Deriva suggestion strip. Quick access to saved zone groups. Source status indicators.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fPhoneAsRemote",
+          "complexity": "M",
+          "done": false,
+          "priority": "High",
+          "name": "iPhone as Apple TV remote",
+          "desc": "iPhone and iPad act as full remote controllers for Apple TV Sorriva session. Play/pause/skip, volume, zone switching, queue management \u2014 all from phone while Apple TV displays now playing.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        }
+      ]
+    },
+    {
+      "phase": 7,
+      "name": "Deriva AI",
+      "desc": "AI playlists, discovery, skip learning, library rediscovery. Needs library + play history data to be useful.",
+      "features": [
+        {
+          "id": "fDerivaAIPlaylists",
+          "complexity": "L",
+          "done": false,
+          "priority": "Critical",
+          "name": "Deriva \u2014 mood/context AI playlists",
+          "desc": "Natural language playlist generation from full music graph. Examples: 'Sunday Morning Coffee', 'Late Night Drive', 'Dinner Party'. Draws from local library and all connected streaming services. Profile-aware. Returns playlist with reasoning \u2014 explains the thread connecting choices.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fDerivaDiscovery",
+          "complexity": "L",
+          "done": false,
+          "priority": "Critical",
+          "name": "Deriva \u2014 music discovery",
+          "desc": "Analyzes most played tracks, artists, genres across all sources. 'Music just like this' from any artist or track. Gateway albums \u2014 'if you love X, here's Y you haven't explored'. Deep cuts surfacing per artist. Sources: MusicBrainz + Last.fm similarity APIs.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fDerivaSkipLearning",
+          "complexity": "M",
+          "done": false,
+          "priority": "High",
+          "name": "Deriva \u2014 skip pattern learning",
+          "desc": "Track skips and abandons across all sources. Learn genre, era, style avoidance patterns per profile. Stop including patterns that consistently get skipped. Improve playlist and auto-play quality over time.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fDerivaLibraryRediscovery",
+          "complexity": "M",
+          "done": false,
+          "priority": "High",
+          "name": "Deriva \u2014 library rediscovery",
+          "desc": "Surface forgotten and unplayed albums in library. 'You added this 3 years ago and never played it.' Cross-reference with listening patterns to find likely matches. Scheduled rediscovery suggestions.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fAutoPlay",
+          "complexity": "M",
+          "done": false,
+          "priority": "High",
+          "name": "Auto Play",
+          "desc": "Continuous play seeded from currently playing track \u2014 the core listening loop that keeps music going beyond a single album. Tightness dial: strict (same genre/era) to open (anything goes). Pulls from local library first, streaming services second. The primary vehicle for rediscovering music you already own and the bridge into new discovery. Powered by Last.fm similar tracks API + Deriva pattern learning.",
+          "tag": "feature",
+          "createdAt": "2026-06-24",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fDerivaSoftSignals",
+          "complexity": "S",
+          "done": false,
+          "priority": "Normal",
+          "name": "Deriva \u2014 contextual soft signals",
+          "desc": "Time-of-day and seasonal awareness as soft signals for playlist generation. Optional weather API integration. Signals inform but don't hard-filter \u2014 AI weighs them naturally.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fListeningStatsControl",
+          "name": "Listening stats reset and ignore controls",
+          "desc": "Give users control over listening statistics: reset all stats or reset by type (tracks, albums, artists, stations, playlists). Alternatively or additionally, mark specific artists, albums, tracks, or stations as ignored \u2014 excluded from stats reporting, listening history display, and Deriva pattern learning without deleting play history. Ignore is preferable to delete for items the user no longer listens to but doesn't want skewing recommendations.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-22",
+          "completedAt": null,
+          "requires": [
+            "fPlaybackStats"
+          ]
+        }
+      ]
+    },
+    {
+      "phase": 8,
+      "name": "Extended",
+      "desc": "Offline downloads, vinyl library, Billboard archive, Shazam, stats, CarPlay, Mac bridge, watchOS. Polish and differentiation.",
+      "features": [
+        {
+          "id": "fVinylLibrary",
+          "complexity": "XL",
+          "done": false,
+          "priority": "High",
+          "name": "Vinyl library \u2014 collection management",
+          "desc": "Separate vinyl collection module. Manual entry or barcode scan. Discogs API for metadata (pressing info, matrix numbers, label variants). Fields: title, artist, label, catalog number, pressing, year, format (LP/Single/EP/78), condition (Goldmine scale), purchase price/date. Collection browser, value estimator (Discogs marketplace), wantlist, duplicates detection. 'You own this digitally too' cross-reference. Export CSV/PDF for insurance.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fVinylDerivaRecommend",
+          "complexity": "M",
+          "done": false,
+          "priority": "Normal",
+          "name": "Deriva \u2014 vinyl recommendations",
+          "desc": "Cross-reference digital listening patterns against vinyl collection. 'Based on your digital listening, here are records you should own.' Surfaces gaps and acquisition targets.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fBillboardArchive",
+          "complexity": "L",
+          "done": false,
+          "priority": "Normal",
+          "name": "Billboard archive",
+          "desc": "Annual Top 100 every year from 1955 to present. Browse by year or decade. Each entry resolves to best available source (local \u2192 Apple Music \u2192 Spotify). 'You own X of the [year] Top 100' stat per year.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fShazamIntegration",
+          "complexity": "M",
+          "done": false,
+          "priority": "Normal",
+          "name": "Shazam integration",
+          "desc": "Read Shazam library and generate playlist. Resolve each tag to local library \u2192 subscribed service \u2192 fallback. Best-effort write-back sync via Apple's limited Shazam API.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fPlaybackStats",
+          "complexity": "M",
+          "done": false,
+          "priority": "High",
+          "name": "Playback statistics",
+          "desc": "Albums, tracks, artists, genres, decades \u2014 all ranked by play count across all sources. Total hours played, total tracks, total albums. Session history. Annual wrap-up \u2014 'your year in music'.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fiOSWidgets",
+          "complexity": "M",
+          "done": false,
+          "priority": "Normal",
+          "name": "iOS widgets",
+          "desc": "WidgetKit widgets for lock screen, home screen, and standby mode. Now Playing widget (album art, track, zone). Quick zone switcher widget. Library shortcut widget. Data bridge via App Intents. Pure SwiftUI \u2014 no third-party widget framework. (React Native widget extension reference removed.)",
+          "tag": "feature",
+          "createdAt": "2026-06-24",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fCarPlay",
+          "complexity": "L",
+          "done": false,
+          "priority": "Normal",
+          "name": "Apple CarPlay",
+          "desc": "Playback control while driving. Requires Apple CarPlay entitlement. React Native CarPlay community library. Browse recently played, favorites, Deriva playlists. Play/pause/skip/volume only \u2014 no complex navigation.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fMacBridge",
+          "complexity": "L",
+          "done": false,
+          "priority": "High",
+          "name": "Mac library bridge",
+          "desc": "Optional Mac app that runs as a menu bar agent on a home Mac. Scans attached drives/NAS. Exposes local library remotely via cloud backend relay. Enables full library access anywhere without VPN or Tailscale. Users without Mac bridge get streaming services fallback when away from home.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fSmartPlaylists",
+          "complexity": "M",
+          "done": false,
+          "priority": "Normal",
+          "name": "Smart playlists",
+          "desc": "Rules-based auto-generated playlists: genre + decade + unplayed + minimum play count + source combinations. Auto-update as library grows. Similar to iTunes Smart Playlists but cross-source.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fwatchOS",
+          "complexity": "M",
+          "done": false,
+          "priority": "Low",
+          "name": "watchOS app",
+          "desc": "Basic playback controls and Now Playing display on Apple Watch. Play/pause/skip/volume. Complications for current track. Scope TBD \u2014 deferred until iPhone UI is proven.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fSiriusXM",
+          "complexity": "M",
+          "done": false,
+          "priority": "Low",
+          "name": "SiriusXM integration",
+          "desc": "Satellite radio via sxm-player library. Subscription required. Legal posture for personal use TBD. Deferred pending decision.",
+          "tag": "feature",
+          "createdAt": "2026-07-14",
+          "requires": [],
+          "completedAt": null
+        },
+        {
+          "id": "fScanFailureUtility",
+          "name": "Scan failure review and targeted rescan utility",
+          "desc": "Settings utility listing permanently failed scans with the specific failure reason for each file, plus a manual rescan action for a selected album. The manual rescan reads a larger block than the standard 64KB tag window. Scoped to a single album so the larger read does not create concurrent session pressure on the NAS. Addresses files whose VORBIS_COMMENT block falls outside the 64KB window because a large embedded PICTURE block precedes it in the FLAC metadata block order \u2014 these currently retry five times against identical bytes and fail permanently. RECLASSIFIED 2026-07-27: moved out of fScannerPolish/scanner hardening. The underlying limitation (large embedded PICTURE pushing VORBIS_COMMENT past the 64KB read window) is explicitly staying as a documented, accepted constraint at the parser level, not being fixed here \u2014 this is new product surface area (a Settings screen, a list view, a user-triggered rescan action) sitting on top of the scanner, not a correction to something the scanner gets wrong. Every other fScannerPolish item (bDuplicateAlbumDetection, bTagEditsNotDetected, bArtworkSelectionNotBestWins, bAlbumGenreFromFirstTrack) corrects scanner behavior directly; this one doesn't. Standalone feature, own priority/scheduling, not gated on or grouped with scanner work.",
+          "priority": "Normal",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-25",
+          "completedAt": null,
+          "requires": [
+            "fSkippedTrackRetry"
+          ]
+        },
+        {
+          "id": "fScanReconciliationAudit",
+          "complexity": "M",
+          "done": false,
+          "priority": "Normal",
+          "name": "Post-scan reconciliation audit \u2014 files attempted vs processed vs DB records",
+          "desc": "2026-07-28. In-app audit, run after a scan completes, that reconciles two equations which must both balance: (1) files attempted = processed in main pass + resolved via retry + permanently failed; (2) DB record count = processed in main pass + resolved via retry (permanently-failed files correctly produce zero rows per bFailedReadCreatesWrongAlbumFromFallback, excluded by design not accident). Surfaces as a summary screen: Attempted / Processed / Resolved on Retry / Permanently Failed / DB Record Count, with a clear reconciled-or-discrepancy-of-N indicator. Intended location: Library Management (Tom's current lean, not fully decided) or Local Library. Pairs with fScanFailureUtility \u2014 this detects something's wrong, that lets the user act on the specific files once known. Also directly supports diagnosing bMissingTracksInAlbum, which is close to the exact tool its own investigation notes call for.\n\nREQUIRES A SCOPING DECISION BEFORE BUILDING, not yet confirmed with Tom in detail: tracks don't currently carry a scan-session identifier, only createdAt/updatedAt timestamps. A time-window heuristic (rows touched between scan start/end) would work for most cases but leaves a real edge case ambiguous \u2014 a track updated by this scan that already existed from a prior one. Recommended: add an explicit scanSessionId to Track (and scan_skips), populated by the scanner on every write, so every row is unambiguously attributable to the run that touched it. This is a real, if small, schema addition \u2014 worth explicit sign-off before implementation, since the whole point of this feature is catching subtle counting bugs, and its own scoping needs to be unambiguous or a discrepancy becomes uncertain rather than diagnostic.\n\nWhat already exists vs needs building: files-attempted count and main-pass skip/write-failure counts are already in the scan-start/scan-end log lines. Resolved-via-retry and permanently-failed totals are currently scattered across per-pass retry-scheduler log lines (PASS N COMPLETE), not aggregated into one final running tally \u2014 needs building. The DB count check itself is a simple query once the scanSessionId scoping question above is settled.",
+          "tag": "feature",
+          "createdAt": "2026-07-28",
+          "completedAt": null,
+          "requires": []
+        }
+      ]
+    }
+  ]
+}

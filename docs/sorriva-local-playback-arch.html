@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sorriva — Local Library Playback Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --parchment:    #F5F2EE;
+    --parchment-dk: #EDE9E3;
+    --near-black:   #1A1714;
+    --slate:        #3D5A99;
+    --slate-lt:     rgba(61,90,153,0.12);
+    --slate-border: rgba(61,90,153,0.25);
+    --brass:        #B07D4F;
+    --brass-lt:     rgba(176,125,79,0.12);
+    --brass-border: rgba(176,125,79,0.28);
+    --muted:        #7A7470;
+    --border:       rgba(26,23,20,0.10);
+    --border2:      rgba(26,23,20,0.16);
+    --green:        #2E7D52;
+    --green-lt:     rgba(46,125,82,0.10);
+    --green-border: rgba(46,125,82,0.25);
+    --red:          #9B3333;
+    --red-lt:       rgba(155,51,51,0.08);
+    --red-border:   rgba(155,51,51,0.22);
+    --code-bg:      #1A1714;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--parchment);
+    color: var(--near-black);
+    font-size: 14px;
+    line-height: 1.75;
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* ── SIDEBAR ─────────────────────────────── */
+  .sidebar {
+    width: 230px;
+    min-width: 230px;
+    background: var(--near-black);
+    color: var(--parchment);
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 28px 0 40px;
+    display: flex;
+    flex-direction: column;
+    scrollbar-width: thin;
+    scrollbar-color: #3a3330 transparent;
+  }
+
+  .sidebar-wordmark {
+    padding: 0 22px 24px;
+    border-bottom: 1px solid rgba(245,242,238,0.08);
+    margin-bottom: 14px;
+  }
+
+  .wordmark {
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: -0.05em;
+    color: var(--parchment);
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 3px;
+    line-height: 1;
+  }
+
+  .wordmark-dot {
+    width: 7px;
+    height: 7px;
+    background: var(--slate);
+    border-radius: 50%;
+    margin-top: 3px;
+    flex-shrink: 0;
+  }
+
+  .sidebar-meta {
+    font-size: 10px;
+    color: rgba(245,242,238,0.32);
+    margin-top: 5px;
+    letter-spacing: 0.03em;
+  }
+
+  .nav-label {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(245,242,238,0.28);
+    padding: 10px 22px 4px;
+  }
+
+  .nav-link {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: rgba(245,242,238,0.55);
+    text-decoration: none;
+    padding: 4px 22px;
+    border-radius: 4px;
+    line-height: 1.5;
+    transition: color 0.12s;
+  }
+
+  .nav-link:hover { color: var(--parchment); }
+
+  /* ── MAIN ──────────────────────────────── */
+  .main {
+    flex: 1;
+    max-width: 820px;
+    padding: 52px 52px 100px;
+    overflow-x: hidden;
+  }
+
+  /* ── HEADER ──────────────────────────────── */
+  .doc-eyebrow {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--brass);
+    margin-bottom: 12px;
+  }
+
+  .doc-title {
+    font-weight: 800;
+    font-size: 36px;
+    letter-spacing: -0.04em;
+    line-height: 1.05;
+    color: var(--near-black);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .doc-title-dot {
+    width: 9px;
+    height: 9px;
+    background: var(--slate);
+    border-radius: 50%;
+    margin-top: 7px;
+    flex-shrink: 0;
+  }
+
+  .doc-subtitle {
+    font-size: 15px;
+    color: var(--muted);
+    max-width: 560px;
+    line-height: 1.65;
+    margin-bottom: 20px;
+  }
+
+  .doc-meta {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding-bottom: 40px;
+    border-bottom: 2px solid var(--near-black);
+    margin-bottom: 52px;
+  }
+
+  .meta-pill {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted);
+    background: var(--parchment-dk);
+    border: 1px solid var(--border);
+    padding: 3px 10px;
+    border-radius: 20px;
+  }
+
+  /* ── SECTIONS ──────────────────────────── */
+  .section {
+    margin-bottom: 56px;
+  }
+
+  .section-eyebrow {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--brass);
+    margin-bottom: 6px;
+  }
+
+  .section-title {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: var(--near-black);
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border2);
+  }
+
+  .section-body { font-size: 13.5px; line-height: 1.75; color: rgba(26,23,20,0.82); }
+  .section-body p { margin-bottom: 14px; }
+  .section-body p:last-child { margin-bottom: 0; }
+
+  h3 {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--near-black);
+    margin: 28px 0 10px;
+    letter-spacing: -0.01em;
+  }
+
+  h3:first-child { margin-top: 0; }
+
+  /* ── CALLOUTS ──────────────────────────── */
+  .callout {
+    border-radius: 8px;
+    padding: 14px 18px;
+    font-size: 13px;
+    line-height: 1.65;
+    margin-bottom: 18px;
+  }
+
+  .callout strong { color: var(--near-black); }
+  .callout.slate  { background: var(--slate-lt); border: 1px solid var(--slate-border); color: rgba(26,23,20,0.80); }
+  .callout.brass  { background: var(--brass-lt); border: 1px solid var(--brass-border); color: rgba(26,23,20,0.80); }
+  .callout.green  { background: var(--green-lt); border: 1px solid var(--green-border); color: rgba(26,23,20,0.80); }
+  .callout.red    { background: var(--red-lt);   border: 1px solid var(--red-border);   color: rgba(26,23,20,0.80); }
+
+  /* ── CODE BLOCKS ───────────────────────── */
+  .code {
+    background: var(--code-bg);
+    border-radius: 8px;
+    padding: 16px 18px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    color: #D6C9B8;
+    line-height: 1.8;
+    margin-bottom: 18px;
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  .code .c  { color: #5A4E42; }
+  .code .hi { color: #89B4D4; }
+  .code .ok { color: #7CBF8E; }
+  .code .warn { color: #D4A96A; }
+
+  /* ── RULED OUT TABLE ───────────────────── */
+  .ruled-out {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    margin-bottom: 18px;
+    background: #fff;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+
+  .ruled-out th {
+    text-align: left;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 8px 14px;
+    background: var(--parchment-dk);
+    border-bottom: 1px solid var(--border2);
+  }
+
+  .ruled-out td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    color: rgba(26,23,20,0.78);
+    vertical-align: top;
+    line-height: 1.6;
+  }
+
+  .ruled-out td:first-child {
+    font-weight: 600;
+    color: var(--near-black);
+    white-space: nowrap;
+    width: 160px;
+  }
+
+  .ruled-out td .verdict {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 1px 7px;
+    border-radius: 4px;
+    margin-bottom: 5px;
+    background: var(--red-lt);
+    border: 1px solid var(--red-border);
+    color: var(--red);
+  }
+
+  .ruled-out tr:last-child td { border-bottom: none; }
+
+  /* ── FEATURE TABLE ─────────────────────── */
+  .feature-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    margin-bottom: 18px;
+    background: #fff;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+
+  .feature-table th {
+    text-align: left;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 8px 14px;
+    background: var(--parchment-dk);
+    border-bottom: 1px solid var(--border2);
+  }
+
+  .feature-table td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    color: rgba(26,23,20,0.78);
+    vertical-align: top;
+    line-height: 1.6;
+  }
+
+  .feature-table td:first-child {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--slate);
+    white-space: nowrap;
+  }
+
+  .feature-table td .badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 7px;
+    border-radius: 4px;
+    margin-left: 6px;
+    background: var(--parchment-dk);
+    border: 1px solid var(--border2);
+    color: var(--muted);
+    font-family: inherit;
+  }
+
+  .feature-table tr:last-child td { border-bottom: none; }
+
+  /* ── STEP LIST ─────────────────────────── */
+  .step-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 18px;
+    counter-reset: steps;
+  }
+
+  .step-list li {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    font-size: 13px;
+    color: rgba(26,23,20,0.80);
+    line-height: 1.65;
+  }
+
+  .step-list li::before {
+    counter-increment: steps;
+    content: counter(steps);
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--slate);
+    background: var(--slate-lt);
+    border: 1px solid var(--slate-border);
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .step-list li strong { color: var(--near-black); }
+
+  /* ── BULLET LIST ───────────────────────── */
+  .bullet-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    margin-bottom: 18px;
+  }
+
+  .bullet-list li {
+    display: flex;
+    gap: 10px;
+    font-size: 13px;
+    color: rgba(26,23,20,0.80);
+    line-height: 1.65;
+  }
+
+  .bullet-list li::before {
+    content: '·';
+    color: var(--brass);
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .bullet-list li strong { color: var(--near-black); }
+
+  hr.div {
+    border: none;
+    border-top: 1px solid var(--border2);
+    margin-bottom: 56px;
+  }
+
+  .footer {
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    padding-top: 32px;
+    border-top: 1px solid var(--border);
+    margin-top: 64px;
+  }
+
+  @media (max-width: 860px) {
+    .sidebar { display: none; }
+    .main { padding: 32px 24px 80px; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="sidebar">
+  <div class="sidebar-wordmark">
+    <div class="wordmark">sorriva<span class="wordmark-dot"></span></div>
+    <div class="sidebar-meta">Local Playback Architecture · v4.0</div>
+  </div>
+
+  <div class="nav-label">Overview</div>
+  <a href="#problem" class="nav-link">The Problem</a>
+  <a href="#ruled-out" class="nav-link">What Was Ruled Out</a>
+
+  <div class="nav-label">Architecture</div>
+  <a href="#chosen" class="nav-link">Chosen Architecture</a>
+  <a href="#data-flow" class="nav-link">Data Flow</a>
+  <a href="#quality" class="nav-link">Quality Preservation</a>
+  <a href="#transfer" class="nav-link">Core Transfer Flow</a>
+  <a href="#background" class="nav-link">iOS Background Audio</a>
+
+  <div class="nav-label">Build</div>
+  <a href="#implemented" class="nav-link">What Was Built</a>
+  <a href="#features" class="nav-link">Features to Build</a>
+  <a href="#bluesound" class="nav-link">Bluesound Path</a>
+  <a href="#future" class="nav-link">Future Paths</a>
+</nav>
+
+<main class="main">
+
+  <div class="doc-eyebrow">Passione · Architecture Reference</div>
+  <h1 class="doc-title">Local Library Playback<span class="doc-title-dot"></span></h1>
+  <p class="doc-subtitle">How Sorriva streams local FLAC files to Sonos and Bluesound speakers at full lossless quality — with no dedicated server hardware and no setup beyond what the user already has.</p>
+  <div class="doc-meta">
+    <span class="meta-pill">Researched 2026-07-14</span>
+    <span class="meta-pill">Implemented 2026-07-14 – 2026-07-15</span>
+    <span class="meta-pill">Sonos S2 · Bluesound BluOS</span>
+    <span class="meta-pill">iOS 26+ · iPadOS 26+</span>
+  </div>
+
+  <!-- PROBLEM -->
+  <section class="section" id="problem">
+    <div class="section-eyebrow">Background</div>
+    <div class="section-title">The Problem</div>
+    <div class="section-body">
+      <p>Playing a user's local FLAC library through Sonos speakers — with the phone out of the audio path, no dedicated server hardware, and zero setup friction — is an unsolved problem in the industry. Every existing solution requires always-on hardware:</p>
+      <ul class="bullet-list">
+        <li><strong>Roon</strong> — requires a Roon Core running on a Mac, PC, NUC, or $700+ Nucleus 24/7.</li>
+        <li><strong>Bluesound</strong> — solved elegantly: the BluOS speaker itself is the SMB client. The hardware is the server. Works only with Bluesound hardware.</li>
+        <li><strong>Sonos native</strong> — speakers can fetch SMB files directly, but credential registration was removed from the Sonos app in May 2024. NAS library setup no longer exists in the current Sonos app. Dead end.</li>
+      </ul>
+      <p>Sorriva's product promise is plug and play — nothing to install, no new hardware, pure App Store. This session was a full research effort to find an architecture that delivers on that promise.</p>
+    </div>
+  </section>
+
+  <hr class="div">
+
+  <!-- RULED OUT -->
+  <section class="section" id="ruled-out">
+    <div class="section-eyebrow">Research</div>
+    <div class="section-title">What Was Ruled Out</div>
+    <div class="section-body">
+
+      <table class="ruled-out">
+        <tr>
+          <th>Approach</th>
+          <th>Why It Fails</th>
+        </tr>
+        <tr>
+          <td><code>x-file-cifs://</code><br>SMB direct from Sonos</td>
+            <td class="ruled-out-reason">
+              <strong style="color:var(--green)">✓ This is the solution.</strong> Requires NAS share registered with Sonos once via <code>CreateObject</code> UPnP call on port 1400 — programmatic, no Sonos app required. Confirmed working: full album queue, screen locked, no iOS involvement after queuing. See <strong>x-file-cifs Architecture</strong> section below.
+            </td>
+          <td>
+            <span class="verdict">DEAD END</span><br>
+            Sonos speakers can fetch SMB files directly — but only if NAS credentials are pre-registered in the Sonos app. The current Sonos app (post May 2024) removed NAS library configuration entirely. No documented or reverse-engineered UPnP call exists to push SMB credentials to a speaker programmatically. The door is locked and Sonos removed the key.
+          </td>
+        </tr>
+        <tr>
+          <td>NAS HTTP server</td>
+          <td>
+            <span class="verdict">NOT UNIVERSAL</span><br>
+            Synology and QNAP NAS devices can serve files over HTTP via Web Station. But UNAS Pro and many other NAS devices are intentionally minimalist — no app ecosystem, no HTTP server capability. Cannot be the foundation of a universal product.
+          </td>
+        </tr>
+        <tr>
+          <td>Cloud proxy</td>
+          <td>
+            <span class="verdict">WRONG DIRECTION</span><br>
+            Uploading local FLAC to cloud storage so Sonos can fetch via HTTP URL. Kills audio quality (requires internet, lossy transcoding risk), massive storage cost, sync complexity, internet dependency. Fundamentally wrong for owned media.
+          </td>
+        </tr>
+        <tr>
+          <td>Apple TV as HTTP server</td>
+          <td>
+            <span class="verdict">IMPOSSIBLE</span><br>
+            tvOS sandbox prevents file system access and SMB entirely. Apple TV cannot read NAS files. Cannot serve what it cannot read.
+          </td>
+        </tr>
+        <tr>
+          <td>Embedded credentials in <code>x-file-cifs://</code> URI</td>
+          <td>
+            <span class="verdict">NOT SUPPORTED</span><br>
+            No evidence anywhere of Sonos S2 accepting <code>x-file-cifs://user:pass@ip/share/file.flac</code>. Community consensus is clear: credentials must be pre-registered, not embedded in the URI.
+          </td>
+        </tr>
+        <tr>
+          <td>iPhone as permanent HTTP server</td>
+          <td>
+            <span class="verdict">BREAKS PROMISE</span><br>
+            Works technically, but if the user leaves the house with their phone, Sonos stops. Radio streams continue when the phone leaves. Local library must behave the same way. Not acceptable as a permanent architecture.
+          </td>
+        </tr>
+        <tr>
+          <td>AirPlay / iOS audio engine routing</td>
+          <td>
+            <span class="verdict">QUALITY LOSS</span><br>
+            Playing FLAC through the iOS audio engine and AirPlaying to Sonos introduces quality degradation. The iOS audio stack touches the audio bytes. Not acceptable for a product built on lossless quality.
+          </td>
+        </tr>
+      </table>
+
+    </div>
+  </section>
+
+  <hr class="div">
+
+  <!-- CHOSEN ARCHITECTURE -->
+  <section class="section" id="chosen">
+    <div class="section-eyebrow">Architecture Decision</div>
+    <div class="section-title">The Chosen Architecture</div>
+    <div class="section-body">
+
+      <div class="callout green">
+        <strong>x-file-cifs:// Direct NAS Playback.</strong> Sonos and Bluesound can fetch files directly from the NAS using <code>x-file-cifs://</code> URIs. Sorriva registers the NAS share with Sonos once via a <code>CreateObject</code> UPnP call, then queues tracks via <code>AddURIToQueue</code>. Sonos manages its own queue, fetches each file from the NAS as it plays, and advances through the album independently. The phone is a pure remote control — no HTTP server, no iOS background restrictions, screen can be locked, phone calls do not interrupt playback.
+      </div>
+
+      <p>The critical insight: <strong>the HTTP server does not process audio</strong>. It moves raw bytes from SMB to HTTP. The FLAC file that comes off the NAS goes to Sonos byte-for-byte identical. Sonos decodes it internally with its own hardware DAC. The iPad never touches the audio engine.</p>
+
+      <p>This is not a workaround. It is a better story than Roon for the mainstream user:</p>
+
+      <ul class="bullet-list">
+        <li><strong>Roon</strong> — buy a $700 Nucleus or leave a computer on 24/7.</li>
+        <li><strong>Sorriva</strong> — your iPad, which you already own, becomes your Core. Plug it in. Open Sorriva. Done.</li>
+      </ul>
+
+      <div class="callout slate">
+        <strong>The one constraint, stated honestly:</strong> the iPad must stay on the home WiFi network during local library playback sessions. Screen can be locked. It can be on a charger across the room. It just cannot leave the network. This is a reasonable constraint — it's the same device many users already have as a permanent home controller.
+      </div>
+
+    </div>
+  </section>
+
+  <hr class="div">
+
+  <!-- DATA FLOW -->
+  <section class="section" id="data-flow">
+    <div class="section-eyebrow">Architecture</div>
+    <div class="section-title">Data Flow</div>
+    <div class="section-body">
+
+      <div class="code"><span class="c">── Audio path ─────────────────────────────────────────────────────────</span>
+
+NAS (FLAC files, SMB share)
+    │
+    │  SMBClient reads raw bytes — zero decoding
+    ▼
+<span class="hi">iPad · Sorriva HTTP server</span>  (background audio session, screen locked, on charger)
+    │
+    │  http://[iPad-IP]:8080/track/[trackId]
+    │  Range request support for seeking
+    ▼
+<span class="ok">Sonos speaker / zone coordinator</span>
+    │
+    │  Sonos decodes FLAC internally
+    │  Sonos DAC outputs audio
+    ▼
+<span class="ok">Audio output · 24-bit/48kHz lossless (Sonos)</span>
+              <span class="ok">24-bit/192kHz lossless (Bluesound)</span>
+
+<span class="c">── Control path (completely independent) ──────────────────────────────</span>
+
+<span class="hi">iPhone · Sorriva remote</span>
+    │
+    │  UPnP SOAP on port 1400
+    │  Volume · Queue · Skip · Zone · Pause
+    ▼
+<span class="ok">Sonos speaker</span>  (responds to commands directly, no iPad involved)</div>
+
+      <p>The iPad and iPhone operate on completely separate channels. The iPad serves bytes. The iPhone sends commands. Sonos receives both. They do not need to communicate with each other during active playback.</p>
+
+    </div>
+  </section>
+
+  <hr class="div">
+
+  <!-- QUALITY -->
+  <section class="section" id="quality">
+    <div class="section-eyebrow">Audio Quality</div>
+    <div class="section-title">Quality Preservation</div>
+    <div class="section-body">
+
+      <div class="callout green">
+        <strong>Bit-perfect.</strong> A 24-bit/192kHz FLAC file on the NAS arrives at Sonos as a 24-bit/192kHz FLAC file. The iPad introduces zero quality loss at any stage.
+      </div>
+
+      <h3>Why the iPad does not degrade quality</h3>
+      <p>The HTTP server reads raw file bytes from the NAS via SMBClient and writes those exact bytes into the HTTP response body. It does not decode the audio. It does not re-encode. It does not touch the iOS audio engine. It is functionally identical to a web server serving a static file — the bytes are opaque payload.</p>
+
+      <div class="code"><span class="c">What the iPad HTTP server does NOT do:</span>
+<span class="warn">✗  Decode FLAC to PCM</span>
+<span class="warn">✗  Re-encode to any format</span>
+<span class="warn">✗  Touch AVAudioSession for audio output</span>
+<span class="warn">✗  Use AirPlay (which would impose 16/44.1 ceiling)</span>
+<span class="warn">✗  Pass bytes through CoreAudio</span>
+
+<span class="c">What the iPad HTTP server DOES do:</span>
+<span class="ok">✓  Open SMB connection to NAS</span>
+<span class="ok">✓  Read raw file bytes</span>
+<span class="ok">✓  Write raw file bytes into HTTP response</span>
+<span class="ok">✓  Handle Range headers (for Sonos seeking)</span>
+<span class="ok">✓  Declare background audio session (for iOS lifecycle)</span></div>
+
+      <h3>Quality ceiling by hardware</h3>
+      <p>The quality limit is always the downstream hardware, never Sorriva or the iPad:</p>
+      <ul class="bullet-list">
+        <li><strong>Sonos Era 100, Era 300, Arc, Beam, One</strong> — 24-bit/48kHz lossless</li>
+        <li><strong>Bluesound Node, Pulse, NAD BluOS</strong> — 24-bit/192kHz lossless</li>
+        <li><strong>Mixed Sonos + Bluesound group via AirPlay 2</strong> — 16-bit/44.1kHz lossless CD (AirPlay 2 ceiling, honestly labelled)</li>
+      </ul>
+
+    </div>
+  </section>
+
+  <hr class="div">
+
+  <!-- TRANSFER FLOW -->
+  <section class="section" id="transfer">
+    <div class="section-eyebrow">User Experience</div>
+    <div class="section-title">Sorriva Core Transfer</div>
+    <div class="section-body">
+
+      <p>The session begins on iPhone — the natural starting point for browsing and queue building — and transfers to iPad, which becomes the permanent Core for the session. One tap.</p>
+
+      <ol class="step-list">
+        <li><strong>iPhone:</strong> User opens Sorriva, browses library, selects album, picks Sonos zone.</li>
+        <li><strong>iPhone:</strong> Sorriva starts HTTP server, constructs <code>http://[iPhone-IP]:8080/track/[id]</code> URIs, calls <code>AddMultipleURIsToQueue</code> + <code>Play</code> on Sonos coordinator.</li>
+        <li><strong>Sonos:</strong> Fetches from iPhone, playback begins.</li>
+        <li><strong>User:</strong> Opens Sorriva on iPad (both devices now running Sorriva on the same network).</li>
+        <li><strong>iPad:</strong> Detects active Sorriva session via Multipeer Connectivity. "Transfer to iPad" prompt appears.</li>
+        <li><strong>User:</strong> Taps Transfer — one tap.</li>
+        <li><strong>iPad:</strong> Starts its own HTTP server. Queries Sonos <code>GetPositionInfo</code> for current track and position.</li>
+        <li><strong>iPad:</strong> Sends new <code>SetAVTransportURI</code> to Sonos with iPad IP + current track + current position.</li>
+        <li><strong>Sonos:</strong> Continues playing without interruption — seamless handoff.</li>
+        <li><strong>iPhone:</strong> HTTP server shuts down. iPhone is now a pure remote control.</li>
+        <li><strong>iPad:</strong> Screen locks. Background audio session keeps HTTP server alive indefinitely.</li>
+        <li><strong>iPhone:</strong> Can leave the house. iPad serves. Sonos plays.</li>
+      </ol>
+
+      <div class="callout brass">
+        <strong>The transfer tap is a feature, not friction.</strong> It is an explicit moment where the user designates the iPad as their home Core for this session. This is a meaningful interaction — the user is making a deliberate choice. It should feel intentional and satisfying, not like a workaround.
+      </div>
+
+    </div>
+  </section>
+
+  <hr class="div">
+
+  <!-- BACKGROUND AUDIO -->
+  <section class="section" id="background">
+    <div class="section-eyebrow">iOS Lifecycle</div>
+    <div class="section-title">Background Audio Session</div>
+    <div class="section-body">
+
+      <p>When the iPad initiates the HTTP server and sends the first <code>SetAVTransportURI</code>, Sorriva declares an <code>AVAudioSession</code> with category <code>.playback</code>. iOS treats any process holding an active <code>.playback</code> session as playing audio — the same protection that keeps Spotify alive when the screen locks.</p>
+
+      <div class="callout slate">
+        <strong>iOS will not terminate a process with an active background audio session</strong> under normal conditions. The iPad can be locked, screen off, sitting on a charger. The HTTP server keeps running. Sonos keeps fetching.
+      </div>
+
+      <h3>The one critical rule</h3>
+      <p>The iPad must be the device that <em>started</em> or received the transfer of the session. A background audio session is only protected if the process owns it. The transfer flow ensures the iPad becomes the owner at transfer time — the iPhone's session is released before the iPad's begins.</p>
+
+      <h3>Edge cases</h3>
+      <ul class="bullet-list">
+        <li><strong>iPad force-quit by user</strong> — HTTP server dies, Sonos stops. Sorriva shows a persistent "Serving library" notification that makes force-quit unlikely.</li>
+        <li><strong>iOS memory pressure (extreme)</strong> — iOS can terminate background processes under severe memory pressure even with a background audio session. Rare. Sorriva can detect playback stop via Sonos UPnP event subscription and surface a prompt to re-establish.</li>
+        <li><strong>iPad leaves WiFi network</strong> — HTTP server still runs but Sonos cannot reach it. Sonos stops. Same behaviour as any network interruption.</li>
+      </ul>
+
+      <h3>Info.plist requirement</h3>
+      <div class="code"><span class="c">// Required in Info.plist</span>
+UIBackgroundModes: [
+    <span class="ok">"audio"</span>   <span class="c">// keeps process alive with active AVAudioSession</span>
+]
+
+<span class="c">// In SorrivaHTTPServer.swift, on server start:</span>
+try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+try AVAudioSession.sharedInstance().setActive(true)</div>
+
+    </div>
+  </section>
+
+  <hr class="div">
+
+  <!-- WHAT WAS BUILT -->
+  <section class="section" id="implemented">
+    <div class="section-eyebrow">Implementation — Shipped 2026-07-14/15</div>
+    <div class="section-title">What Was Built</div>
+    <div class="section-body">
+
+      <div class="callout green">
+        <strong>fLocalHTTPServer, fLocalSonosPlayback, fScannerDuration, and fAlbumQueue are complete.</strong> x-file-cifs:// direct NAS→Sonos playback confirmed working: full album queue, both tracks played completely, screen locked, zero iOS involvement after queuing. NAS share registration via CreateObject UPnP call (port 1400) confirmed — no Sonos desktop app or mobile app required. iOS background restriction confirmed: HTTP server suspended on screen lock on both iPhone and iPad regardless of AVAudioSession or charge state. x-file-cifs architecture eliminates this constraint entirely.
+      </div>
+
+      <h3>SorrivaHTTPServer.swift — NWListener implementation</h3>
+      <p>GCDWebServer was evaluated and discarded — its SPM package does not expose a linkable product. Telegraph was tried and discarded — it buffers the entire response before sending, which causes UNAS Pro SMB connections to hang waiting for the full file. The final implementation uses Apple's native <code>NWListener</code> (Network framework) for raw TCP control, enabling true streaming.</p>
+
+      <div class="code"><span class="c">── Critical discoveries during implementation ──────────────────────────</span>
+
+<span class="warn">UNAS Pro 8MB read limit on persistent connections:</span>
+  The UNAS Pro drops persistent SMB connections after exactly 2
+  sequential 8MB reads. Streaming dies at offset 16MB every time.
+
+<span class="warn">Fresh-connection-per-chunk does NOT solve the problem:</span>
+  Opening a new SMBClient per 1MB chunk accumulates orphaned SMB
+  sessions on the NAS. Sessions don't close immediately — they pile
+  up across play attempts and starve new connections, causing silent
+  hangs at inconsistent offsets (6MB, 10MB, 12MB, 18MB, 20MB).
+  Increasing distance each run = old sessions timing out between tests.
+
+<span class="ok">Correct solution — one persistent session, 1MB sequential reads:</span>
+  Login once. connectShare once. fileReader once. Read 1MB chunks
+  sequentially until EOF. UNAS Pro is stable with 1MB reads on a
+  persistent connection. Confirmed: 44MB FLAC streamed completely.
+  This matches how Roon operates — one SMB connection, sequential reads.
+
+<span class="warn">Chunk size: 1MB.</span>
+  8MB chunks: UNAS Pro drops connection on the 3rd read (at 16MB).
+  1MB chunks on persistent connection: works for any file size.
+  Tested: 44MB and 73MB FLAC, both played completely.
+
+<span class="warn">Sonos URI error 714 (Illegal MIME type):</span>
+  Sonos rejects plain /track/[uuid] URIs with error 714.
+  Fix: append file extension — /track/[uuid].flac
+  SorrivaHTTPServer strips the extension before SQLite lookup.
+
+<span class="warn">DIDL duration must not be zero:</span>
+  SetAVTransportURI with duration="0:00:00" causes Sonos to stop
+  after buffering a short segment. Pass empty CurrentURIMetaData
+  instead. Sonos plays to EOF with no duration declared. Only include
+  duration when a valid value exists in DB (populated by scanner).</div>
+
+      <h3>HTTP server protocol details</h3>
+      <ul class="bullet-list">
+        <li><strong>TCP listener</strong> — <code>NWListener</code> on port 8080, all interfaces</li>
+        <li><strong>Request accumulation</strong> — reads TCP until <code>\r\n\r\n</code> or <code>\n\n</code> header terminator (Sonos uses either)</li>
+        <li><strong>Response</strong> — <code>Content-Length</code> with actual file size, <code>Accept-Ranges: bytes</code>, <code>Connection: close</code></li>
+        <li><strong>Backpressure</strong> — each chunk send awaits <code>.contentProcessed</code> before reading next SMB chunk</li>
+        <li><strong>Background audio</strong> — <code>AVAudioSession .playback</code> with <code>.mixWithOthers</code> keeps process alive when screen locks</li>
+      </ul>
+
+      <h3>LocalPlaybackService.swift</h3>
+      <ul class="bullet-list">
+        <li>Starts HTTP server on first playback request if not running</li>
+        <li>URI format: <code>http://[WiFi-IP]:8080/track/[trackId].[ext]</code></li>
+        <li>Empty <code>CurrentURIMetaData</code> — Sonos plays to EOF without duration declaration</li>
+        <li>SOAP calls via <code>nonisolated static</code> methods on <code>ZoneDiscoveryService</code> to avoid main actor deadlock</li>
+        <li><code>playTrack</code> and <code>playAlbum</code> implemented; album plays first track — full queue via <code>AddMultipleURIsToQueue</code> is next work</li>
+      </ul>
+
+      <h3>Known remaining issues / next work</h3>
+      <div class="callout brass">
+        <strong>fXFileCIFS (next session).</strong> Wire x-file-cifs:// into LocalPlaybackService / Playback Conductor. Replace HTTP-based local playback for Sonos/Bluesound zones. Programmatic NAS share registration via CreateObject. Zone capability detection.
+      </div>
+      <div class="callout brass">
+        <strong>fLocalNowPlaying.</strong> Mini player and Now Playing do not update for local tracks. ZoneDiscoveryService GetMediaInfo returns empty CurrentURIMetaData for local HTTP URIs and x-file-cifs URIs. Fix: LocalPlaybackService pushes track metadata directly to zone state after initiating playback.
+      </div>
+      <div class="callout brass">
+        <strong>fPollingOptimization.</strong> Zone polling at 5s causes Now Playing position to jump in 5-second increments, volume/mute flash on track transition, play→stop→play flash when advancing queue. Fix: reduce poll interval to 1s for actively playing zones.
+      </div>
+
+    </div>
+  </section>
+
+  <hr class="div">
+
+  <!-- FEATURES TO BUILD -->
+  <section class="section" id="features">
+    <div class="section-eyebrow">Implementation</div>
+    <div class="section-title">Features to Build</div>
+    <div class="section-body">
+
+      <table class="feature-table">
+        <tr>
+          <th>Feature ID</th>
+          <th>Description</th>
+          <th>Complexity</th>
+        </tr>
+        <tr>
+          <td>fLocalHTTPServer <span style="color:var(--green);font-size:10px;font-weight:700">✓ SHIPPED</span></td>
+          <td>NWListener HTTP server, persistent SMB session, 1MB sequential reads. Retained as fallback for AirPlay-only zones and radio. Background restriction confirmed: HTTP streaming suspended on screen lock.</td>
+          <td><span class="badge">S</span></td>
+        </tr>
+        <tr>
+          <td>fLocalSonosPlayback <span style="color:var(--green);font-size:10px;font-weight:700">✓ SHIPPED</span></td>
+          <td>Zone picker, single track and album queue via HTTP server. Foundation for Playback Conductor. DIDL duration extraction and queue management proven.</td>
+          <td><span class="badge">M</span></td>
+        </tr>
+        <tr>
+          <td>fScannerDuration <span style="color:var(--green);font-size:10px;font-weight:700">✓ SHIPPED</span></td>
+          <td>Duration extracted at scan time for FLAC (STREAMINFO), MP3 (TLEN), M4A (mvhd), WAV, AIFF. Stored in DB. Track length displayed in AlbumDetailView.</td>
+          <td><span class="badge">S</span></td>
+        </tr>
+        <tr>
+          <td>fAlbumQueue <span style="color:var(--green);font-size:10px;font-weight:700">✓ SHIPPED</span></td>
+          <td>Full album queue via AddMultipleURIsToQueue. Duration-aware Sonos advancement. Rolling queue notification architecture built (foundation for Playback Conductor).</td>
+          <td><span class="badge">M</span></td>
+        </tr>
+        <tr>
+          <td>fXFileCIFS</td>
+          <td>x-file-cifs:// direct NAS→Sonos/Bluesound. Programmatic NAS share registration via CreateObject (port 1400). AddURIToQueue in loop (AddMultipleURIsToQueue rejects x-file-cifs). No HTTP server, no background restrictions. Confirmed working in testing. <strong>Next session.</strong></td>
+          <td><span class="badge">M</span></td>
+        </tr>
+        <tr>
+          <td>fZoneCapabilityStore</td>
+          <td>Zone capability table — primary (Sonos/Bluesound/AirPlay) and secondary (always AirPlay) transport per zone. Built from discovery data. Ad-hoc mixed groups resolve to AirPlay. Used by Playback Conductor.</td>
+          <td><span class="badge">S</span></td>
+        </tr>
+        <tr>
+          <td>fPlaybackConductor</td>
+          <td>Replaces LocalPlaybackService. Owns canonical mixed-source queue. Routes each track to correct transport based on source × zone capability. Pure local to Sonos/Bluesound = x-file-cifs, app not needed. Mixed with Apple Music = MusicKit/AirPlay.</td>
+          <td><span class="badge">L</span></td>
+        </tr>
+        <tr>
+          <td>fMusicKitAdapter</td>
+          <td>Apple Music via MusicKit ApplicationMusicPlayer. Manages mixed queue in background via iOS background audio. Apple Music tracks → AirPlay, local tracks inserted as file URLs.</td>
+          <td><span class="badge">L</span></td>
+        </tr>
+        <tr>
+          <td>fSorrivaCoreTransfer</td>
+          <td>Deferred. x-file-cifs eliminates the iPad Core requirement for local playback. Multipeer session transfer no longer needed for the core use case.</td>
+          <td><span class="badge">S</span></td>
+        </tr>
+        <tr>
+          <td>fSorrivaCoreIndicator</td>
+          <td>Deferred alongside fSorrivaCoreTransfer.</td>
+          <td><span class="badge">XS</span></td>
+        </tr>
+      </table>
+
+      <h3>Swift files shipped</h3>
+      <ul class="bullet-list">
+        <li><strong>SorrivaHTTPServer.swift</strong> — NWListener HTTP server, single persistent SMB session per request, 1MB sequential reads, background audio session management. <span style="color:var(--green);font-weight:600">Shipped.</span></li>
+        <li><strong>LocalPlaybackService.swift</strong> — orchestrates local → Sonos playback. URI construction, empty DIDL for local tracks, nonisolated SOAP calls, playTrack + playAlbum methods. <span style="color:var(--green);font-weight:600">Shipped.</span></li>
+        <li><strong>SorrivaDatabase+HTTPServer.swift</strong> — <code>track(id:)</code> and <code>librarySource(id:)</code> extension methods for HTTP server lookups. <span style="color:var(--green);font-weight:600">Shipped.</span></li>
+        <li><strong>MultipeerSessionCoordinator.swift</strong> — advertises and discovers active Sorriva sessions. Manages Core Transfer handshake. <span style="color:var(--muted)">Not yet built.</span></li>
+      </ul>
+
+      <h3>No new SPM dependencies</h3>
+      <p>GCDWebServer (no linkable SPM product) and Telegraph (full-response buffering incompatible with streaming) were both evaluated and rejected. The final implementation uses only Apple-native frameworks: <code>Network</code>, <code>AVFoundation</code>, and the existing <code>SMBClient</code> package.</p>
+
+    </div>
+  </section>
+
+  <hr class="div">
+
+  <!-- BLUESOUND -->
+  <section class="section" id="bluesound">
+    <div class="section-eyebrow">Bluesound</div>
+    <div class="section-title">Bluesound Native Path</div>
+    <div class="section-body">
+
+      <div class="callout green">
+        <strong>Bluesound hardware is its own SMB client.</strong> The BluOS player — Node, Pulse, Vault — connects directly to the NAS via SMB and fetches files itself. No HTTP server needed. No iPad bridge. No phone involvement after initiating playback.
+      </div>
+
+      <p>For Bluesound users, local library playback is architecturally superior to Sonos:</p>
+
+      <ul class="bullet-list">
+        <li>Sorriva calls the BluOS HTTP API: <code>http://[player-IP]:11000/Play?url=[SMB-path]</code></li>
+        <li>BluOS player opens its own SMB connection to the NAS</li>
+        <li>Phone is completely out of the audio path — same as a radio stream</li>
+        <li>iPhone or iPad can leave the house — BluOS keeps playing</li>
+        <li>Quality ceiling: 24-bit/192kHz lossless (BluOS hardware)</li>
+      </ul>
+
+      <p>Bluesound users get the full Roon-equivalent experience — local library at full quality, phone as controller only — with zero additional hardware and zero setup beyond what Sorriva already does for SMB scanning.</p>
+
+      <div class="callout brass">
+        <strong>This is a genuine competitive advantage.</strong> Roon cannot group Sonos + Bluesound at any quality level. Sorriva delivers local library at 24/192 on Bluesound and 24/48 on Sonos, with honest quality labelling and the same unified library UI for both.
+      </div>
+
+    </div>
+  </section>
+
+  <hr class="div">
+
+  <!-- FUTURE PATHS -->
+  <section class="section" id="future">
+    <div class="section-eyebrow">Future</div>
+    <div class="section-title">Future Paths</div>
+    <div class="section-body">
+
+      <h3>fMacBridge (already on roadmap)</h3>
+      <p>An optional Mac menu bar app that runs as an always-on library bridge. Exposes local library as an HTTP server on the home network. Eliminates the iPad constraint entirely for Mac users. Sorriva detects the bridge and uses it automatically — iPad path becomes unnecessary when bridge is running. Power user path, not required for core experience.</p>
+
+      <h3>Sonos SMB credential registration (research item)</h3>
+      <p>The Sonos app must make some UPnP or proprietary HTTP call to a speaker when registering a NAS share. This call has never been documented or reverse-engineered publicly — likely because every third-party developer assumed it was impossible and used the Sonos app instead. A Wireshark packet capture during NAS share setup in an older Sonos app version could reveal this call. If identified, Sorriva could register NAS credentials programmatically — making <code>x-file-cifs://</code> viable without any Sonos app involvement. This would eliminate the iPad requirement for Sonos users entirely. Worth investigating if Sonos ever restores the NAS setup UI in their app.</p>
+
+      <h3>NAS HTTP for Synology / QNAP users</h3>
+      <p>Users with Synology or QNAP NAS can enable Web Station to serve files over HTTP directly. Sorriva could detect and use this path automatically — no iPad bridge needed for those users. Detect during SMB source setup: try an HTTP probe to the NAS IP, if it responds with the file, use HTTP path. Fall back to iPad proxy otherwise. Additive optimization, not a baseline requirement.</p>
+
+      <h3>Automatic Core selection</h3>
+      <p>Long-term: if both iPhone and iPad are home, Sorriva automatically selects the iPad as Core with no transfer tap needed. Requires detecting which device is on charger and has been stationary (CoreMotion + charging state). The transfer tap remains as the explicit path; automatic selection is a quality-of-life enhancement.</p>
+
+    </div>
+  </section>
+
+  <div class="footer">Sorriva · Local Library Playback Architecture · v4.0 · Updated 2026-07-17</div>
+
+</main>
+</body>
+</html>
