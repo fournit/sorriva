@@ -78,6 +78,7 @@
 		80E294B3301669450031E31D /* MediaSourceReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294B2301669450031E31D /* MediaSourceReader.swift */; };
 		80E295023017D8E20031E31D /* ImageDimensionReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E295013017D8E20031E31D /* ImageDimensionReader.swift */; };
 		80E295033017D8E20031E31D /* ArtworkBestWins.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E295003017D8E20031E31D /* ArtworkBestWins.swift */; };
+		80FB2A8B301BA6D8001AAD98 /* NetworkIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80FB2A8A301BA6D8001AAD98 /* NetworkIdentity.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -174,6 +175,7 @@
 		80E294B2301669450031E31D /* MediaSourceReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaSourceReader.swift; sourceTree = "<group>"; };
 		80E295003017D8E20031E31D /* ArtworkBestWins.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkBestWins.swift; sourceTree = "<group>"; };
 		80E295013017D8E20031E31D /* ImageDimensionReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageDimensionReader.swift; sourceTree = "<group>"; };
+		80FB2A8A301BA6D8001AAD98 /* NetworkIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkIdentity.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -229,6 +231,7 @@
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
+				80FB2A8A301BA6D8001AAD98 /* NetworkIdentity.swift */,
 				80CC3512301AB84500B1DBAA /* NWConnectionProbe.swift */,
 				80CC35103019B87C00B1DBAA /* SMBSessionProbe.swift */,
 				80E295003017D8E20031E31D /* ArtworkBestWins.swift */,
@@ -488,6 +491,7 @@
 				80E293F830127B0E0031E31D /* MigrationAlert.swift in Sources */,
 				80325ACD3000948400308486 /* VolumeControlView.swift in Sources */,
 				80E293E2301143DB0031E31D /* BackupView.swift in Sources */,
+				80FB2A8B301BA6D8001AAD98 /* NetworkIdentity.swift in Sources */,
 				805A16CD3005DC1600AF3100 /* SorrivaContextMenu.swift in Sources */,
 				80325B023003D51000308486 /* LocalLibraryView.swift in Sources */,
 				805A16C83005AEC600AF3100 /* ArtistsView.swift in Sources */,

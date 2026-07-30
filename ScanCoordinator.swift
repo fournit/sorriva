@@ -40,6 +40,32 @@ final class ScanCoordinator: ObservableObject {
     private let scanner = SMBScanner()
     private var scanTask: Task<Void, Never>? = nil
 
+    /// Handle on the post-scan pipeline (artwork passes + retry scheduler). Held
+    /// so a wedged pipeline can be cancelled — scanTask.cancel() does not reach
+    /// it, because it runs in a detached task that outlives the scan itself.
+    private var pipelineTask: Task<Void, Never>? = nil
+
+    /// Wall-clock of the last observable pipeline progress. Updated by the scan
+    /// loop and by every artwork album iteration.
+    ///
+    /// Exists because a hang anywhere in the post-scan pipeline used to be
+    /// unrecoverable without a force-quit: scanState -> "retrying" and
+    /// activeScanSourceId = nil both happen AFTER the artwork passes, so a stall
+    /// during artwork left the app permanently believing a scan was healthy and
+    /// running. Observed 2026-07-29: folder art pass stopped mid-album-10 when
+    /// the app was backgrounded and never resumed across two foregrounds and
+    /// fifteen minutes, with none of its own timeouts firing.
+    private var lastPipelineProgress: Date? = nil
+
+    /// How long without progress before the pipeline is presumed wedged.
+    /// Generous — a single slow album read plus reconnect can legitimately take
+    /// well over a minute, and a false positive here interrupts real work.
+    private let pipelineStallThreshold: TimeInterval = 240
+
+    nonisolated private func notePipelineProgress() {
+        Task { @MainActor in ScanCoordinator.shared.lastPipelineProgress = Date() }
+    }
+
     private init() {}
 
     nonisolated private func scanLog(_ message: String) {
@@ -62,6 +88,9 @@ final class ScanCoordinator: ObservableObject {
         }
         pendingFullScanSource = nil
         interruptedScanSource = nil
+        // Explicit full rescan — discard any interrupted session so this run
+        // cannot inherit it and skip folders the user expects to be re-read.
+        try? SorrivaDatabase.shared.setCurrentScanSessionId(sourceId: source.id, sessionId: nil)
         try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "scanning")
         clearStatus()
         lastReport = nil
@@ -89,8 +118,48 @@ final class ScanCoordinator: ObservableObject {
         Task {
             let sources = (try? SorrivaDatabase.shared.allLibrarySources()) ?? []
             for source in sources {
-                guard source.scanState != "scanning" else { continue }
                 guard source.type == "smb" else { continue }
+
+                // A source stuck at "scanning" with no active task in THIS
+                // process means the scan was killed — iOS terminated the app
+                // mid-scan, so neither the completion path nor runScan's catch
+                // block ever ran to move the state off "scanning".
+                //
+                // The previous `guard scanState != "scanning"` skipped these
+                // outright, so a killed scan produced no alert, no resume, and a
+                // source that showed a live ScanStatusPanel forever. The
+                // launch-time reset that sorriva-context.html documents was
+                // never actually built; this is that reset, done at the only
+                // place that can distinguish "killed" from "running".
+                if source.scanState == "scanning" {
+                    if activeScanSourceId == source.id {
+                        // Believed healthy — but verify it is actually making
+                        // progress. Without this check a wedged pipeline is
+                        // permanent: nothing downstream ever runs to move the
+                        // state off "scanning", and this branch would keep
+                        // reporting "genuinely running" forever.
+                        let idle = Date().timeIntervalSince(lastPipelineProgress ?? Date())
+                        if idle < pipelineStallThreshold {
+                            continue    // genuinely running right now
+                        }
+                        sLog("SCAN: pipeline WEDGED for \(source.displayName) — no progress in \(Int(idle))s, recovering")
+                        scanTask?.cancel()
+                        pipelineTask?.cancel()
+                        scanTask = nil
+                        pipelineTask = nil
+                        activeScanSourceId = nil
+                        progress = nil
+                        lastPipelineProgress = nil
+                        UIApplication.shared.isIdleTimerDisabled = false
+                        try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "error")
+                        interruptedScanSource = source
+                        continue
+                    }
+                    sLog("SCAN: killed scan detected for \(source.displayName) — offering resume")
+                    try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "error")
+                    interruptedScanSource = source
+                    continue
+                }
 
                 switch source.scanState {
                 case "error":
@@ -127,18 +196,61 @@ final class ScanCoordinator: ObservableObject {
 
     // MARK: - Private scan starters
 
+    /// fScanResume — continue a scan that was killed mid-flight. Reuses the
+    /// interrupted run's session id so folders it already completed are skipped.
+    /// Distinct from confirmAndScanSource, which deliberately starts clean.
+    func resumeScan(source: LibrarySource) {
+        guard activeScanSourceId != source.id else {
+            sLog("SCAN: ignoring resume for \(source.displayName) — already active")
+            return
+        }
+        pendingFullScanSource = nil
+        interruptedScanSource = nil
+        clearStatus()
+        lastReport = nil
+
+        let resumeId = (try? SorrivaDatabase.shared.currentScanSessionId(sourceId: source.id)) ?? nil
+        if let resumeId {
+            sLog("SCAN: resuming session \(resumeId) for \(source.displayName)")
+        } else {
+            sLog("SCAN: no recorded session for \(source.displayName) — resuming as full scan")
+        }
+
+        if activeScanSourceId == source.id { scanTask?.cancel() }
+        scanTask = Task {
+            await runScan(source: source, folders: nil,
+                          sessionId: resumeId ?? UUID().uuidString,
+                          resumeSessionId: resumeId)
+        }
+    }
+
     private func startFullScan(source: LibrarySource) {
         if activeScanSourceId == source.id { scanTask?.cancel() }
-        scanTask = Task { await runScan(source: source, folders: nil) }
+        // Fresh session — a user-initiated full scan must never skip folders,
+        // or "Scan Now" on a completed source would do nothing.
+        scanTask = Task {
+            await runScan(source: source, folders: nil,
+                          sessionId: UUID().uuidString,
+                          resumeSessionId: nil)
+        }
     }
 
     private func startIncrementalScan(source: LibrarySource, folders: [String]) {
         if activeScanSourceId == source.id { scanTask?.cancel() }
-        scanTask = Task { await runScan(source: source, folders: folders) }
+        scanTask = Task {
+            await runScan(source: source, folders: folders,
+                          sessionId: UUID().uuidString,
+                          resumeSessionId: nil)
+        }
     }
 
-    private func runScan(source: LibrarySource, folders: [String]?) async {
+    private func runScan(source: LibrarySource, folders: [String]?,
+                         sessionId: String, resumeSessionId: String?) async {
         activeScanSourceId = source.id
+        lastPipelineProgress = Date()
+        // Recorded BEFORE the scan starts, so if the app is killed mid-scan the
+        // session id survives and a resume can find the folders it completed.
+        try? SorrivaDatabase.shared.setCurrentScanSessionId(sourceId: source.id, sessionId: sessionId)
         try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "scanning")
 
         // Prevent screen lock during scan
@@ -146,17 +258,21 @@ final class ScanCoordinator: ObservableObject {
 
         do {
             if let folders = folders {
-                try await scanner.scanChangedFolders(source: source, folderPaths: folders) { [weak self] p in
+                try await scanner.scanChangedFolders(source: source, folderPaths: folders,
+                                                     scanSessionId: sessionId) { [weak self] p in
                     Task { @MainActor [weak self] in self?.handleProgress(p) }
                 }
             } else {
-                try await scanner.scan(source: source) { [weak self] p in
+                try await scanner.scan(source: source,
+                                       scanSessionId: sessionId,
+                                       resumeSessionId: resumeSessionId) { [weak self] p in
                     Task { @MainActor [weak self] in self?.handleProgress(p) }
                 }
             }
             print("SCAN: Completed — \(source.displayName)")
         } catch {
             sLog("SCAN: Failed — \(source.displayName): \(error)")
+            // Session id deliberately left in place — it is what a resume needs.
             try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "error")
             UIApplication.shared.isIdleTimerDisabled = false
             if activeScanSourceId == source.id {
@@ -168,7 +284,7 @@ final class ScanCoordinator: ObservableObject {
 
         NotificationCenter.default.post(name: .libraryDidUpdate, object: nil)
 
-        Task.detached { [weak self] in
+        pipelineTask = Task.detached { [weak self] in
             guard let self else { return }
             // bArtworkSelectionNotBestWins — embedded art is checked first since
             // it has the highest likelihood of being high-resolution (e.g. the
@@ -185,6 +301,11 @@ final class ScanCoordinator: ObservableObject {
 
             // Mark as retrying before scheduler starts
             try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "retrying")
+            // Main pass and artwork are done, so there is nothing left for a
+            // resume to pick up — clear the session so a future killed run
+            // can't be confused with this one. The retry scheduler owns its own
+            // state via scan_skips and is independently resumable.
+            try? SorrivaDatabase.shared.setCurrentScanSessionId(sourceId: source.id, sessionId: nil)
             scanLog("SCAN: pipeline complete — starting retry scheduler for \(source.displayName)")
             await ScanRetryScheduler.shared.start(source: source, scanner: self.scanner)
 
@@ -195,6 +316,10 @@ final class ScanCoordinator: ObservableObject {
                     self.activeScanSourceId = nil
                     self.progress = nil
                 }
+                // Pipeline finished cleanly — retire the watchdog so a later
+                // idle period can't be mistaken for a wedge.
+                self.lastPipelineProgress = nil
+                self.pipelineTask = nil
             }
 
             // Enrich report with artwork and retry totals
@@ -216,6 +341,7 @@ final class ScanCoordinator: ObservableObject {
     }
 
     private func handleProgress(_ p: ScanProgress) {
+        lastPipelineProgress = Date()
         if p.phase == .complete {
             // Enrich report with source-level totals — incremental scans only show partial counts otherwise
             if var report = p.report {
@@ -253,6 +379,9 @@ final class ScanCoordinator: ObservableObject {
         }
 
         for (idx, album) in albums.enumerated() {
+            // Heartbeat — proves the pass is alive. Without this a hang here is
+            // invisible and unrecoverable (see lastPipelineProgress).
+            notePipelineProgress()
             guard !album.artManualOverride else {
                 self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] SKIP manual override — \(album.title)")
                 continue
@@ -324,15 +453,16 @@ final class ScanCoordinator: ObservableObject {
                         //
                         // Explicitly disconnect/logoff the OLD client before replacing
                         // it — even though it's in a bad state. Per Apple DTS guidance,
-                        // NWConnection.cancel() (which logoff() triggers via
-                        // Session.disconnect()) is specifically designed to safely force-
+                        // NWConnection.cancel() (reached ONLY via session.disconnect() --
+                        // logoff() does NOT trigger it; see bScanConnectionExhaustionOnRepeatedScans)
+                        // is specifically designed to safely force-
                         // release a connection's resources regardless of its current
                         // state; relying on ARC to eventually deallocate an abandoned
                         // client instead is the non-deterministic pattern that leaks
                         // kernel connection resources over a long scan session.
                         scanLog("ARTWORK: folder — reconnecting after header timeout")
                         let staleClient = client
-                        Task { try? await staleClient.disconnectShare(); try? await staleClient.logoff() }
+                        Task { try? await staleClient.disconnectShare(); try? await staleClient.logoff(); staleClient.session.disconnect() }
                         client = SMBClient(host: source.host)
                         if await reconnectWithTimeout(client: client, source: source) {
                             scanLog("ARTWORK: folder — reconnected")
@@ -350,7 +480,7 @@ final class ScanCoordinator: ObservableObject {
             } catch {
                 self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] error — \(error.localizedDescription)")
                 let staleClient = client
-                Task { try? await staleClient.disconnectShare(); try? await staleClient.logoff() }
+                Task { try? await staleClient.disconnectShare(); try? await staleClient.logoff(); staleClient.session.disconnect() }
                 client = SMBClient(host: source.host)
                 if await reconnectWithTimeout(client: client, source: source) {
                     scanLog("ARTWORK: folder — reconnected")
@@ -401,7 +531,7 @@ final class ScanCoordinator: ObservableObject {
             if downloadTimedOut {
                 scanLog("ARTWORK: folder — reconnecting after download timeout")
                 let staleClient = client
-                Task { try? await staleClient.disconnectShare(); try? await staleClient.logoff() }
+                Task { try? await staleClient.disconnectShare(); try? await staleClient.logoff(); staleClient.session.disconnect() }
                 client = SMBClient(host: source.host)
                 if await reconnectWithTimeout(client: client, source: source) {
                     scanLog("ARTWORK: folder — reconnected")
@@ -443,6 +573,7 @@ final class ScanCoordinator: ObservableObject {
 
         try? await client.disconnectShare()
         try? await client.logoff()
+        client.session.disconnect()
         scanLog("ARTWORK: folder pass COMPLETE — \(found)/\(albums.count) found")
         return found
     }
@@ -484,7 +615,7 @@ final class ScanCoordinator: ObservableObject {
                     // Force-release, same reasoning as the read-timeout path —
                     // don't leave this Task.detached's login/connectShare hanging
                     // indefinitely if it never completes on its own.
-                    Task { try? await client.logoff() }
+                    client.session.disconnect()
                 }
                 continuation.resume(returning: succeeded)
             }
@@ -510,6 +641,9 @@ final class ScanCoordinator: ObservableObject {
         }
 
         for (idx, album) in albums.enumerated() {
+            // Heartbeat — proves the pass is alive. Without this a hang here is
+            // invisible and unrecoverable (see lastPipelineProgress).
+            notePipelineProgress()
             guard !album.folderPath.isEmpty else {
                 try? SorrivaDatabase.shared.markEmbeddedArtScanned(albumId: album.id)
                 continue
@@ -559,7 +693,7 @@ final class ScanCoordinator: ObservableObject {
                         // kernel connection resources over a long scan session.
                         scanLog("ARTWORK: embedded — creating fresh connection after timeout")
                         let staleClient = client
-                        Task { try? await staleClient.disconnectShare(); try? await staleClient.logoff() }
+                        Task { try? await staleClient.disconnectShare(); try? await staleClient.logoff(); staleClient.session.disconnect() }
                         client = SMBClient(host: source.host)
                         if await reconnectWithTimeout(client: client, source: source) {
                             scanLog("ARTWORK: embedded — reconnected")
@@ -574,7 +708,7 @@ final class ScanCoordinator: ObservableObject {
                     artReadErrored = true
                     // Reconnect on non-timeout error
                     let staleClient = client
-                    Task { try? await staleClient.disconnectShare(); try? await staleClient.logoff() }
+                    Task { try? await staleClient.disconnectShare(); try? await staleClient.logoff(); staleClient.session.disconnect() }
                     client = SMBClient(host: source.host)
                     if await reconnectWithTimeout(client: client, source: source) {
                         scanLog("ARTWORK: embedded — reconnected")
@@ -658,6 +792,7 @@ final class ScanCoordinator: ObservableObject {
 
         try? await client.disconnectShare()
         try? await client.logoff()
+        client.session.disconnect()
         scanLog("ARTWORK: embedded pass COMPLETE — \(found)/\(albums.count) found")
         return found
     }

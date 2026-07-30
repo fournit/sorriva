@@ -47,6 +47,31 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
     private var lastTopologyHost: String? = nil
     private var topologyLastFetched: Date? = nil
 
+    // MARK: - Discovery lifecycle guards
+    // The network monitor and the notification observers are OBJECT-lifetime
+    // concerns, not per-discovery concerns. They were previously created inside
+    // startDiscovery(), which produced two defects:
+    //
+    //   1. NWPathMonitor invokes pathUpdateHandler immediately on start() with
+    //      the current path — not only on change. On a device with no cached
+    //      zones that gave startDiscovery -> monitor.start -> "satisfied"
+    //      callback -> handleNetworkRestored -> stopDiscovery (clears the
+    //      serviceBrowser guard) -> startDiscovery, with nothing able to break
+    //      the cycle. Observed at ~400 iterations/sec on first iPad launch.
+    //   2. Both observers were re-registered on every startDiscovery() call and
+    //      never removed, so each restart leaked two more live observers.
+    //
+    // Both are now established once in init().
+    private var observersRegistered = false
+    private var lastPathSatisfied: Bool? = nil
+    private var lastDiscoveryRestart: Date? = nil
+    private let discoveryRestartFloor: TimeInterval = 10.0
+
+    // Household ID attached to whatever topology was restored from cache this
+    // launch, if any. Validated against the live household once real topology
+    // arrives — see fetchTopology.
+    private var cachedHouseholdId: String? = nil
+
     // B-001: Volume command debounce — suppress poll overwrites for 3s after command
     private var volumeCommandTimes: [String: Date] = [:]  // zoneID → last command time
     private let volumeDebounceInterval: TimeInterval = 3.0
@@ -69,6 +94,14 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             .sorted { $0.name < $1.name }
     }
 
+    // MARK: - Lifecycle
+
+    override init() {
+        super.init()
+        startNetworkMonitor()
+        registerObservers()
+    }
+
     // MARK: - Public interface
 
     func startDiscovery() {
@@ -89,9 +122,13 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         browser.delegate = self
         browser.searchForServices(ofType: "_sonos._tcp", inDomain: "local.")
         self.serviceBrowser = browser
+    }
 
-        // WP-14: Network path monitor — restart discovery on network change
-        startNetworkMonitor()
+    /// Registered exactly once, from init. Never from startDiscovery — see the
+    /// discovery lifecycle guards above.
+    private func registerObservers() {
+        guard !observersRegistered else { return }
+        observersRegistered = true
 
         // Subscribe to playback grace notification from LocalPlaybackService
         NotificationCenter.default.addObserver(
@@ -100,7 +137,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             queue: .main
         ) { [weak self] notification in
             guard let self, let zoneID = notification.userInfo?["zoneID"] as? String else { return }
-            self.setPlaybackGrace(zoneID: zoneID)
+            Task { @MainActor in self.setPlaybackGrace(zoneID: zoneID) }
         }
 
         // WP-14: Subscribe to foreground notification for topology refresh
@@ -118,16 +155,33 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         }
     }
 
+    /// Started once from init and left running for the lifetime of the service.
+    /// stopDiscovery() must NOT cancel it — tearing the monitor down and
+    /// rebuilding it is precisely what created the restart loop.
     private func startNetworkMonitor() {
-        pathMonitor?.cancel()
+        guard pathMonitor == nil else { return }
         let monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self else { return }
-            if path.status == .satisfied {
-                Task { @MainActor in
-                    sLog("ZONES: Network restored — triggering rediscovery")
-                    self.handleNetworkRestored()
+            let satisfied = (path.status == .satisfied)
+            Task { @MainActor in
+                defer { self.lastPathSatisfied = satisfied }
+
+                // Only a TRANSITION into .satisfied is a network-restored event.
+                // NWPathMonitor fires this handler on start() and on unrelated
+                // path changes (interface reshuffles, DNS updates) while the
+                // status stays .satisfied throughout. Treating every satisfied
+                // callback as "restored" is what let this feed back into
+                // startDiscovery in an unbounded loop.
+                guard satisfied else {
+                    if self.lastPathSatisfied == true {
+                        sLog("ZONES: Network lost")
+                    }
+                    return
                 }
+                guard self.lastPathSatisfied != true else { return }
+                sLog("ZONES: Network became reachable — triggering rediscovery")
+                self.handleNetworkRestored()
             }
         }
         monitor.start(queue: DispatchQueue.global(qos: .background))
@@ -138,7 +192,19 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         // Always clear any stale error on foreground
         discoveryError = nil
         if zones.isEmpty {
-            sLog("ZONES: foreground with no zones — restarting discovery")
+            // Restart floor. Belt-and-braces against any future caller that
+            // fires repeatedly: if a browser is already running and we tore it
+            // down less than discoveryRestartFloor ago, leave it alone and let
+            // Bonjour finish. A restart when discovery is NOT running is always
+            // allowed, so this can never wedge discovery shut.
+            if serviceBrowser != nil,
+               let last = lastDiscoveryRestart,
+               Date().timeIntervalSince(last) < discoveryRestartFloor {
+                sLog("ZONES: restart suppressed — discovery already running (floor \(Int(discoveryRestartFloor))s)")
+                return
+            }
+            lastDiscoveryRestart = Date()
+            sLog("ZONES: no zones — restarting discovery")
             stopDiscovery()
             startDiscovery()
         } else {
@@ -151,8 +217,9 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
     }
 
     func stopDiscovery() {
-        pathMonitor?.cancel()
-        pathMonitor = nil
+        // NOTE: pathMonitor is deliberately NOT cancelled here. It is owned by
+        // the service lifetime, not by a discovery pass. Cancelling and
+        // recreating it per pass is what produced the discovery restart loop.
         serviceBrowser?.stop()
         serviceBrowser = nil
         pendingServices.forEach { $0.stop() }
@@ -288,9 +355,22 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                 lastTopologyHost = host
                 topologyLastFetched = Date()
                 sLog("ZONES: Parsed \(zones.count) zones: \(zones.map(\.name).joined(separator: ", "))")
+
+                // Household ID is only knowable once we've reached a real
+                // speaker, so the cache write happens AFTER this — not before.
+                let liveHouseholdId = await syncTopologyToDB(host: host)
+
+                // Validate anything restored from cache earlier this launch.
+                // The network key can collide across locations; the household
+                // ID is what actually proves it's the same Sonos system.
+                if let cached = cachedHouseholdId,
+                   let live = liveHouseholdId,
+                   cached != live {
+                    discardCachedTopology(reason: "household changed (\(cached) → \(live))")
+                }
+
                 // Cache zone topology for instant restore on next launch
-                saveZonesToCache()
-                await syncTopologyToDB(host: host)
+                saveZonesToCache(householdId: liveHouseholdId)
                 await fetchTransportStates()
                 await fetchAllStationMetadata()
                 restoreZoneStateFromDB()
@@ -564,10 +644,14 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         return (name: stationName, artURL: artURL)
     }
 
-    private func syncTopologyToDB(host: String) async {
+    /// Returns the live Sonos household ID, or nil if the speaker did not
+    /// report one. Callers use it to validate cached topology.
+    @discardableResult
+    private func syncTopologyToDB(host: String) async -> String? {
         print("SORRIVA DB: syncTopologyToDB starting, host=\(host), zones=\(zones.count)")
         // Get household ID from ZoneGroupAttributes
-        let hhid = await fetchHouseholdID(host: host) ?? "unknown"
+        let liveHouseholdId = await fetchHouseholdID(host: host)
+        let hhid = liveHouseholdId ?? "unknown"
         print("SORRIVA DB: hhid=\(hhid)")
         do {
             try SorrivaDatabase.shared.upsertHousehold(hhid: hhid, sonosName: nil)
@@ -607,6 +691,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                 print("SORRIVA DB: Device upsert error for \(zone.name): \(error)")
             }
         }
+        return liveHouseholdId
     }
 
     private func fetchHouseholdID(host: String) async -> String? {
@@ -1808,12 +1893,33 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
 }
 
 // MARK: - Zone topology cache
-// Saves minimal zone info (id, name, host) to UserDefaults for instant restore on launch.
-// Full topology is confirmed/updated by Bonjour discovery running in background.
+// Saves minimal zone info (id, name, host) for instant restore on launch, keyed
+// by the network the topology was observed on. Full topology is confirmed and
+// replaced by Bonjour discovery running in the background.
+//
+// The cache is a fast-path hint, never a source of truth. Two independent
+// checks keep it honest:
+//   1. Network key — a topology is only ever restored on the same IPv4 subnet
+//      it was captured on. Take the iPad to a different Sonos system and
+//      nothing is restored; discovery runs clean.
+//   2. Household ID — subnet keys DO collide (two homes on 192.168.1.0/24 is
+//      commonplace). The Sonos household ID, available only after real
+//      topology arrives, is what actually proves identity. On mismatch the
+//      entry is discarded and rewritten from the live system.
 
 extension ZoneDiscoveryService {
 
-    private static let cacheKey = "sorriva.cachedZones"
+    private static let cacheKeyPrefix = "sorriva.cachedZones."
+
+    /// Pre-network-scoping key. Network-agnostic, therefore exactly the thing
+    /// that restores a home topology onto a stranger's network. Dropped on
+    /// sight, never read.
+    private static let legacyCacheKey = "sorriva.cachedZones"
+
+    private struct CachedTopology: Codable {
+        let householdId: String?
+        let zones: [CachedZone]
+    }
 
     private struct CachedZone: Codable {
         let id: String
@@ -1822,32 +1928,65 @@ extension ZoneDiscoveryService {
         let capabilities: [String]
     }
 
-    func saveZonesToCache() {
-        let cached = zones.map { CachedZone(id: $0.id, name: $0.name, host: $0.host, capabilities: $0.capabilities) }
-        if let data = try? JSONEncoder().encode(cached) {
-            UserDefaults.standard.set(data, forKey: Self.cacheKey)
-            sLog("ZONES: Cached \(cached.count) zones to UserDefaults")
+    private static func cacheKey(for networkKey: String) -> String {
+        cacheKeyPrefix + networkKey
+    }
+
+    func saveZonesToCache(householdId: String?) {
+        guard let networkKey = NetworkIdentity.currentKey() else {
+            sLog("ZONES: No network key available — skipping topology cache write")
+            return
         }
+        let payload = CachedTopology(
+            householdId: householdId,
+            zones: zones.map {
+                CachedZone(id: $0.id, name: $0.name, host: $0.host, capabilities: $0.capabilities)
+            }
+        )
+        guard let data = try? JSONEncoder().encode(payload) else { return }
+        UserDefaults.standard.set(data, forKey: Self.cacheKey(for: networkKey))
+        UserDefaults.standard.removeObject(forKey: Self.legacyCacheKey)
+        cachedHouseholdId = householdId
+        sLog("ZONES: Cached \(payload.zones.count) zones — network \(networkKey), household \(householdId ?? "unknown")")
     }
 
     func restoreZonesFromCache() {
-        guard let data = UserDefaults.standard.data(forKey: Self.cacheKey),
-              let cached = try? JSONDecoder().decode([CachedZone].self, from: data),
-              !cached.isEmpty else { return }
+        cachedHouseholdId = nil
+        UserDefaults.standard.removeObject(forKey: Self.legacyCacheKey)
 
-        zones = cached.map { c in
+        guard let networkKey = NetworkIdentity.currentKey() else {
+            sLog("ZONES: No network key available — discovering without cache")
+            return
+        }
+        guard let data = UserDefaults.standard.data(forKey: Self.cacheKey(for: networkKey)),
+              let payload = try? JSONDecoder().decode(CachedTopology.self, from: data),
+              !payload.zones.isEmpty else {
+            sLog("ZONES: No cached topology for network \(networkKey) — discovering fresh")
+            return
+        }
+
+        cachedHouseholdId = payload.householdId
+        zones = payload.zones.map { c in
             var z = SonosZone(id: c.id, name: c.name, host: c.host, isPlaying: false, volume: 0)
             z.capabilities = c.capabilities
             return z
         }.sorted { $0.name < $1.name }
 
-        sLog("ZONES: Restored \(zones.count) zones from cache")
+        sLog("ZONES: Restored \(zones.count) zones for network \(networkKey) — unverified until household confirms")
 
         // Immediately poll transport state so cached zones show real play/pause status
         Task {
             await fetchTransportStates()
             restoreZoneStateFromDB()
         }
+    }
+
+    func discardCachedTopology(reason: String) {
+        if let networkKey = NetworkIdentity.currentKey() {
+            UserDefaults.standard.removeObject(forKey: Self.cacheKey(for: networkKey))
+        }
+        cachedHouseholdId = nil
+        sLog("ZONES: Discarded cached topology — \(reason)")
     }
 }
 
@@ -1863,18 +2002,18 @@ extension Notification.Name {
 extension ZoneDiscoveryService: NetServiceBrowserDelegate {
 
     nonisolated func netServiceBrowserWillSearch(_ browser: NetServiceBrowser) {
-        print("SORRIVA: Browser searching...")
+        Task { @MainActor in sLog("ZONES: Bonjour browser searching for _sonos._tcp") }
     }
 
     nonisolated func netServiceBrowser(_ browser: NetServiceBrowser, didFind service: NetService, moreComing: Bool) {
-        print("SORRIVA: Found: \(service.name)")
+        Task { @MainActor in sLog("ZONES: Bonjour found \(service.name)") }
         service.delegate = self
         service.resolve(withTimeout: 5.0)
         Task { @MainActor in self.pendingServices.append(service) }
     }
 
     nonisolated func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String: NSNumber]) {
-        print("SORRIVA: Browser error: \(errorDict)")
+        Task { @MainActor in sLog("ZONES: Bonjour browser error \(errorDict) — check Local Network permission") }
         Task { @MainActor in
             self.discoveryError = "Network search failed"
             self.isDiscovering = false
@@ -1887,7 +2026,7 @@ extension ZoneDiscoveryService: NetServiceBrowserDelegate {
 extension ZoneDiscoveryService: NetServiceDelegate {
 
     nonisolated func netServiceDidResolveAddress(_ sender: NetService) {
-        print("SORRIVA: Resolved: \(sender.name)")
+        Task { @MainActor in sLog("ZONES: Bonjour resolved \(sender.name)") }
         Task { @MainActor in
             self.serviceResolved(sender)
             self.pendingServices.removeAll { $0 === sender }
@@ -1895,7 +2034,7 @@ extension ZoneDiscoveryService: NetServiceDelegate {
     }
 
     nonisolated func netService(_ sender: NetService, didNotResolve errorDict: [String: NSNumber]) {
-        print("SORRIVA: Did not resolve \(sender.name): \(errorDict)")
+        Task { @MainActor in sLog("ZONES: Bonjour failed to resolve \(sender.name): \(errorDict)") }
         Task { @MainActor in
             self.pendingServices.removeAll { $0 === sender }
         }

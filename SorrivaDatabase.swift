@@ -855,6 +855,28 @@ final class SorrivaDatabase {
             print("SORRIVA DB: v15 artwork dimension columns added")
         }
 
+        migrator.registerMigration("v16_scan_session") { db in
+            // fScanResume. A killed scan leaves completed-folder records behind,
+            // but folder_stats rows carry no indication of WHICH scan wrote them,
+            // so they are indistinguishable from rows left by a previous
+            // completed scan. Without that distinction, resuming would skip
+            // folders the interrupted run never touched — fine on a first-ever
+            // import, silently wrong on any re-import.
+            //
+            // scanSessionId makes "already done by THIS run" a fact rather than
+            // an inference. currentScanSessionId on the source is how a resume
+            // knows which session it is continuing.
+            try db.alter(table: "folder_stats") { t in
+                t.add(column: "scanSessionId", .text)
+            }
+            try db.alter(table: "library_sources") { t in
+                t.add(column: "currentScanSessionId", .text)
+            }
+            try db.create(index: "idx_folder_stats_session", on: "folder_stats",
+                          columns: ["sourceId", "scanSessionId"], ifNotExists: true)
+            print("SORRIVA DB: v16 scan session columns added")
+        }
+
         try migrator.migrate(dbQueue)
         print("SORRIVA DB: Migrations complete")
     }
@@ -1985,8 +2007,14 @@ final class SorrivaDatabase {
     // MARK: - FolderStat operations
 
     /// Upsert a folder stat record after a successful folder scan.
+    ///
+    /// `scanSessionId` is what makes fScanResume safe: a resume only skips
+    /// folders stamped with the session it is continuing. Raw SQL for the stamp
+    /// because FolderStat (in DatabaseModels.swift) has no property for it —
+    /// deliberately, so this change stays inside the scan path.
     func upsertFolderStat(sourceId: String, folderPath: String,
-                          fileCount: Int, totalBytes: Int) throws {
+                          fileCount: Int, totalBytes: Int,
+                          scanSessionId: String? = nil) throws {
         let now = Int(Date().timeIntervalSince1970)
         try dbQueue.write { db in
             // Check if exists
@@ -2010,6 +2038,53 @@ final class SorrivaDatabase {
                 )
                 try stat.save(db)
             }
+            try db.execute(sql: """
+                UPDATE folder_stats SET scanSessionId = ?
+                WHERE sourceId = ? AND folderPath = ?
+            """, arguments: [scanSessionId, sourceId, folderPath])
+        }
+    }
+
+    /// Folders already completed by a specific scan session, as
+    /// folderPath → (fileCount, totalBytes). Used by fScanResume to skip work
+    /// the interrupted run had already finished. Returns empty for a nil or
+    /// unknown session, so a resume with no recorded session degrades to a
+    /// normal full scan rather than skipping everything.
+    func completedFolders(sourceId: String, scanSessionId: String) throws -> [String: (fileCount: Int, totalBytes: Int)] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT folderPath, fileCount, totalBytes
+                FROM folder_stats
+                WHERE sourceId = ? AND scanSessionId = ?
+            """, arguments: [sourceId, scanSessionId])
+            var out: [String: (fileCount: Int, totalBytes: Int)] = [:]
+            for row in rows {
+                let path: String = row["folderPath"]
+                out[path] = (fileCount: row["fileCount"], totalBytes: row["totalBytes"])
+            }
+            return out
+        }
+    }
+
+    /// Set (or clear, with nil) the in-flight scan session on a source.
+    func setCurrentScanSessionId(sourceId: String, sessionId: String?) throws {
+        let now = Int(Date().timeIntervalSince1970)
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE library_sources
+                SET currentScanSessionId = ?, updatedAt = ?
+                WHERE id = ?
+            """, arguments: [sessionId, now, sourceId])
+        }
+    }
+
+    /// The in-flight scan session for a source, if any. Read via raw SQL because
+    /// LibrarySource has no property for this column.
+    func currentScanSessionId(sourceId: String) throws -> String? {
+        try dbQueue.read { db in
+            try String.fetchOne(db, sql: """
+                SELECT currentScanSessionId FROM library_sources WHERE id = ?
+            """, arguments: [sourceId])
         }
     }
 

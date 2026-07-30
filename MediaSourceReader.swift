@@ -201,6 +201,13 @@ actor SMBMediaSourceReader: MediaSourceReader {
                     // goes straight to NWConnection.cancel(): synchronous, no
                     // round-trip, no live session required. It is also the only
                     // call that actually releases the kernel flow entry.
+                    //
+                    // Deliberately NOT counted via noteReleased() here: the
+                    // detached task above is still alive and will run its own
+                    // teardown (which does count) once cancel() unblocks its
+                    // read. Counting in both places would double-count. If a
+                    // detached task ever fails to complete, the balance will show
+                    // it as outstanding — which is exactly what we want to see.
                     client.session.disconnect()
                 }
                 continuation.resume(with: result)

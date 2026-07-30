@@ -102,20 +102,38 @@ actor SMBScanner {
     }
 
     /// Full scan of entire source — used for initial load and manual "Scan Now".
+    ///
+    /// - Parameters:
+    ///   - scanSessionId: stamped on every folder_stats row this run completes,
+    ///     so a later resume can tell this run's work from a previous scan's.
+    ///   - resumeSessionId: fScanResume. When set, folders already stamped with
+    ///     that session AND still matching on disk are skipped. Must be nil for
+    ///     a user-initiated rescan, or "Scan Now" on a completed source would
+    ///     skip everything and do nothing — which would also remove the only way
+    ///     to force a re-read (see bTagEditsNotDetected).
     func scan(
         source: LibrarySource,
+        scanSessionId: String? = nil,
+        resumeSessionId: String? = nil,
         progressHandler: @Sendable @escaping (ScanProgress) -> Void
     ) async throws {
-        try await scanFolders(source: source, folderPaths: nil, progressHandler: progressHandler)
+        try await scanFolders(source: source, folderPaths: nil,
+                              scanSessionId: scanSessionId,
+                              resumeSessionId: resumeSessionId,
+                              progressHandler: progressHandler)
     }
 
     /// Incremental scan of specific folders — used when change detection finds new/changed folders.
     func scanChangedFolders(
         source: LibrarySource,
         folderPaths: [String],
+        scanSessionId: String? = nil,
         progressHandler: @Sendable @escaping (ScanProgress) -> Void
     ) async throws {
-        try await scanFolders(source: source, folderPaths: folderPaths, progressHandler: progressHandler)
+        try await scanFolders(source: source, folderPaths: folderPaths,
+                              scanSessionId: scanSessionId,
+                              resumeSessionId: nil,
+                              progressHandler: progressHandler)
     }
 
     // MARK: - Core scan implementation
@@ -123,6 +141,8 @@ actor SMBScanner {
     private func scanFolders(
         source: LibrarySource,
         folderPaths: [String]?,   // nil = full scan
+        scanSessionId: String? = nil,
+        resumeSessionId: String? = nil,
         progressHandler: @Sendable @escaping (ScanProgress) -> Void
     ) async throws {
 
@@ -164,6 +184,49 @@ actor SMBScanner {
             await smbReader.closeWalkConnection()
         }
 
+        // fScanResume — drop files in folders the interrupted run already
+        // finished. Runs BEFORE totalFiles is computed so progress reports
+        // against real remaining work rather than jumping.
+        //
+        // A folder qualifies only if it carries the resumed session's id AND
+        // still matches on disk (same fileCount and totalBytes). The disk check
+        // is the same comparison findChangedFolders makes, so resume and
+        // incremental change detection share one rule.
+        //
+        // The walk itself is NOT skipped — file counts can't be compared without
+        // enumerating. That costs one connection and no header reads, which is
+        // the cheap part; the ~13.5k header reads are what this saves.
+        if let resumeSessionId, folderPaths == nil {
+            let completed = (try? SorrivaDatabase.shared.completedFolders(
+                sourceId: source.id, scanSessionId: resumeSessionId
+            )) ?? [:]
+
+            if completed.isEmpty {
+                scanLog("SCAN: resume — no completed folders recorded for session \(resumeSessionId), scanning everything")
+            } else {
+                let groups = Dictionary(grouping: allFiles) { ($0.path as NSString).deletingLastPathComponent }
+                var skipFolders = Set<String>()
+                for (folder, files) in groups {
+                    guard let stat = completed[folder] else { continue }
+                    let bytes = files.reduce(0) { $0 + $1.size }
+                    if stat.fileCount == files.count && stat.totalBytes == bytes {
+                        skipFolders.insert(folder)
+                    } else {
+                        scanLog("SCAN: resume — folder changed since it completed, rescanning: \(folder)")
+                    }
+                }
+                if !skipFolders.isEmpty {
+                    let before = allFiles.count
+                    allFiles.removeAll { skipFolders.contains(($0.path as NSString).deletingLastPathComponent) }
+                    scanLog("SCAN: resume — skipping \(before - allFiles.count) file(s) in \(skipFolders.count) already-complete folder(s), \(allFiles.count) remaining")
+                }
+            }
+
+            if allFiles.isEmpty {
+                scanLog("SCAN: resume — nothing left to scan, all folders already complete")
+            }
+        }
+
         let totalFiles = allFiles.count
         let totalBytes = allFiles.reduce(0) { $0 + $1.size }
 
@@ -189,6 +252,13 @@ actor SMBScanner {
         // Pre-compute folder groups so we can write FolderStat as each folder completes
         let folderGroups = Dictionary(grouping: allFiles) { ($0.path as NSString).deletingLastPathComponent }
         var completedInFolder: [String: Int] = [:]
+        // Persisted (actually written) count per folder, separate from the
+        // considered count above. bFolderDoneCountMisreported: the "folder done"
+        // line used to print folderFiles.count -- the ENUMERATED file count --
+        // which meant a folder where every read failed still logged its full
+        // track count. That made the line useless as a diagnostic, and it is the
+        // exact comparison bMissingTracksInAlbum's investigation notes call for.
+        var writtenInFolder: [String: Int] = [:]
 
         for file in allFiles {
             // WP-14: Respect task cancellation between files
@@ -251,6 +321,9 @@ actor SMBScanner {
                 // whether a read or a write failed, so a write failure here gets
                 // the same scan_skips retry queue read failures already use.
                 let wrote = await writeTrackWithRetry(track, trackArtistId: trackArtist.id)
+                if wrote {
+                    writtenInFolder[folderPath, default: 0] += 1
+                }
                 if !wrote {
                     writeFailures += 1
                     try? SorrivaDatabase.shared.insertScanSkip(filePath: file.path, sourceId: source.id)
@@ -278,9 +351,15 @@ actor SMBScanner {
                     sourceId: source.id,
                     folderPath: folderPath,
                     fileCount: folderFiles.count,
-                    totalBytes: folderBytes
+                    totalBytes: folderBytes,
+                    scanSessionId: scanSessionId
                 )
-                scanLog("SCAN: folder done (\(folderFiles.count) tracks) — \(folderPath)")
+                let written = writtenInFolder[folderPath] ?? 0
+                if written == folderFiles.count {
+                    scanLog("SCAN: folder done (\(written) tracks) — \(folderPath)")
+                } else {
+                    scanLog("SCAN: folder done (\(written) of \(folderFiles.count) tracks written, \(folderFiles.count - written) missing) — \(folderPath)")
+                }
 
                 // Notify UI progressively — library updates as each folder completes
                 await MainActor.run {

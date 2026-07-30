@@ -30,7 +30,12 @@ struct SorrivaApp: App {
                         set: { if !$0 { environment.scanCoordinator.interruptedScanSource = nil } }
                     )
                 ) {
-                    Button("Restart Scan") {
+                    Button("Resume Scan") {
+                        if let source = environment.scanCoordinator.interruptedScanSource {
+                            environment.scanCoordinator.resumeScan(source: source)
+                        }
+                    }
+                    Button("Start Over") {
                         if let source = environment.scanCoordinator.interruptedScanSource {
                             environment.scanCoordinator.confirmAndScanSource(source)
                         }
@@ -48,9 +53,9 @@ struct SorrivaApp: App {
                         let root = source.rootPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
                         let lastComponent = root.components(separatedBy: "/").filter { !$0.isEmpty }.last ?? root
                         let shareDetail = root.isEmpty ? source.share : "\(source.share) — .../\(lastComponent)"
-                        Text("The scan of \(shareDetail) on \(source.displayName) did not complete. Would you like to restart it?")
+                        Text("The scan of \(shareDetail) on \(source.displayName) did not complete. Resume continues where it stopped; Start Over rescans everything.")
                     } else {
-                        Text("A previous scan did not complete. Would you like to restart it?")
+                        Text("A previous scan did not complete. Resume continues where it stopped; Start Over rescans everything.")
                     }
                 }
         }
