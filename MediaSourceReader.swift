@@ -95,6 +95,7 @@ actor SMBMediaSourceReader: MediaSourceReader {
         guard let client = walkClient else { return }
         try? await client.disconnectShare()
         try? await client.logoff()
+        client.session.disconnect()
         walkClient = nil
     }
 
@@ -128,6 +129,7 @@ actor SMBMediaSourceReader: MediaSourceReader {
                     // rejected credentials, so there may be a real connection to
                     // release here, not just a no-op.
                     try? await client.logoff()
+                    client.session.disconnect()
                     result = .failure(MediaSourceReaderError.auth(name: name, underlying: error))
                     semaphore.signal()
                     return
@@ -137,6 +139,7 @@ actor SMBMediaSourceReader: MediaSourceReader {
                     try await client.connectShare(share)
                 } catch {
                     try? await client.logoff()
+                    client.session.disconnect()
                     result = .failure(MediaSourceReaderError.share(name: name, underlying: error))
                     semaphore.signal()
                     return
@@ -154,6 +157,26 @@ actor SMBMediaSourceReader: MediaSourceReader {
 
                 try? await client.disconnectShare()
                 try? await client.logoff()
+                // THE fix for bScanConnectionExhaustionOnRepeatedScans.
+                //
+                // SMBClient never calls NWConnection.cancel() anywhere in the
+                // library: Session.disconnect() is the only path that reaches it
+                // and nothing invokes it, SMBClient exposes no wrapper for it,
+                // and there is no deinit on Connection/Session/SMBClient. So
+                // logoff() sends the SMB2 LOGOFF frame and zeroes sessionId while
+                // leaving the TCP connection open — every read leaked one kernel
+                // flow entry against a hard per-process ceiling of exactly 512.
+                //
+                // `session` is a public property and Session.disconnect() is
+                // public, so the seam is reachable without forking. Measured
+                // 2026-07-29: identical churn harness failed at exactly 512
+                // without this line, and completed 600 connections with it.
+                //
+                // It also eliminated the unexplained session stalls (previously
+                // ~1 per 90 connections, zero across 600 after this change) —
+                // the NAS was almost certainly refusing service to a client
+                // holding hundreds of abandoned sockets.
+                client.session.disconnect()
                 semaphore.signal()
             }
 
@@ -169,10 +192,16 @@ actor SMBMediaSourceReader: MediaSourceReader {
                     // regardless: NWConnection.cancel() completes any outstanding
                     // receive/send with an error, which unblocks whatever the stuck
                     // task is awaiting, letting it exit and run its own (now
-                    // redundant) cleanup. Fire-and-forget — we don't wait for this
-                    // to finish before resuming, since the caller has already
-                    // given up on this read either way.
-                    Task { try? await client.logoff() }
+                    // redundant) cleanup.
+                    //
+                    // session.disconnect() replaces the previous logoff() here.
+                    // logoff() sends an SMB2 frame and awaits a response, which on
+                    // a genuinely hung connection may never arrive — so the very
+                    // call meant to break the hang could itself hang. disconnect()
+                    // goes straight to NWConnection.cancel(): synchronous, no
+                    // round-trip, no live session required. It is also the only
+                    // call that actually releases the kernel flow entry.
+                    client.session.disconnect()
                 }
                 continuation.resume(with: result)
             }
