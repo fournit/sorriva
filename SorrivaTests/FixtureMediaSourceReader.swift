@@ -30,18 +30,25 @@ final class FixtureMediaSourceReader: MediaSourceReader {
         let fm = FileManager.default
         let contents = try fm.contentsOfDirectory(
             at: dirURL,
-            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey]
+            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey]
         )
         // Sorted for deterministic test ordering — FileManager.contentsOfDirectory
         // makes no ordering guarantee otherwise, which would make any test that
         // depends on processing order (e.g. "first occurrence wins") flaky.
         let sorted = contents.sorted { $0.lastPathComponent < $1.lastPathComponent }
         return try sorted.map { url in
-            let values = try url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
+            let values = try url.resourceValues(
+                forKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey]
+            )
             return MediaSourceEntry(
                 name: url.lastPathComponent,
                 isDirectory: values.isDirectory ?? false,
-                size: values.fileSize ?? 0
+                size: values.fileSize ?? 0,
+                // Real filesystem mtime, not a stub — a test that fabricates
+                // this would not exercise the change-detection logic it exists
+                // to verify. Tests needing a specific value should set it on
+                // the fixture file via FileManager.
+                modifiedAt: values.contentModificationDate ?? Date(timeIntervalSince1970: 0)
             )
         }
     }
