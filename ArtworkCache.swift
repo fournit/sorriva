@@ -56,14 +56,35 @@ actor ArtworkCache {
     /// 600×600 and that area comparison alone can't tell a right match from
     /// a wrong one. A wrong match can now only ever fill an empty slot,
     /// never destroy something that was already correct.
-    func fetchMissingArtwork() async {
-        let albums = (try? SorrivaDatabase.shared.albumsWithoutArtwork()) ?? []
-        guard !albums.isEmpty else { return }
+    /// Marker-driven and source-scoped (bArtworkPassNotResumable).
+    ///
+    /// Selection now also requires onlineArtAttempted == false. Without it,
+    /// albums with no findable art were re-queried on EVERY pass forever —
+    /// artPathThumb stays nil for those, so the "no existing art" gate alone
+    /// never retires them, and each one costs a network round trip plus a 3s
+    /// stagger. It also makes the pass resumable: a kill mid-pass leaves the
+    /// albums already attempted marked, so a resume continues rather than
+    /// starting over.
+    ///
+    /// Markers are reset at scan start for exactly the folders being scanned, so
+    /// a rescanned album is retried and an untouched one is not.
+    func fetchMissingArtwork(sourceId: String) async {
+        let albums = (try? SorrivaDatabase.shared.albumsNeedingOnlineArtScan(sourceId: sourceId)) ?? []
+        guard !albums.isEmpty else {
+            sLog("ARTWORK: online fetch — nothing to fetch")
+            return
+        }
 
         sLog("ARTWORK: online fetch — \(albums.count) albums with no artwork yet")
 
         for album in albums {
+            // Marked AFTER the attempt completes, so an album interrupted
+            // mid-fetch stays unmarked and is retried on resume. fetchArtwork
+            // swallows its own errors, so reaching this line means the attempt
+            // finished — success, no match, or handled failure — all of which
+            // count as attempted for this scan and must not be retried in a loop.
             await fetchArtwork(for: album)
+            try? SorrivaDatabase.shared.markOnlineArtAttempted(albumId: album.id)
             // Stagger — 3 seconds between requests to respect iTunes API rate limit
             try? await Task.sleep(nanoseconds: 3_000_000_000)
         }

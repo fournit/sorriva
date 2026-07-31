@@ -9,6 +9,20 @@ struct MediaSourceEntry: Sendable {
     let name: String
     let isDirectory: Bool
     let size: Int
+
+    /// Last write time, used by change detection.
+    ///
+    /// fUnifiedScanWalkThenFilter: a folder is considered unchanged only if file
+    /// count, total bytes AND newest modification time all match the stored
+    /// stat. Count and bytes alone cannot see a tag-only edit — external taggers
+    /// write into the FLAC PADDING block that exists for exactly that purpose,
+    /// so the file size is identical afterward (bTagEditsNotDetected).
+    ///
+    /// This matters more under the unified model than the old one: a manual
+    /// rescan used to re-read every header, which was the de facto workaround
+    /// for retagging. Once manual and automatic share the same skip logic, that
+    /// workaround is gone, so mtime is what keeps the model honest.
+    let modifiedAt: Date
 }
 
 // MARK: - MediaSourceReader
@@ -76,7 +90,15 @@ actor SMBMediaSourceReader: MediaSourceReader {
         let client = try await connectedWalkClient()
         let entries = try await client.listDirectory(path: path)
         return entries.map {
-            MediaSourceEntry(name: $0.name, isDirectory: $0.isDirectory, size: Int($0.size))
+            // SMBClient.File exposes lastWriteTime as a Date, derived from the
+            // SMB2 FileStat the directory query already returns — no extra
+            // round trip, and no fork needed.
+            MediaSourceEntry(
+                name: $0.name,
+                isDirectory: $0.isDirectory,
+                size: Int($0.size),
+                modifiedAt: $0.lastWriteTime
+            )
         }
     }
 

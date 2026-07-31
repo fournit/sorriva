@@ -70,6 +70,20 @@ private struct ParsedMetadata: Sendable {
 // requires reads at its negotiated maxReadSize or it stalls.
 // Only the first 64KB of the response is used for tag parsing.
 
+// MARK: - ScannedFile
+// One audio file as found by the directory walk.
+//
+// Was an anonymous (path, size) tuple. Named and widened for
+// fUnifiedScanWalkThenFilter, which needs modification time to decide whether a
+// folder has changed — count and bytes alone cannot see a tag-only edit, since
+// taggers write into the FLAC PADDING block and the file size is unchanged.
+
+struct ScannedFile {
+    let path: String
+    let size: Int
+    let modifiedAt: Date
+}
+
 actor SMBScanner {
 
     static let audioExtensions: Set<String> = [
@@ -162,7 +176,7 @@ actor SMBScanner {
         let reader = readerFactory(source)
 
         let root = rootPath(source)
-        var allFiles: [(path: String, size: Int)] = []
+        var allFiles: [ScannedFile] = []
 
         if let paths = folderPaths {
             // Incremental — only walk specified folders
@@ -184,47 +198,116 @@ actor SMBScanner {
             await smbReader.closeWalkConnection()
         }
 
-        // fScanResume — drop files in folders the interrupted run already
-        // finished. Runs BEFORE totalFiles is computed so progress reports
-        // against real remaining work rather than jumping.
+        // ---- fUnifiedScanWalkThenFilter --------------------------------------
         //
-        // A folder qualifies only if it carries the resumed session's id AND
-        // still matches on disk (same fileCount and totalBytes). The disk check
-        // is the same comparison findChangedFolders makes, so resume and
-        // incremental change detection share one rule.
+        // ONE primitive for manual scan, automatic foreground scan and resume:
+        // walk the tree, skip folders whose stored fingerprint still matches,
+        // scan the rest. They differ only in trigger, and in whether resume
+        // additionally requires the session stamp.
         //
-        // The walk itself is NOT skipped — file counts can't be compared without
-        // enumerating. That costs one connection and no header reads, which is
-        // the cheap part; the ~13.5k header reads are what this saves.
-        if let resumeSessionId, folderPaths == nil {
-            let completed = (try? SorrivaDatabase.shared.completedFolders(
-                sourceId: source.id, scanSessionId: resumeSessionId
-            )) ?? [:]
+        // Replaces two paths that disagreed with each other. The old full scan
+        // read EVERY header with no comparison at all, so a manual rescan of
+        // 13.5k tracks re-read everything (~2 hours) even when nothing had
+        // changed. The old incremental path iterated folder_stats — the folders
+        // already in the DB — so a NEWLY ADDED folder had no row, was never in
+        // the loop, and was never scanned (bNewFoldersNotDetected). Walking the
+        // disk fixes that structurally: absence of a stat means "scan it",
+        // never "skip it".
+        //
+        // The walk itself is never skipped — counts cannot be compared without
+        // enumerating. That is listDirectory only, one connection, no header
+        // reads: seconds. The header reads are what this saves.
+        let walkedGroups = Dictionary(grouping: allFiles) {
+            ($0.path as NSString).deletingLastPathComponent
+        }
 
-            if completed.isEmpty {
-                scanLog("SCAN: resume — no completed folders recorded for session \(resumeSessionId), scanning everything")
+        if folderPaths == nil {
+            let stored = (try? SorrivaDatabase.shared.folderFingerprints(sourceId: source.id)) ?? [:]
+
+            // Resume additionally requires the session stamp, so a folder
+            // completed by a PREVIOUS scan is not mistaken for work this run
+            // finished. Harmless on a first-ever import, silently wrong on a
+            // re-import — which is the whole reason scanSessionId exists.
+            let sessionCompleted: Set<String>
+            if let resumeSessionId {
+                sessionCompleted = Set(
+                    ((try? SorrivaDatabase.shared.completedFolders(
+                        sourceId: source.id, scanSessionId: resumeSessionId)) ?? [:]
+                    ).keys
+                )
+                scanLog("SCAN: resume — session \(resumeSessionId.prefix(8)) completed \(sessionCompleted.count) folder(s)")
             } else {
-                let groups = Dictionary(grouping: allFiles) { ($0.path as NSString).deletingLastPathComponent }
-                var skipFolders = Set<String>()
-                for (folder, files) in groups {
-                    guard let stat = completed[folder] else { continue }
-                    let bytes = files.reduce(0) { $0 + $1.size }
-                    if stat.fileCount == files.count && stat.totalBytes == bytes {
-                        skipFolders.insert(folder)
-                    } else {
-                        scanLog("SCAN: resume — folder changed since it completed, rescanning: \(folder)")
-                    }
+                sessionCompleted = []
+            }
+
+            var skipFolders = Set<String>()
+            var changedCount = 0
+            var newCount = 0
+
+            for (folder, files) in walkedGroups {
+                let current = fingerprint(for: files)
+                guard let stat = stored[folder] else {
+                    newCount += 1
+                    continue                      // never scanned — always scan
                 }
-                if !skipFolders.isEmpty {
-                    let before = allFiles.count
-                    allFiles.removeAll { skipFolders.contains(($0.path as NSString).deletingLastPathComponent) }
-                    scanLog("SCAN: resume — skipping \(before - allFiles.count) file(s) in \(skipFolders.count) already-complete folder(s), \(allFiles.count) remaining")
+                guard stat.matches(current) else {
+                    changedCount += 1
+                    continue                      // changed on disk — rescan
                 }
+                if resumeSessionId != nil && !sessionCompleted.contains(folder) {
+                    continue                      // unchanged, but not this run's work
+                }
+                skipFolders.insert(folder)
+            }
+
+            if !skipFolders.isEmpty {
+                let before = allFiles.count
+                allFiles.removeAll { skipFolders.contains(($0.path as NSString).deletingLastPathComponent) }
+                scanLog("SCAN: filter — skipping \(before - allFiles.count) file(s) in \(skipFolders.count) unchanged folder(s); \(newCount) new, \(changedCount) changed, \(allFiles.count) file(s) to scan")
+            } else {
+                scanLog("SCAN: filter — nothing skippable; \(newCount) new folder(s), \(changedCount) changed, \(allFiles.count) file(s) to scan")
             }
 
             if allFiles.isEmpty {
-                scanLog("SCAN: resume — nothing left to scan, all folders already complete")
+                scanLog("SCAN: filter — nothing to scan, every folder already up to date")
             }
+
+            // ---- Deletion reconciliation -------------------------------------
+            //
+            // A folder removed from the NAS never appears in the walk, so its
+            // stats and tracks would persist forever. The walk gives the
+            // complete disk picture, so this is a set difference.
+            //
+            // Only valid on a full-tree walk — a folder-scoped scan would make
+            // every unvisited folder look deleted. Guarded by `folderPaths == nil`.
+            //
+            // Everything here is sourceId-scoped, so one share can never delete
+            // another share's rows even when both cover the same tree.
+            let vanished = Set(stored.keys).subtracting(walkedGroups.keys)
+            if !vanished.isEmpty {
+                scanLog("SCAN: reconcile — \(vanished.count) folder(s) no longer on disk, removing")
+                for folder in vanished {
+                    scanLog("SCAN: reconcile — removing \(folder)")
+                    try? await deleteTracksInFolder(folder: folder, sourceId: source.id)
+                }
+                try? SorrivaDatabase.shared.deleteFolderStats(sourceId: source.id,
+                                                              folderPaths: Array(vanished))
+            }
+        }
+
+        // bArtworkPassNotResumable — clear pass markers for exactly the folders
+        // about to be scanned, so their artwork is re-evaluated. Scoped to the
+        // scanned folders, never the whole source: an incremental scan of 2
+        // folders must not re-check artwork for every album. Resume passes a
+        // filtered list too, so folders it skips keep their markers and the
+        // artwork phase continues rather than restarting.
+        let foldersToScan = Set(allFiles.map { ($0.path as NSString).deletingLastPathComponent })
+        if !foldersToScan.isEmpty {
+            try? SorrivaDatabase.shared.resetArtworkPassMarkers(
+                sourceId: source.id,
+                folderPaths: Array(foldersToScan)
+            )
+            scanLog("SCAN: artwork markers reset for \(foldersToScan.count) folder(s) being scanned")
         }
 
         let totalFiles = allFiles.count
@@ -331,6 +414,22 @@ actor SMBScanner {
             } else {
                 skipped += 1
                 scanLog("SCAN: skip (read failed) — \(file.path)")
+                // Persisted IMMEDIATELY, not batched to the end of the scan.
+                //
+                // These used to accumulate in memory and write only after the
+                // whole file loop finished, so a kill mid-scan lost every read
+                // failure recorded so far. Worse under resume: the folder gets
+                // its FolderStat when all files are CONSIDERED (skips included),
+                // so on resume that folder is skipped, the failed files are
+                // never retried, and the skip records that would have driven
+                // retry were never written — the track is silently absent with
+                // nothing pointing at it.
+                //
+                // Write failures a few lines above were already immediate; this
+                // just makes read failures behave the same. The batching saved
+                // one transaction per scan against 2-18 rows, which is not worth
+                // losing the queue to an interruption.
+                try? SorrivaDatabase.shared.insertScanSkip(filePath: file.path, sourceId: source.id)
                 skippedPaths.append(file.path)
             }
             try? await Task.sleep(nanoseconds: 200_000_000) // 200ms throttle
@@ -347,11 +446,13 @@ actor SMBScanner {
             if let folderFiles = folderGroups[folderPath],
                completedInFolder[folderPath] == folderFiles.count {
                 let folderBytes = folderFiles.reduce(0) { $0 + $1.size }
+                let folderPrint  = fingerprint(for: folderFiles)
                 try? SorrivaDatabase.shared.upsertFolderStat(
                     sourceId: source.id,
                     folderPath: folderPath,
                     fileCount: folderFiles.count,
                     totalBytes: folderBytes,
+                    maxModifiedAt: folderPrint.maxModifiedAt,
                     scanSessionId: scanSessionId
                 )
                 let written = writtenInFolder[folderPath] ?? 0
@@ -372,10 +473,8 @@ actor SMBScanner {
         // Batch-write scan skips after all SMB connections are closed.
         // Writing inline during the scan loop caused concurrent session pressure on the NAS.
         if !skippedPaths.isEmpty {
-            scanLog("SCAN: writing \(skippedPaths.count) skip record(s) to DB")
-            for path in skippedPaths {
-                try? SorrivaDatabase.shared.insertScanSkip(filePath: path, sourceId: source.id)
-            }
+            // Already written as they occurred — this is reporting only.
+            scanLog("SCAN: \(skippedPaths.count) skip record(s) queued for retry")
         }
 
         // Phase 3: finalize
@@ -439,15 +538,6 @@ actor SMBScanner {
     /// needs no changes — internally adapted onto the same reader-based walk
     /// used by the scanner's own scan/statFolders paths, so there is exactly
     /// one recursive directory-walk implementation.
-    func collectAudioFilesPublic(
-        client: SMBClient,
-        path: String,
-        results: inout [(path: String, size: Int)]
-    ) async throws {
-        let adapter = SMBClientListingOnlyReader(client: client)
-        try await collectAudioFiles(reader: adapter, path: path, results: &results)
-    }
-
     /// Normalizes a share-relative path to a single consistent form — one
     /// leading slash, no trailing slash, no accidental repeated slashes.
     /// filePath is the idempotency key for the whole scan; any inconsistency
@@ -461,10 +551,25 @@ actor SMBScanner {
         return result
     }
 
+    /// Current on-disk fingerprint for a folder's files. The single place the
+    /// scan's view of a folder is computed, so the write path (upsertFolderStat)
+    /// and the skip decision can never drift apart.
+    ///
+    /// mtime is truncated to whole seconds because that is the resolution
+    /// folder_stats stores; comparing sub-second precision against a truncated
+    /// stored value would report every folder as changed, forever.
+    private func fingerprint(for files: [ScannedFile]) -> FolderFingerprint {
+        FolderFingerprint(
+            fileCount: files.count,
+            totalBytes: files.reduce(0) { $0 + $1.size },
+            maxModifiedAt: files.map { Int($0.modifiedAt.timeIntervalSince1970) }.max()
+        )
+    }
+
     private func collectAudioFiles(
         reader: MediaSourceReader,
         path: String,
-        results: inout [(path: String, size: Int)]
+        results: inout [ScannedFile]
     ) async throws {
         let entries = try await reader.listDirectory(path: path)
         for entry in entries {
@@ -476,7 +581,7 @@ actor SMBScanner {
             } else {
                 let ext = (name as NSString).pathExtension.lowercased()
                 if Self.audioExtensions.contains(ext) {
-                    results.append((path: fullPath, size: entry.size))
+                    results.append(ScannedFile(path: fullPath, size: entry.size, modifiedAt: entry.modifiedAt))
                 }
             }
         }
@@ -493,7 +598,7 @@ actor SMBScanner {
             guard name != "." && name != ".." && !name.hasPrefix(".") else { continue }
             guard entry.isDirectory else { continue }
             let fullPath = path == "/" ? "/\(name)" : "\(path)/\(name)"
-            var files: [(path: String, size: Int)] = []
+            var files: [ScannedFile] = []
             try await collectAudioFiles(reader: reader, path: fullPath, results: &files)
             if !files.isEmpty {
                 results.append(FolderScanResult(
@@ -504,24 +609,6 @@ actor SMBScanner {
             }
         }
         return results
-    }
-
-    /// Adapts an already-connected SMBClient for directory listing only —
-    /// used solely by collectAudioFilesPublic so ScanCoordinator's
-    /// change-detection path shares the same recursive walk as the scanner's
-    /// own scan/statFolders paths. readHeader is never called through this
-    /// adapter; collectAudioFilesPublic only lists directories.
-    private struct SMBClientListingOnlyReader: MediaSourceReader {
-        let client: SMBClient
-        func listDirectory(path: String) async throws -> [MediaSourceEntry] {
-            let entries = try await client.listDirectory(path: path)
-            return entries.map {
-                MediaSourceEntry(name: $0.name, isDirectory: $0.isDirectory, size: Int($0.size))
-            }
-        }
-        func readHeader(path: String, byteCount: Int) async throws -> Data {
-            throw MediaSourceReaderError.unsupported
-        }
     }
 
     // MARK: - Track deletion helpers

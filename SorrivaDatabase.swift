@@ -1,6 +1,36 @@
 import Foundation
 import GRDB
 
+// MARK: - FolderFingerprint
+// What "this folder is unchanged" means, in one place.
+//
+// fUnifiedScanWalkThenFilter: manual scan, automatic foreground scan and resume
+// all use the same comparison. Keeping the rule here rather than inline at each
+// call site is deliberate — three copies of a subtly different comparison is how
+// change detection quietly stops agreeing with itself.
+
+struct FolderFingerprint: Equatable {
+    let fileCount: Int
+    let totalBytes: Int
+    /// Unix seconds of the newest file in the folder. Nil for rows written
+    /// before v17 tracked it.
+    let maxModifiedAt: Int?
+
+    /// True only if this folder can be safely skipped.
+    ///
+    /// A nil stored mtime means the row predates v17, so we do NOT know whether
+    /// a tag-only edit happened since. Treated as changed, which forces one
+    /// rescan of that folder and thereafter records a real value. The safe
+    /// direction: the alternative silently trusts stats recorded before mtime
+    /// existed, and tag edits made in that window would never be seen.
+    func matches(_ current: FolderFingerprint) -> Bool {
+        guard let stored = maxModifiedAt else { return false }
+        return fileCount == current.fileCount
+            && totalBytes == current.totalBytes
+            && stored == current.maxModifiedAt
+    }
+}
+
 // MARK: - SorrivaDatabase
 // Singleton database instance. Initialized on app launch.
 // SQLite stored in app's Application Support directory.
@@ -877,6 +907,32 @@ final class SorrivaDatabase {
             print("SORRIVA DB: v16 scan session columns added")
         }
 
+        migrator.registerMigration("v17_scan_mtime_and_art_passes") { db in
+            // fUnifiedScanWalkThenFilter — newest modification time in the
+            // folder, so change detection can see tag-only edits. Count and
+            // bytes alone cannot: taggers write into the FLAC PADDING block, so
+            // the file size is unchanged (bTagEditsNotDetected).
+            //
+            // Nullable and left NULL for existing rows. A NULL stored mtime is
+            // treated as "unknown" and forces a rescan of that folder once,
+            // which is the safe direction — the alternative would be silently
+            // trusting stats recorded before mtime was tracked.
+            try db.alter(table: "folder_stats") { t in
+                t.add(column: "maxModifiedAt", .integer)
+            }
+
+            // bArtworkPassNotResumable — per-album completion markers for the
+            // folder and online passes, matching embeddedArtScanned. Semantics
+            // are FolderStat's: the marker means "done for this scan", reset
+            // only for albums in the folders being scanned, never reset on
+            // resume, and artManualOverride albums skipped permanently.
+            try db.alter(table: "albums") { t in
+                t.add(column: "folderArtScanned", .boolean).notNull().defaults(to: false)
+                t.add(column: "onlineArtAttempted", .boolean).notNull().defaults(to: false)
+            }
+            print("SORRIVA DB: v17 folder mtime + artwork pass markers added")
+        }
+
         try migrator.migrate(dbQueue)
         print("SORRIVA DB: Migrations complete")
     }
@@ -1620,14 +1676,26 @@ final class SorrivaDatabase {
     }
 
     /// Update trackCount, lastScanned, and fingerprint on successful scan completion.
+    ///
+    /// Deliberately does NOT touch scanState. It used to set 'idle' here, which
+    /// meant the scanner declared the whole pipeline finished the moment the
+    /// FILE pass ended — before the artwork passes had even started. Two
+    /// consequences, both observed 2026-07-30: a kill during artwork left the
+    /// source at 'idle', which matches no branch in checkForChanges, so no
+    /// interrupted-scan alert appeared and the work was lost silently; and any
+    /// source left at 'idle' falls through to `default: break`, so change
+    /// detection never runs for it again.
+    ///
+    /// scanState is ScanCoordinator's to own across the whole pipeline —
+    /// scanning -> retrying -> complete. This function owns counts and
+    /// fingerprint only, which is what its name says.
     func updateScanComplete(sourceId: String, trackCount: Int,
                             fileCount: Int, totalBytes: Int) throws {
         let now = Int(Date().timeIntervalSince1970)
         try dbQueue.write { db in
             try db.execute(sql: """
                 UPDATE library_sources
-                SET scanState = 'idle',
-                    trackCount = ?,
+                SET trackCount = ?,
                     lastScanned = ?,
                     lastScanFileCount = ?,
                     lastScanTotalBytes = ?,
@@ -1753,9 +1821,131 @@ final class SorrivaDatabase {
         }
     }
 
-    func albumsNeedingEmbeddedArtScan() throws -> [Album] {
+    // MARK: - Artwork pass markers (bArtworkPassNotResumable)
+    //
+    // All three passes now use per-album completion markers with FolderStat
+    // semantics: the marker means "done for THIS scan", it is reset only for
+    // albums in the folders being scanned, and it is never reset on resume.
+    //
+    // Two problems this solves. Resumability: quitting during the artwork phase
+    // used to lose that work entirely, because the folder pass had no marker and
+    // restarted from album 1, and the online pass selected on artPathThumb ==
+    // nil so albums with no findable art retried forever. Scope: the folder pass
+    // re-checked EVERY album on every scan — a rescan that touched 2 folders
+    // still checked all 11 albums (observed 2026-07-30), which at ~1000 albums
+    // means a full pass of NAS reads for folders nobody touched.
+    //
+    // artManualOverride albums are excluded everywhere — a human decision is
+    // never re-litigated by a pass.
+
+    /// Clear pass markers for albums in the given folders, so a rescan
+    /// re-evaluates their artwork. Called at scan start with exactly the folders
+    /// that are about to be scanned — NOT the whole source, or an incremental
+    /// scan of 2 folders would re-evaluate artwork for every album.
+    ///
+    /// embeddedArtScanned is included deliberately. It used to be permanent,
+    /// but a rescanned folder may contain new or replaced files carrying
+    /// different embedded art, and not re-reading it would leave the library
+    /// showing stale artwork indefinitely.
+    func resetArtworkPassMarkers(sourceId: String, folderPaths: [String]) throws {
+        guard !folderPaths.isEmpty else { return }
+        let now = Int(Date().timeIntervalSince1970)
+        try dbQueue.write { db in
+            for chunk in stride(from: 0, to: folderPaths.count, by: 400).map({
+                Array(folderPaths[$0..<min($0 + 400, folderPaths.count)])
+            }) {
+                let placeholders = chunk.map { _ in "?" }.joined(separator: ",")
+                try db.execute(sql: """
+                    UPDATE albums
+                    SET embeddedArtScanned = 0,
+                        embeddedArtFailed = 0,
+                        folderArtScanned = 0,
+                        onlineArtAttempted = 0,
+                        updatedAt = ?
+                    WHERE sourceId = ?
+                      AND artManualOverride = 0
+                      AND folderPath IN (\(placeholders))
+                """, arguments: StatementArguments(
+                    [now as DatabaseValueConvertible, sourceId as DatabaseValueConvertible]
+                    + chunk.map { $0 as DatabaseValueConvertible }
+                ))
+            }
+        }
+    }
+
+    /// Albums still needing the folder-artwork pass this scan.
+    func albumsNeedingFolderArtScan(sourceId: String) throws -> [Album] {
         try dbQueue.read { db in
             try Album
+                .filter(Album.Columns.sourceId == sourceId)
+                .filter(sql: "folderArtScanned = 0")
+                .filter(Album.Columns.artManualOverride == false)
+                .order(Album.Columns.sortTitle)
+                .fetchAll(db)
+        }
+    }
+
+    func markFolderArtScanned(albumId: String) throws {
+        let now = Int(Date().timeIntervalSince1970)
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE albums SET folderArtScanned = 1, updatedAt = ? WHERE id = ?
+            """, arguments: [now, albumId])
+        }
+    }
+
+    /// Albums still needing an online lookup this scan.
+    ///
+    /// Keeps the hard "no existing artwork" gate deliberately. Online fetch is
+    /// gap-filling ONLY — it was reverted from best-wins participation on
+    /// 2026-07-27 after a wrong iTunes match overwrote correct folder artwork:
+    /// iTunes always claims 600x600, so an area comparison cannot distinguish a
+    /// right match from a wrong one (bArtworkArtistQuery). A wrong match may
+    /// fill an empty slot; it must never destroy something already correct.
+    ///
+    /// The marker is what stops albums with no findable art being re-queried on
+    /// every pass forever — artPathThumb stays nil for those, so the gate alone
+    /// never retires them.
+    func albumsNeedingOnlineArtScan(sourceId: String) throws -> [Album] {
+        try dbQueue.read { db in
+            try Album
+                .filter(Album.Columns.sourceId == sourceId)
+                .filter(sql: "onlineArtAttempted = 0")
+                .filter(Album.Columns.artManualOverride == false)
+                .filter(Album.Columns.artPathThumb == nil)
+                .order(Album.Columns.sortTitle)
+                .fetchAll(db)
+        }
+    }
+
+    func markOnlineArtAttempted(albumId: String) throws {
+        let now = Int(Date().timeIntervalSince1970)
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE albums SET onlineArtAttempted = 1, updatedAt = ? WHERE id = ?
+            """, arguments: [now, albumId])
+        }
+    }
+
+    /// True while any artwork pass still has work outstanding for this source.
+    /// Drives resumeArtworkIfNeeded — an interrupted artwork phase has no other
+    /// way back in, since the passes only ever ran inside a scan's pipeline.
+    func hasPendingArtworkWork(sourceId: String) throws -> Bool {
+        try dbQueue.read { db in
+            let count = try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM albums
+                WHERE sourceId = ?
+                  AND artManualOverride = 0
+                  AND (embeddedArtScanned = 0 OR folderArtScanned = 0 OR onlineArtAttempted = 0)
+            """, arguments: [sourceId]) ?? 0
+            return count > 0
+        }
+    }
+
+    func albumsNeedingEmbeddedArtScan(sourceId: String) throws -> [Album] {
+        try dbQueue.read { db in
+            try Album
+                .filter(Album.Columns.sourceId == sourceId)
                 .filter(Album.Columns.embeddedArtScanned == false)
                 .filter(Album.Columns.artManualOverride == false)
                 .filter(Album.Columns.embeddedArtFailed == false)  // exclude errored albums — handled by retry
@@ -2014,6 +2204,7 @@ final class SorrivaDatabase {
     /// deliberately, so this change stays inside the scan path.
     func upsertFolderStat(sourceId: String, folderPath: String,
                           fileCount: Int, totalBytes: Int,
+                          maxModifiedAt: Int? = nil,
                           scanSessionId: String? = nil) throws {
         let now = Int(Date().timeIntervalSince1970)
         try dbQueue.write { db in
@@ -2039,9 +2230,9 @@ final class SorrivaDatabase {
                 try stat.save(db)
             }
             try db.execute(sql: """
-                UPDATE folder_stats SET scanSessionId = ?
+                UPDATE folder_stats SET scanSessionId = ?, maxModifiedAt = ?
                 WHERE sourceId = ? AND folderPath = ?
-            """, arguments: [scanSessionId, sourceId, folderPath])
+            """, arguments: [scanSessionId, maxModifiedAt, sourceId, folderPath])
         }
     }
 
@@ -2050,17 +2241,45 @@ final class SorrivaDatabase {
     /// the interrupted run had already finished. Returns empty for a nil or
     /// unknown session, so a resume with no recorded session degrades to a
     /// normal full scan rather than skipping everything.
-    func completedFolders(sourceId: String, scanSessionId: String) throws -> [String: (fileCount: Int, totalBytes: Int)] {
+    func completedFolders(sourceId: String, scanSessionId: String) throws -> [String: FolderFingerprint] {
         try dbQueue.read { db in
             let rows = try Row.fetchAll(db, sql: """
-                SELECT folderPath, fileCount, totalBytes
+                SELECT folderPath, fileCount, totalBytes, maxModifiedAt
                 FROM folder_stats
                 WHERE sourceId = ? AND scanSessionId = ?
             """, arguments: [sourceId, scanSessionId])
-            var out: [String: (fileCount: Int, totalBytes: Int)] = [:]
+            var out: [String: FolderFingerprint] = [:]
             for row in rows {
                 let path: String = row["folderPath"]
-                out[path] = (fileCount: row["fileCount"], totalBytes: row["totalBytes"])
+                out[path] = FolderFingerprint(
+                    fileCount: row["fileCount"],
+                    totalBytes: row["totalBytes"],
+                    maxModifiedAt: row["maxModifiedAt"]
+                )
+            }
+            return out
+        }
+    }
+
+    /// Every recorded folder for a source, keyed by folderPath. This is the
+    /// input to fUnifiedScanWalkThenFilter's skip decision and to deletion
+    /// reconciliation (folders present here but absent from the walk have been
+    /// removed from disk).
+    func folderFingerprints(sourceId: String) throws -> [String: FolderFingerprint] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT folderPath, fileCount, totalBytes, maxModifiedAt
+                FROM folder_stats
+                WHERE sourceId = ?
+            """, arguments: [sourceId])
+            var out: [String: FolderFingerprint] = [:]
+            for row in rows {
+                let path: String = row["folderPath"]
+                out[path] = FolderFingerprint(
+                    fileCount: row["fileCount"],
+                    totalBytes: row["totalBytes"],
+                    maxModifiedAt: row["maxModifiedAt"]
+                )
             }
             return out
         }

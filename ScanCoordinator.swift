@@ -62,6 +62,18 @@ final class ScanCoordinator: ObservableObject {
     /// well over a minute, and a false positive here interrupts real work.
     private let pipelineStallThreshold: TimeInterval = 240
 
+    /// Has this source ever recorded a completed folder?
+    ///
+    /// Distinguishes "never scanned" from every other state. Both scanState
+    /// "idle" (the schema default for a new source) and an empty folder_stats
+    /// table mean the same thing, and neither should trigger automatic work:
+    /// the first scan of a share is a deliberate user action, not something a
+    /// foreground transition should start.
+    private func hasBeenScanned(_ source: LibrarySource) -> Bool {
+        let stats = (try? SorrivaDatabase.shared.folderFingerprints(sourceId: source.id)) ?? [:]
+        return !stats.isEmpty
+    }
+
     nonisolated private func notePipelineProgress() {
         Task { @MainActor in ScanCoordinator.shared.lastPipelineProgress = Date() }
     }
@@ -120,6 +132,24 @@ final class ScanCoordinator: ObservableObject {
             for source in sources {
                 guard source.type == "smb" else { continue }
 
+                // Scanning is strictly one-at-a-time. There is a single scanTask
+                // property, so starting a second scan silently overwrites the
+                // handle for the first — the loop then races ahead launching
+                // more, and `await scanTask?.value` waits on whichever handle
+                // happens to be current rather than the one just started.
+                //
+                // This became reachable when the change check started calling a
+                // full scan for EVERY scanned source rather than only those with
+                // detected changes: seven sources meant seven overlapping scans
+                // in ~130ms, clobbering each other and leaving sources in
+                // 'error' (observed 2026-07-30). Whatever is not reached this
+                // pass is picked up on the next foreground.
+                if let active = activeScanSourceId {
+                    sLog("SCAN: checkForChanges — stopping, scan already running (\(active))")
+                    break
+                }
+                sLog("SCAN: checkForChanges — \(source.displayName) [\(source.share)\(source.rootPath == "/" ? "" : source.rootPath)] scanState='\(source.scanState)'")
+
                 // A source stuck at "scanning" with no active task in THIS
                 // process means the scan was killed — iOS terminated the app
                 // mid-scan, so neither the completion path nor runScan's catch
@@ -162,7 +192,50 @@ final class ScanCoordinator: ObservableObject {
                 }
 
                 switch source.scanState {
+                case "idle":
+                    // "idle" is ALSO the schema default for a newly added
+                    // source, so it cannot be read as "was scanned, then
+                    // stranded". A source with no folder_stats has never run —
+                    // leave it dormant. Promoting it to "complete" made the
+                    // change check below treat every folder as new and start a
+                    // full 673-file import unprompted (observed 2026-07-30).
+                    guard hasBeenScanned(source) else {
+                        sLog("SCAN: \(source.displayName) never scanned — leaving idle")
+                        continue
+                    }
+                    // Recovery for sources stranded by the old updateScanComplete,
+                    // which set 'idle' the moment the file pass ended. Anything
+                    // killed between that write and 'retrying' is stuck here, and
+                    // 'idle' previously matched no branch — so those sources got
+                    // no alert and no change detection, permanently. Treat a
+                    // stranded 'idle' with pending work as an interrupted scan;
+                    // otherwise promote it to 'complete' so change detection
+                    // resumes normally.
+                    let strandedSkips = (try? SorrivaDatabase.shared.pendingScanSkips(sourceId: source.id)) ?? []
+                    let strandedArt   = (try? SorrivaDatabase.shared.albumsNeedingEmbeddedArtRetry()) ?? []
+                    if !strandedSkips.isEmpty || !strandedArt.isEmpty {
+                        sLog("SCAN: stranded 'idle' with pending work for \(source.displayName) — offering resume")
+                        try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "error")
+                        interruptedScanSource = source
+                    } else {
+                        sLog("SCAN: stranded 'idle' with empty queues — marking complete for \(source.displayName)")
+                        try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "complete")
+                    }
+
                 case "error":
+                    // A source with no folder_stats has nothing to resume TO —
+                    // resuming would walk the tree, find zero recorded folders,
+                    // and run a full import. That is the same unprompted-scan
+                    // problem in a different guise, and it is exactly what a
+                    // library drop leaves behind if anything wrote 'error'
+                    // afterward. Reset to idle instead: the share is simply
+                    // unscanned, and the user starts it deliberately.
+                    guard hasBeenScanned(source) else {
+                        sLog("SCAN: \(source.displayName) in 'error' but never scanned — resetting to idle")
+                        try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "idle")
+                        try? SorrivaDatabase.shared.setCurrentScanSessionId(sourceId: source.id, sessionId: nil)
+                        continue
+                    }
                     sLog("SCAN: interrupted scan detected for \(source.displayName)")
                     interruptedScanSource = source
 
@@ -180,12 +253,50 @@ final class ScanCoordinator: ObservableObject {
                     }
 
                 case "complete":
-                    let changedFolders = await findChangedFolders(source: source)
-                    if !changedFolders.isEmpty {
-                        sLog("SCAN: \(changedFolders.count) changed folder(s) in \(source.displayName)")
-                        startIncrementalScan(source: source, folders: changedFolders)
-                        await scanTask?.value
+                    // fUnifiedScanWalkThenFilter — automatic change detection is
+                    // now the SAME operation as a manual scan. It walks the tree
+                    // and skips folders whose fingerprint still matches, so new
+                    // folders, changed folders and deletions are all handled by
+                    // one code path.
+                    //
+                    // This replaces findChangedFolders, which iterated
+                    // folder_stats rather than the disk and therefore could not
+                    // see a newly added folder at all (bNewFoldersNotDetected) —
+                    // new music never appeared until a manual rescan. It also
+                    // walked once per known folder instead of once total, and
+                    // leaked a connection per foreground check by tearing down
+                    // without session.disconnect().
+                    //
+                    // Cost of the walk is listDirectory only, no header reads.
+                    // If nothing changed the scan filters to zero files and ends
+                    // in well under a second (measured: 0.5s over 104 files).
+                    // Never-scanned sources are skipped here on purpose. With no
+                    // folder_stats there is nothing to compare against, so the
+                    // filter would classify every folder as new and this would
+                    // become a full initial import triggered by a foreground
+                    // rather than by the user. Initial scans stay user-initiated.
+                    guard hasBeenScanned(source) else {
+                        sLog("SCAN: \(source.displayName) never scanned — skipping change check")
+                        continue
                     }
+                    // An interrupted artwork phase has no other way back in —
+                    // the passes only ever ran inside a scan's pipeline task, so
+                    // quitting during artwork lost that work permanently: the
+                    // file scan was complete, so the change check found nothing
+                    // to do and simply returned (observed 2026-07-30).
+                    if (try? SorrivaDatabase.shared.hasPendingArtworkWork(sourceId: source.id)) == true {
+                        let artSession = (try? SorrivaDatabase.shared.currentScanSessionId(sourceId: source.id))
+                            ?? nil
+                        ScanLogSession.begin(artSession ?? UUID().uuidString)
+                        sLog("SCAN: pending artwork work for \(source.displayName) — resuming artwork only")
+                        await runArtworkPasses(source: source)
+                        ScanLogSession.end()
+                        continue
+                    }
+
+                    sLog("SCAN: change check for \(source.displayName)")
+                    startFullScan(source: source)
+                    await scanTask?.value
 
                 default:
                     break
@@ -235,14 +346,6 @@ final class ScanCoordinator: ObservableObject {
         }
     }
 
-    private func startIncrementalScan(source: LibrarySource, folders: [String]) {
-        if activeScanSourceId == source.id { scanTask?.cancel() }
-        scanTask = Task {
-            await runScan(source: source, folders: folders,
-                          sessionId: UUID().uuidString,
-                          resumeSessionId: nil)
-        }
-    }
 
     private func runScan(source: LibrarySource, folders: [String]?,
                          sessionId: String, resumeSessionId: String?) async {
@@ -252,6 +355,8 @@ final class ScanCoordinator: ObservableObject {
         // session id survives and a resume can find the folders it completed.
         try? SorrivaDatabase.shared.setCurrentScanSessionId(sourceId: source.id, sessionId: sessionId)
         try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "scanning")
+        ScanLogSession.begin(sessionId)
+        sLog("SCAN: state -> scanning (resume=\(resumeSessionId != nil))")
 
         // Prevent screen lock during scan
         UIApplication.shared.isIdleTimerDisabled = true
@@ -272,6 +377,8 @@ final class ScanCoordinator: ObservableObject {
             print("SCAN: Completed — \(source.displayName)")
         } catch {
             sLog("SCAN: Failed — \(source.displayName): \(error)")
+            sLog("SCAN: state -> error")
+            ScanLogSession.end()
             // Session id deliberately left in place — it is what a resume needs.
             try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "error")
             UIApplication.shared.isIdleTimerDisabled = false
@@ -294,13 +401,11 @@ final class ScanCoordinator: ObservableObject {
             // something better — only its expensive download is conditional.
             // Online fetch runs last, only for albums still below its fixed
             // 600×600 ceiling.
-            let embeddedArtFound = await self.runEmbeddedArtPass(source: source)
-            try? await Task.sleep(nanoseconds: 30_000_000_000)
-            let folderArtFound   = await self.runFolderArtPass(source: source)
-            await ArtworkCache.shared.fetchMissingArtwork()
+            let (embeddedArtFound, folderArtFound) = await self.runArtworkPasses(source: source)
 
             // Mark as retrying before scheduler starts
             try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "retrying")
+            sLog("SCAN: state -> retrying")
             // Main pass and artwork are done, so there is nothing left for a
             // resume to pick up — clear the session so a future killed run
             // can't be confused with this one. The retry scheduler owns its own
@@ -320,6 +425,7 @@ final class ScanCoordinator: ObservableObject {
                 // idle period can't be mistaken for a wedge.
                 self.lastPipelineProgress = nil
                 self.pipelineTask = nil
+                ScanLogSession.end()
             }
 
             // Enrich report with artwork and retry totals
@@ -361,7 +467,15 @@ final class ScanCoordinator: ObservableObject {
 
     @discardableResult
     private func runFolderArtPass(source: LibrarySource) async -> Int {
-        let albums = (try? SorrivaDatabase.shared.albums(sourceId: source.id)) ?? []
+        // Marker-driven, not every album in the source. Previously this
+        // re-checked EVERY album on every scan — a rescan touching 2 folders
+        // still checked all 11 (observed 2026-07-30), which at ~1000 albums
+        // means a full pass of NAS reads for folders nobody touched. Markers are
+        // reset at scan start for exactly the folders being scanned, so
+        // best-wins re-evaluation still happens for changed folders and nowhere
+        // else. Also makes the pass resumable: a kill mid-pass leaves the
+        // already-checked albums marked.
+        let albums = (try? SorrivaDatabase.shared.albumsNeedingFolderArtScan(sourceId: source.id)) ?? []
         guard !albums.isEmpty else {
             scanLog("ARTWORK: folder pass — nothing to scan")
             return 0
@@ -382,6 +496,23 @@ final class ScanCoordinator: ObservableObject {
             // Heartbeat — proves the pass is alive. Without this a hang here is
             // invisible and unrecoverable (see lastPipelineProgress).
             notePipelineProgress()
+
+            // Marked via `defer`, which is the only construct that gets both
+            // cases right.
+            //
+            // It runs on normal completion AND on every `continue` exit (manual
+            // override, no folder path, reconnect-after-timeout, no winner, no
+            // winner path) — so an album that was genuinely considered is marked
+            // whatever the outcome, and the pass always drains rather than
+            // sticking on an album that can never produce artwork.
+            //
+            // It does NOT run when the process is killed, because no code does.
+            // So an album interrupted mid-check stays unmarked and is retried on
+            // resume, which is the point of the marker. Marking at the top of
+            // the iteration instead would have treated a killed album as done
+            // and silently skipped its artwork.
+            defer { try? SorrivaDatabase.shared.markFolderArtScanned(albumId: album.id) }
+
             guard !album.artManualOverride else {
                 self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] SKIP manual override — \(album.title)")
                 continue
@@ -622,8 +753,50 @@ final class ScanCoordinator: ObservableObject {
         }
     }
 
+    // MARK: - Artwork passes
+
+    /// Runs all three artwork passes in order.
+    ///
+    /// Extracted so it can be invoked from two places: the scan pipeline, and
+    /// the change check when an interrupted artwork phase needs to continue
+    /// without a scan. Previously the passes existed only inside the pipeline
+    /// task, so quitting during artwork lost that work with no way back in —
+    /// the file scan was already complete, so the next foreground found nothing
+    /// to do and simply returned (observed 2026-07-30).
+    ///
+    /// bArtworkSelectionNotBestWins — embedded is checked first since it has the
+    /// highest likelihood of being high-resolution. The folder pass always runs
+    /// its cheap header-check afterward regardless of what embedded found, since
+    /// the folder could genuinely have something better; only its expensive
+    /// download is conditional. Online runs last, and only for albums still
+    /// below its fixed 600x600 ceiling.
+    @discardableResult
+    private func runArtworkPasses(source: LibrarySource) async -> (embedded: Int, folder: Int) {
+        sLog("SCAN: PHASE artwork-embedded START")
+        let embedded = await runEmbeddedArtPass(source: source)
+        sLog("SCAN: PHASE artwork-embedded END")
+
+        // A 30s pause used to sit between these passes to let the NAS recover.
+        // That pressure was SMBClient never calling NWConnection.cancel() --
+        // every read leaked a kernel flow entry and the NAS was refusing service
+        // to a client holding hundreds of abandoned sockets
+        // (bScanConnectionExhaustionOnRepeatedScans, fixed 2026-07-29). With
+        // that fixed, 600 back-to-back connections ran with zero stalls and flat
+        // timing, so the pause was pure dead time. Removed rather than
+        // shortened: if stalls return we want to see them, not have them masked.
+        sLog("SCAN: PHASE artwork-folder START")
+        let folder = await runFolderArtPass(source: source)
+        sLog("SCAN: PHASE artwork-folder END")
+
+        sLog("SCAN: PHASE artwork-online START")
+        await ArtworkCache.shared.fetchMissingArtwork(sourceId: source.id)
+        sLog("SCAN: PHASE artwork-online END")
+
+        return (embedded, folder)
+    }
+
     private func runEmbeddedArtPass(source: LibrarySource) async -> Int {
-        let albums = (try? SorrivaDatabase.shared.albumsNeedingEmbeddedArtScan()) ?? []
+        let albums = (try? SorrivaDatabase.shared.albumsNeedingEmbeddedArtScan(sourceId: source.id)) ?? []
         guard !albums.isEmpty else {
             scanLog("ARTWORK: embedded pass — nothing to scan")
             return 0
@@ -906,33 +1079,6 @@ final class ScanCoordinator: ObservableObject {
         return Data(data[valueOffset..<valueEnd])
     }
 
-    // MARK: - Incremental change detection
-
-    private func findChangedFolders(source: LibrarySource) async -> [String] {
-        do {
-            let storedStats = try SorrivaDatabase.shared.folderStats(sourceId: source.id)
-            guard !storedStats.isEmpty else { return [] }
-
-            let client = SMBClient(host: source.host)
-            try await client.login(username: source.loginCredentials.username, password: source.loginCredentials.password)
-            defer { Task { try? await client.logoff() } }
-            try await client.connectShare(source.share)
-            defer { Task { try? await client.disconnectShare() } }
-
-            var changed: [String] = []
-            for stored in storedStats {
-                var files: [(path: String, size: Int)] = []
-                try? await scanner.collectAudioFilesPublic(client: client, path: stored.folderPath, results: &files)
-                if files.count != stored.fileCount || files.reduce(0, { $0 + $1.size }) != stored.totalBytes {
-                    changed.append(stored.folderPath)
-                }
-            }
-            return changed
-        } catch {
-            print("SCAN: stat failed for \(source.displayName): \(error)")
-            return []
-        }
-    }
 }
 
 // MARK: - Notification names
