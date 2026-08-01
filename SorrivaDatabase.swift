@@ -933,6 +933,117 @@ final class SorrivaDatabase {
             print("SORRIVA DB: v17 folder mtime + artwork pass markers added")
         }
 
+        migrator.registerMigration("v18_scan_session_ledger") { db in
+            // fScanSessionLedger. Makes a scan session a bounded, auditable unit
+            // of work instead of four components that happen to run in sequence.
+            //
+            // The problem this solves: on 2026-07-31 a full 11,670-file scan
+            // finished with 20 tracks and 5 albums outstanding in the retry
+            // queue, and those queues later read as empty with no record of the
+            // work having been done. Nobody could say what happened to them —
+            // not the user, not the log. The app could not answer "what did this
+            // scan intend to import, and what actually landed", because nothing
+            // recorded the intent.
+            //
+            // Two tables. scan_sessions is the session itself, with a real
+            // lifecycle. scan_ledger is one row per planned file, each moving to
+            // a terminal outcome. The audit then becomes arithmetic —
+            // planned = written + resolved + permanent + unaccounted — and any
+            // unaccounted row names the exact file.
+
+            try db.create(table: "scan_sessions", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()
+                t.column("sourceId", .text).notNull()
+                    .references("library_sources", onDelete: .cascade)
+                // planning | scanning | artwork | retrying | complete | cancelled | failed
+                t.column("state", .text).notNull()
+                // manual | automatic | resume — a plan of zero files from an
+                // automatic check is not something to prompt the user about,
+                // which is what bPhantomScanInterruptedDialog is.
+                t.column("trigger", .text).notNull()
+                t.column("startedAt", .integer).notNull()
+                t.column("endedAt", .integer)
+                t.column("plannedFiles", .integer).notNull().defaults(to: 0)
+                t.column("plannedFolders", .integer).notNull().defaults(to: 0)
+                t.column("skippedUnchangedFiles", .integer).notNull().defaults(to: 0)
+                t.column("lastProgressAt", .integer).notNull().defaults(to: 0)
+            }
+            try db.create(index: "idx_scan_sessions_source", on: "scan_sessions",
+                          columns: ["sourceId", "state"], ifNotExists: true)
+
+            try db.create(table: "scan_ledger", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()
+                t.column("sessionId", .text).notNull()
+                    .references("scan_sessions", onDelete: .cascade)
+                t.column("sourceId", .text).notNull()
+                t.column("folderPath", .text).notNull()
+                t.column("filePath", .text).notNull()
+                t.column("fileSize", .integer).notNull().defaults(to: 0)
+
+                // planned | written | skipped | resolved | permanent | cancelled
+                //
+                // "planned" is the only non-terminal value. A session with any
+                // planned rows left is not complete — which is the enforcement
+                // the old scanState string could never provide, since four
+                // different code paths wrote to it.
+                t.column("outcome", .text).notNull().defaults(to: "planned")
+
+                // timeout | auth | share | read | write | unsupported | notFound
+                //
+                // Recorded because it changes what the user should do. All 439
+                // skips in the 2026-07-31 run were timeouts — very likely
+                // recoverable — which is a different message and a different
+                // retry policy from a corrupt file or a permission error.
+                t.column("failureKind", .text)
+                t.column("failureDetail", .text)
+
+                t.column("attemptCount", .integer).notNull().defaults(to: 0)
+                t.column("updatedAt", .integer).notNull().defaults(to: 0)
+            }
+            // Drives the audit query and the per-album "12 of 15 tracks" signal.
+            try db.create(index: "idx_scan_ledger_session_outcome", on: "scan_ledger",
+                          columns: ["sessionId", "outcome"], ifNotExists: true)
+            try db.create(index: "idx_scan_ledger_folder", on: "scan_ledger",
+                          columns: ["sessionId", "folderPath"], ifNotExists: true)
+            // Lookup by path during the scan loop, recording outcomes.
+            try db.create(index: "idx_scan_ledger_file", on: "scan_ledger",
+                          columns: ["sessionId", "filePath"], ifNotExists: true)
+
+            print("SORRIVA DB: v18 scan session ledger added")
+        }
+
+        migrator.registerMigration("v19_ledger_artwork") { db in
+            // fScanSessionLedger, second half. Artwork joins the same ledger as
+            // tracks rather than getting a parallel table.
+            //
+            // Rule 5 of the agreed design is "albums, tracks AND artwork are all
+            // auditable". Artwork was still tracked by embeddedArtFailed and the
+            // three pass markers — a separate queue with its own lifecycle,
+            // which is exactly the shape that produced
+            // bArtworkMarkerResetClearsRetryQueue: resetArtworkPassMarkers zeroes
+            // embeddedArtFailed, the column the artwork retry queue selects on,
+            // so any scan touching those folders silently empties the queue
+            // rather than working it.
+            //
+            // One table means one audit query and one retry loop. Session,
+            // source, folder, outcome, failure kind and attempts are identical
+            // for both kinds; only the identifier differs (file path vs album
+            // id) and artwork additionally records which pass won.
+            try db.alter(table: "scan_ledger") { t in
+                // track | artwork
+                t.add(column: "kind", .text).notNull().defaults(to: "track")
+                // embedded | folder | online | manual — artwork rows only.
+                // Also the provenance the review tool needs, and what
+                // bArtworkArtistQuery wanted for flagging unverified online
+                // matches: iTunes always claims 600x600, so an area comparison
+                // cannot tell a right match from a wrong one.
+                t.add(column: "resolvedBy", .text)
+            }
+            try db.create(index: "idx_scan_ledger_kind", on: "scan_ledger",
+                          columns: ["sessionId", "kind", "outcome"], ifNotExists: true)
+            print("SORRIVA DB: v19 ledger artwork rows added")
+        }
+
         try migrator.migrate(dbQueue)
         print("SORRIVA DB: Migrations complete")
     }
@@ -1818,6 +1929,345 @@ final class SorrivaDatabase {
                 .filter(sql: "(artworkWidth IS NULL OR artworkWidth * artworkHeight < 360000)")
                 .order(Album.Columns.sortTitle)
                 .fetchAll(db)
+        }
+    }
+
+    // MARK: - Scan session ledger (fScanSessionLedger)
+    //
+    // A session records what it INTENDED to do, then records every outcome
+    // against that intent. It is not complete until every planned row has
+    // reached a terminal outcome.
+    //
+    // Everything here is deliberately independent of scanState, which is a
+    // string four different code paths write to and which could never express
+    // "this session still has unfinished work". That gap is why a kill during
+    // artwork used to be silently unrecoverable, why the retry scheduler could
+    // restart itself into a hang, and why 20 tracks could leave a queue with no
+    // record of being processed.
+
+    enum ScanSessionState: String {
+        case planning, scanning, artwork, retrying, complete, cancelled, failed
+    }
+
+    enum ScanTrigger: String {
+        case manual, automatic, resume
+    }
+
+    enum LedgerOutcome: String {
+        case planned      // not yet attempted — the ONLY non-terminal value
+        case written      // track persisted
+        case skipped      // attempted, failed, eligible for retry
+        case resolved     // failed once, recovered on retry
+        case permanent    // failed and exhausted its attempts
+        case cancelled    // session cancelled before this file was reached
+    }
+
+    enum LedgerFailureKind: String {
+        case timeout, auth, share, read, write, unsupported, notFound
+        /// Read succeeded, the file simply contains no embedded artwork.
+        /// Terminal on first occurrence — retrying cannot change the file.
+        case noArtwork
+    }
+
+    enum LedgerKind: String {
+        case track, artwork
+    }
+
+    enum ArtworkSource: String {
+        case embedded, folder, online, manual
+    }
+
+    /// Open a session. Created before the walk, so a crash during planning still
+    /// leaves a record that something was attempted.
+    func createScanSession(sourceId: String, trigger: ScanTrigger) throws -> String {
+        let id = UUID().uuidString
+        let now = Int(Date().timeIntervalSince1970)
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO scan_sessions
+                    (id, sourceId, state, trigger, startedAt, lastProgressAt)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, arguments: [id, sourceId, ScanSessionState.planning.rawValue,
+                             trigger.rawValue, now, now])
+        }
+        return id
+    }
+
+    /// Record the plan — one row per file the scan intends to read.
+    ///
+    /// Written in a single transaction: at 50k files that is roughly a second,
+    /// against a scan measured in hours. Recorded AFTER the filter, so the
+    /// ledger describes what THIS run intended, not what the library contains.
+    func recordScanPlan(sessionId: String, sourceId: String,
+                        files: [(path: String, folder: String, size: Int)],
+                        plannedFolders: Int, skippedUnchangedFiles: Int) throws {
+        let now = Int(Date().timeIntervalSince1970)
+        try dbQueue.write { db in
+            for f in files {
+                try db.execute(sql: """
+                    INSERT INTO scan_ledger
+                        (id, sessionId, sourceId, folderPath, filePath, fileSize,
+                         outcome, kind, updatedAt)
+                    VALUES (?, ?, ?, ?, ?, ?, 'planned', 'track', ?)
+                """, arguments: [UUID().uuidString, sessionId, sourceId,
+                                 f.folder, f.path, f.size, now])
+            }
+            try db.execute(sql: """
+                UPDATE scan_sessions
+                SET plannedFiles = ?, plannedFolders = ?, skippedUnchangedFiles = ?,
+                    state = ?, lastProgressAt = ?
+                WHERE id = ?
+            """, arguments: [files.count, plannedFolders, skippedUnchangedFiles,
+                             ScanSessionState.scanning.rawValue, now, sessionId])
+        }
+    }
+
+    /// Plan the artwork work for this session — one row per album whose folder
+    /// is being scanned.
+    ///
+    /// Called after the albums exist (the file pass creates them), so this runs
+    /// at the start of the artwork phase rather than at scan start. Idempotent
+    /// on resume: rows already present are left alone so their outcomes survive.
+    func recordArtworkPlan(sessionId: String, sourceId: String,
+                           albums: [(albumId: String, folderPath: String)]) throws {
+        guard !albums.isEmpty else { return }
+        let now = Int(Date().timeIntervalSince1970)
+        try dbQueue.write { db in
+            for a in albums {
+                let exists = try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM scan_ledger
+                    WHERE sessionId = ? AND kind = 'artwork' AND filePath = ?
+                """, arguments: [sessionId, a.albumId]) ?? 0
+                guard exists == 0 else { continue }
+                try db.execute(sql: """
+                    INSERT INTO scan_ledger
+                        (id, sessionId, sourceId, folderPath, filePath, fileSize,
+                         outcome, kind, updatedAt)
+                    VALUES (?, ?, ?, ?, ?, 0, 'planned', 'artwork', ?)
+                """, arguments: [UUID().uuidString, sessionId, sourceId,
+                                 a.folderPath, a.albumId, now])
+            }
+        }
+    }
+
+    /// Albums in this session still needing artwork, in pass order.
+    ///
+    /// Replaces albumsNeedingEmbeddedArtScan / albumsNeedingFolderArtScan /
+    /// albumsNeedingOnlineArtScan as the queue. The pass markers stay as a
+    /// per-pass "already tried this pass" flag, but the SESSION's view of
+    /// outstanding artwork now lives here, where nothing else can clear it.
+    func artworkLedgerPending(sessionId: String) throws -> [(albumId: String, folderPath: String, attempts: Int)] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT filePath, folderPath, attemptCount FROM scan_ledger
+                WHERE sessionId = ? AND kind = 'artwork'
+                  AND outcome IN ('planned','skipped')
+                  AND attemptCount < 5
+                ORDER BY folderPath
+            """, arguments: [sessionId])
+            return rows.map { (albumId: $0["filePath"], folderPath: $0["folderPath"],
+                               attempts: $0["attemptCount"]) }
+        }
+    }
+
+    /// Record the artwork outcome for one album.
+    func recordArtworkOutcome(sessionId: String, albumId: String,
+                              outcome: LedgerOutcome,
+                              resolvedBy: ArtworkSource? = nil,
+                              failureKind: LedgerFailureKind? = nil,
+                              failureDetail: String? = nil,
+                              incrementAttempt: Bool = false) throws {
+        let now = Int(Date().timeIntervalSince1970)
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE scan_ledger
+                SET outcome = ?, resolvedBy = ?, failureKind = ?, failureDetail = ?,
+                    attemptCount = attemptCount + ?, updatedAt = ?
+                WHERE sessionId = ? AND kind = 'artwork' AND filePath = ?
+            """, arguments: [outcome.rawValue, resolvedBy?.rawValue, failureKind?.rawValue,
+                             failureDetail, incrementAttempt ? 1 : 0, now, sessionId, albumId])
+            try db.execute(sql: """
+                UPDATE scan_sessions SET lastProgressAt = ? WHERE id = ?
+            """, arguments: [now, sessionId])
+        }
+    }
+
+    /// Close out artwork rows no pass reached.
+    ///
+    /// All three passes skip an album that already has artwork, so its row would
+    /// stay 'planned' and the session could never report complete. Those albums
+    /// are settled, not failed — they have artwork, this run simply had no work
+    /// to do on them.
+    func settleUntouchedArtworkRows(sessionId: String) throws {
+        let now = Int(Date().timeIntervalSince1970)
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE scan_ledger
+                SET outcome = 'written',
+                    resolvedBy = COALESCE(resolvedBy, 'existing'),
+                    updatedAt = ?
+                WHERE sessionId = ? AND kind = 'artwork' AND outcome = 'planned'
+                  AND filePath IN (
+                      SELECT id FROM albums WHERE artPathThumb IS NOT NULL
+                  )
+            """, arguments: [now, sessionId])
+            // Anything still planned has no artwork and was never attempted —
+            // that IS a defect and must stay visible as unaccounted.
+        }
+    }
+
+    /// Record what happened to one planned file.
+    func recordLedgerOutcome(sessionId: String, filePath: String,
+                             outcome: LedgerOutcome,
+                             failureKind: LedgerFailureKind? = nil,
+                             failureDetail: String? = nil,
+                             incrementAttempt: Bool = false) throws {
+        let now = Int(Date().timeIntervalSince1970)
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE scan_ledger
+                SET outcome = ?,
+                    failureKind = ?,
+                    failureDetail = ?,
+                    attemptCount = attemptCount + ?,
+                    updatedAt = ?
+                WHERE sessionId = ? AND filePath = ?
+            """, arguments: [outcome.rawValue, failureKind?.rawValue, failureDetail,
+                             incrementAttempt ? 1 : 0, now, sessionId, filePath])
+            try db.execute(sql: """
+                UPDATE scan_sessions SET lastProgressAt = ? WHERE id = ?
+            """, arguments: [now, sessionId])
+        }
+    }
+
+    func updateScanSessionState(sessionId: String, state: ScanSessionState) throws {
+        let now = Int(Date().timeIntervalSince1970)
+        try dbQueue.write { db in
+            let terminal = [ScanSessionState.complete, .cancelled, .failed].contains(state)
+            try db.execute(sql: """
+                UPDATE scan_sessions
+                SET state = ?, lastProgressAt = ?, endedAt = ?
+                WHERE id = ?
+            """, arguments: [state.rawValue, now, terminal ? now : nil, sessionId])
+        }
+    }
+
+    /// The session that still has work outstanding for this source, if any.
+    ///
+    /// This is the enforcement point: no new scan starts while one is live, and
+    /// a resume continues THIS session rather than opening another.
+    func activeScanSession(sourceId: String) throws -> (id: String, state: String, trigger: String, plannedFiles: Int, lastProgressAt: Int)? {
+        try dbQueue.read { db in
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT id, state, trigger, plannedFiles, lastProgressAt
+                FROM scan_sessions
+                WHERE sourceId = ? AND state NOT IN ('complete', 'cancelled', 'failed')
+                ORDER BY startedAt DESC LIMIT 1
+            """, arguments: [sourceId]) else { return nil }
+            return (id: row["id"], state: row["state"], trigger: row["trigger"],
+                    plannedFiles: row["plannedFiles"], lastProgressAt: row["lastProgressAt"])
+        }
+    }
+
+    /// Files still to do in a session — the resume list, and the completeness test.
+    func unfinishedLedgerFiles(sessionId: String) throws -> [String] {
+        try dbQueue.read { db in
+            try String.fetchAll(db, sql: """
+                SELECT filePath FROM scan_ledger
+                WHERE sessionId = ? AND kind = 'track' AND outcome = 'planned'
+            """, arguments: [sessionId])
+        }
+    }
+
+    /// The audit. planned = written + resolved + permanent + skipped + unaccounted.
+    /// Any non-zero `unaccounted` is a bug, and unfinishedLedgerFiles names them.
+    func scanSessionAudit(sessionId: String, kind: LedgerKind? = nil) throws -> [String: Int] {
+        try dbQueue.read { db in
+            var out: [String: Int] = [:]
+            let rows: [Row]
+            if let kind {
+                rows = try Row.fetchAll(db, sql: """
+                    SELECT outcome, COUNT(*) AS n FROM scan_ledger
+                    WHERE sessionId = ? AND kind = ? GROUP BY outcome
+                """, arguments: [sessionId, kind.rawValue])
+            } else {
+                rows = try Row.fetchAll(db, sql: """
+                    SELECT outcome, COUNT(*) AS n FROM scan_ledger
+                    WHERE sessionId = ? GROUP BY outcome
+                """, arguments: [sessionId])
+            }
+            for r in rows { out[r["outcome"]] = r["n"] }
+            return out
+        }
+    }
+
+    /// True while ANY row in the session — track or artwork — is still
+    /// retryable. One query over one table: this is the completeness test the
+    /// two parallel queues could never provide.
+    func sessionHasOutstandingWork(sessionId: String) throws -> Bool {
+        try dbQueue.read { db in
+            let n = try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM scan_ledger
+                WHERE sessionId = ?
+                  AND (outcome = 'planned'
+                       OR (outcome = 'skipped' AND attemptCount < 5))
+            """, arguments: [sessionId]) ?? 0
+            return n > 0
+        }
+    }
+
+    /// Per-album failure detail for the review tool and the inline
+    /// "12 of 15 tracks" signal.
+    func scanSessionFailuresByFolder(sessionId: String) throws -> [(folderPath: String, planned: Int, written: Int, failed: Int)] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT folderPath,
+                       COUNT(*) AS planned,
+                       SUM(CASE WHEN outcome IN ('written','resolved') THEN 1 ELSE 0 END) AS written,
+                       SUM(CASE WHEN outcome IN ('skipped','permanent') THEN 1 ELSE 0 END) AS failed
+                FROM scan_ledger
+                WHERE sessionId = ? AND kind = 'track'
+                GROUP BY folderPath
+                HAVING failed > 0
+                ORDER BY folderPath
+            """, arguments: [sessionId])
+            return rows.map { (folderPath: $0["folderPath"], planned: $0["planned"],
+                               written: $0["written"], failed: $0["failed"]) }
+        }
+    }
+
+    /// Every failed file in a session, with its reason. Drives the report and
+    /// the in-place retry actions.
+    func scanSessionFailures(sessionId: String) throws -> [(filePath: String, folderPath: String, kind: String?, detail: String?, attempts: Int)] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT filePath, folderPath, failureKind, failureDetail, attemptCount
+                FROM scan_ledger
+                WHERE sessionId = ? AND kind = 'track' AND outcome IN ('skipped','permanent')
+                ORDER BY folderPath, filePath
+            """, arguments: [sessionId])
+            return rows.map { (filePath: $0["filePath"], folderPath: $0["folderPath"],
+                               kind: $0["failureKind"], detail: $0["failureDetail"],
+                               attempts: $0["attemptCount"]) }
+        }
+    }
+
+    /// Retention: the record survives automatic scans and is cleared only when
+    /// the user manually scans that same share (agreed 2026-07-31).
+    func clearScanSessions(sourceId: String) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM scan_sessions WHERE sourceId = ?",
+                           arguments: [sourceId])
+        }
+    }
+
+    /// Sessions for a source, newest first — the review tool's list.
+    func scanSessions(sourceId: String, limit: Int = 20) throws -> [Row] {
+        try dbQueue.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT * FROM scan_sessions WHERE sourceId = ?
+                ORDER BY startedAt DESC LIMIT ?
+            """, arguments: [sourceId, limit])
         }
     }
 

@@ -68,7 +68,7 @@ actor ArtworkCache {
     ///
     /// Markers are reset at scan start for exactly the folders being scanned, so
     /// a rescanned album is retried and an untouched one is not.
-    func fetchMissingArtwork(sourceId: String) async {
+    func fetchMissingArtwork(sourceId: String, ledgerSessionId: String? = nil) async {
         let albums = (try? SorrivaDatabase.shared.albumsNeedingOnlineArtScan(sourceId: sourceId)) ?? []
         guard !albums.isEmpty else {
             sLog("ARTWORK: online fetch — nothing to fetch")
@@ -85,6 +85,25 @@ actor ArtworkCache {
             // count as attempted for this scan and must not be retried in a loop.
             await fetchArtwork(for: album)
             try? SorrivaDatabase.shared.markOnlineArtAttempted(albumId: album.id)
+            if let ledgerSessionId {
+                // Re-read: fetchArtwork swallows its own errors, so the only
+                // reliable signal of success is whether artwork now exists.
+                let fresh = try? SorrivaDatabase.shared.album(id: album.id)
+                if fresh?.artPathThumb != nil {
+                    try? SorrivaDatabase.shared.recordArtworkOutcome(
+                        sessionId: ledgerSessionId, albumId: album.id,
+                        outcome: .written, resolvedBy: .online, incrementAttempt: true)
+                } else {
+                    // Online was the last pass — no source produced artwork for
+                    // this album. Terminal, and not a defect: plenty of albums
+                    // simply have none findable.
+                    try? SorrivaDatabase.shared.recordArtworkOutcome(
+                        sessionId: ledgerSessionId, albumId: album.id,
+                        outcome: .permanent, failureKind: .noArtwork,
+                        failureDetail: "no artwork found in file, folder or online",
+                        incrementAttempt: true)
+                }
+            }
             // Stagger — 3 seconds between requests to respect iTunes API rate limit
             try? await Task.sleep(nanoseconds: 3_000_000_000)
         }

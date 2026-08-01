@@ -56,7 +56,7 @@ actor ScanRetryScheduler {
     /// Start (or restart) the retry scheduler for a source.
     /// Cancels any in-flight task before starting — call isRunning first
     /// to avoid unnecessary restarts when the scheduler is already running.
-    func start(source: LibrarySource, scanner: SMBScanner) async {
+    func start(source: LibrarySource, scanner: SMBScanner, ledgerSessionId: String? = nil) async {
         schedulerTask?.cancel()
 
         // fScanSessionLogCorrelation — the scheduler outlives the scan pipeline
@@ -71,7 +71,8 @@ actor ScanRetryScheduler {
             scanLog("RETRY: scheduler START for \(source.displayName)")
 
             // Pass 1 — immediate
-            await runRetryPass(source: source, scanner: scanner, passNumber: 1)
+            await runRetryPass(source: source, scanner: scanner, passNumber: 1,
+                               ledgerSessionId: ledgerSessionId)
 
             // Passes 2–5 — on backoff schedule
             for (idx, delay) in retryDelays.enumerated() {
@@ -81,7 +82,7 @@ actor ScanRetryScheduler {
                 }
 
                 // Check both queues before sleeping — bail early if already clear
-                if await bothQueuesClear(sourceId: source.id) {
+                if await queuesClear(sourceId: source.id, ledgerSessionId: ledgerSessionId) {
                     scanLog("RETRY: scheduler DONE — both queues clear after pass \(idx + 1)")
                     try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "complete")
                     scanLog("SCAN: state = complete for \(source.displayName)")
@@ -99,14 +100,28 @@ actor ScanRetryScheduler {
                     break
                 }
 
-                await runRetryPass(source: source, scanner: scanner, passNumber: idx + 2)
+                await runRetryPass(source: source, scanner: scanner, passNumber: idx + 2,
+                                   ledgerSessionId: ledgerSessionId)
             }
 
             // Final state summary
-            let tracksPending   = (try? SorrivaDatabase.shared.pendingScanSkips(sourceId: source.id))?.count ?? 0
-            let tracksPermanent = (try? SorrivaDatabase.shared.permanentScanSkipCount(sourceId: source.id)) ?? 0
-            let artPending      = (try? SorrivaDatabase.shared.albumsNeedingEmbeddedArtRetry())?.count ?? 0
-            scanLog("RETRY: scheduler COMPLETE — \(tracksPending) tracks still pending, \(tracksPermanent) tracks permanent, \(artPending) art still pending")
+            let artPending = (try? SorrivaDatabase.shared.albumsNeedingEmbeddedArtRetry())?.count ?? 0
+            if let ledgerSessionId {
+                let a = (try? SorrivaDatabase.shared.scanSessionAudit(sessionId: ledgerSessionId)) ?? [:]
+                let planned = a.values.reduce(0, +)
+                let accounted = (a["written"] ?? 0) + (a["resolved"] ?? 0) + (a["permanent"] ?? 0) + (a["skipped"] ?? 0)
+                let unaccounted = (a["planned"] ?? 0)
+                scanLog("LEDGER: audit — planned \(planned), written \(a["written"] ?? 0), resolved \(a["resolved"] ?? 0), still failing \(a["skipped"] ?? 0), permanent \(a["permanent"] ?? 0), UNACCOUNTED \(unaccounted)")
+                if unaccounted > 0 {
+                    // Non-zero unaccounted is a bug by definition: these files
+                    // were planned and never reached any outcome.
+                    scanLog("LEDGER: WARNING — \(unaccounted) planned file(s) never reached an outcome")
+                }
+                _ = accounted
+                try? SorrivaDatabase.shared.updateScanSessionState(
+                    sessionId: ledgerSessionId, state: .complete)
+            }
+            scanLog("RETRY: scheduler COMPLETE — \(artPending) art still pending")
             try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "complete")
             scanLog("SCAN: state = complete for \(source.displayName)")
             // Pipeline is genuinely over — clear the session so a later killed
@@ -128,17 +143,30 @@ actor ScanRetryScheduler {
 
     // MARK: - Private
 
-    private func runRetryPass(source: LibrarySource, scanner: SMBScanner, passNumber: Int) async {
+    private func runRetryPass(source: LibrarySource, scanner: SMBScanner, passNumber: Int,
+                              ledgerSessionId: String?) async {
         scanLog("RETRY: === PASS \(passNumber) START ===")
-        await scanner.retrySkippedTracks(source: source)
-        await retryFailedEmbeddedArt(source: source)
+        await scanner.retrySkippedTracks(source: source, ledgerSessionId: ledgerSessionId)
+        await retryFailedEmbeddedArt(source: source, ledgerSessionId: ledgerSessionId)
         scanLog("RETRY: === PASS \(passNumber) COMPLETE ===")
     }
 
-    private func bothQueuesClear(sourceId: String) async -> Bool {
-        let tracksDone = ((try? SorrivaDatabase.shared.pendingScanSkips(sourceId: sourceId)) ?? []).isEmpty
-        let artDone    = ((try? SorrivaDatabase.shared.albumsNeedingEmbeddedArtRetry()) ?? []).isEmpty
-        return tracksDone && artDone
+    /// Ledger-driven completeness (fScanSessionLedger).
+    ///
+    /// The session is done when nothing in it is still retryable. Previously
+    /// this asked two separate queues, each with its own lifecycle and each
+    /// clobberable by other components — which is how a queue could read as
+    /// empty without its work having been done.
+    private func queuesClear(sourceId: String, ledgerSessionId: String?) async -> Bool {
+        guard let ledgerSessionId else {
+            // No ledger — fall back to the old artwork queue rather than
+            // reporting complete on no evidence.
+            return ((try? SorrivaDatabase.shared.albumsNeedingEmbeddedArtRetry()) ?? []).isEmpty
+        }
+        // One query over one table, covering tracks AND artwork. This is the
+        // completeness test two parallel queues could never give: a row is
+        // either terminal or it isn't.
+        return !((try? SorrivaDatabase.shared.sessionHasOutstandingWork(sessionId: ledgerSessionId)) ?? false)
     }
 
     /// Sleep using wall-clock polling so backgrounding doesn't extend the interval.
@@ -153,13 +181,23 @@ actor ScanRetryScheduler {
 
     // MARK: - Embedded art retry pass
 
-    private func retryFailedEmbeddedArt(source: LibrarySource) async {
+    private func retryFailedEmbeddedArt(source: LibrarySource, ledgerSessionId: String?) async {
+        // fScanSessionLedger — the ledger is the queue. albumsNeedingEmbeddedArtRetry()
+        // selected on embeddedArtFailed, which resetArtworkPassMarkers zeroes,
+        // so any scan touching those folders silently emptied this queue rather
+        // than working it (bArtworkMarkerResetClearsRetryQueue). A ledger row is
+        // owned by the session and only moves between defined outcomes.
         let albums: [Album]
-        do {
-            albums = try SorrivaDatabase.shared.albumsNeedingEmbeddedArtRetry()
-        } catch {
-            scanLog("RETRY: embedded art — failed to fetch queue: \(error.localizedDescription)")
-            return
+        if let ledgerSessionId {
+            let pending = (try? SorrivaDatabase.shared.artworkLedgerPending(sessionId: ledgerSessionId)) ?? []
+            albums = pending.compactMap { entry in
+                guard let a = try? SorrivaDatabase.shared.album(id: entry.albumId) else { return nil }
+                return a
+            }
+        } else {
+            // Pre-v18 sources have no ledger; fall back rather than silently
+            // dropping their queue.
+            albums = (try? SorrivaDatabase.shared.albumsNeedingEmbeddedArtRetry()) ?? []
         }
         guard !albums.isEmpty else {
             scanLog("RETRY: embedded art — no pending retries")
@@ -227,6 +265,11 @@ actor ScanRetryScheduler {
                             albumId: album.id, thumbPath: saved.thumb, fullPath: saved.full
                         )
                         try? SorrivaDatabase.shared.markEmbeddedArtScanned(albumId: album.id)
+                        if let ledgerSessionId {
+                            try? SorrivaDatabase.shared.recordArtworkOutcome(
+                                sessionId: ledgerSessionId, albumId: album.id,
+                                outcome: .resolved, resolvedBy: .embedded, incrementAttempt: true)
+                        }
                         await MainActor.run {
                             NotificationCenter.default.post(name: .artworkDidUpdate, object: album.id)
                         }
@@ -255,6 +298,14 @@ actor ScanRetryScheduler {
             if !artFound {
                 if readErrored {
                     try? SorrivaDatabase.shared.markEmbeddedArtFailed(albumId: album.id)
+                    if let ledgerSessionId {
+                        try? SorrivaDatabase.shared.recordArtworkOutcome(
+                            sessionId: ledgerSessionId, albumId: album.id,
+                            outcome: attemptNum >= 5 ? .permanent : .skipped,
+                            failureKind: .read,
+                            failureDetail: "embedded art read failed on retry",
+                            incrementAttempt: true)
+                    }
                     if attemptNum >= 5 {
                         scanLog("RETRY: embedded art PERMANENT FAIL after 5 attempts — \(album.artistName) · \(album.title)")
                     } else {
@@ -262,6 +313,16 @@ actor ScanRetryScheduler {
                     }
                 } else {
                     try? SorrivaDatabase.shared.markEmbeddedArtScanned(albumId: album.id)
+                    if let ledgerSessionId {
+                        // Read fine, no embedded art. Terminal — retrying cannot
+                        // change the file, and the folder and online passes have
+                        // already had their turn by the time retry runs.
+                        try? SorrivaDatabase.shared.recordArtworkOutcome(
+                            sessionId: ledgerSessionId, albumId: album.id,
+                            outcome: .permanent, failureKind: .noArtwork,
+                            failureDetail: "no embedded artwork in file",
+                            incrementAttempt: true)
+                    }
                     scanLog("RETRY: embedded art — no art in file — \(album.artistName) · \(album.title)")
                 }
                 stillFailing += 1

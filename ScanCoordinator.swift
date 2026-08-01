@@ -69,6 +69,23 @@ final class ScanCoordinator: ObservableObject {
     /// table mean the same thing, and neither should trigger automatic work:
     /// the first scan of a share is a deliberate user action, not something a
     /// foreground transition should start.
+    /// Does this source have a session with work still outstanding?
+    ///
+    /// fScanSessionLedger — replaces asking scan_skips and the artwork queue
+    /// separately. Those were two parallel queues with their own lifecycles,
+    /// each clobberable by other components, and neither could say whether the
+    /// work they held belonged to a session that was still live.
+    private func hasOutstandingWork(_ source: LibrarySource) -> Bool {
+        // `try?` on a throwing function that returns an optional flattens to a
+        // single optional, so this guard fully unwraps it.
+        guard let active = try? SorrivaDatabase.shared.activeScanSession(sourceId: source.id) else {
+            // No live session. Fall back to the old artwork queue for sources
+            // scanned before v18/v19 — they have no ledger to consult.
+            return !((try? SorrivaDatabase.shared.albumsNeedingEmbeddedArtRetry()) ?? []).isEmpty
+        }
+        return (try? SorrivaDatabase.shared.sessionHasOutstandingWork(sessionId: active.id)) ?? false
+    }
+
     private func hasBeenScanned(_ source: LibrarySource) -> Bool {
         let stats = (try? SorrivaDatabase.shared.folderFingerprints(sourceId: source.id)) ?? [:]
         return !stats.isEmpty
@@ -110,6 +127,9 @@ final class ScanCoordinator: ObservableObject {
         // Explicit full rescan — discard any interrupted session so this run
         // cannot inherit it and skip folders the user expects to be re-read.
         try? SorrivaDatabase.shared.setCurrentScanSessionId(sourceId: source.id, sessionId: nil)
+        // Retention: the scan record survives automatic scans and is cleared
+        // only when the user manually scans that same share.
+        try? SorrivaDatabase.shared.clearScanSessions(sourceId: source.id)
         try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "scanning")
         clearStatus()
         lastReport = nil
@@ -169,6 +189,22 @@ final class ScanCoordinator: ObservableObject {
                 // never actually built; this is that reset, done at the only
                 // place that can distinguish "killed" from "running".
                 if source.scanState == "scanning" {
+                    // fScanSessionLedger, rule 2. Liveness is now a property of
+                    // the SESSION, not of an in-memory flag.
+                    //
+                    // activeScanSourceId cannot survive a kill, cannot say
+                    // whether a live scan is actually progressing, and cannot
+                    // describe what is outstanding — which is why a separate
+                    // lastPipelineProgress heartbeat had to be bolted alongside
+                    // it, and why a killed scan used to be detectable only via a
+                    // scanState string four code paths write to.
+                    //
+                    // scan_sessions.lastProgressAt is written by every ledger
+                    // outcome, so it survives termination and answers all three.
+                    if let live = try? SorrivaDatabase.shared.activeScanSession(sourceId: source.id),
+                       Date().timeIntervalSince1970 - Double(live.lastProgressAt) < pipelineStallThreshold {
+                        continue    // session is live and progressing
+                    }
                     if activeScanSourceId == source.id {
                         // Believed healthy — but verify it is actually making
                         // progress. Without this check a wedged pipeline is
@@ -218,9 +254,7 @@ final class ScanCoordinator: ObservableObject {
                     // stranded 'idle' with pending work as an interrupted scan;
                     // otherwise promote it to 'complete' so change detection
                     // resumes normally.
-                    let strandedSkips = (try? SorrivaDatabase.shared.pendingScanSkips(sourceId: source.id)) ?? []
-                    let strandedArt   = (try? SorrivaDatabase.shared.albumsNeedingEmbeddedArtRetry()) ?? []
-                    if !strandedSkips.isEmpty || !strandedArt.isEmpty {
+                    if hasOutstandingWork(source) {
                         sLog("SCAN: stranded 'idle' with pending work for \(source.displayName) — offering resume")
                         try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "error")
                         interruptedScanSource = source
@@ -243,20 +277,38 @@ final class ScanCoordinator: ObservableObject {
                         try? SorrivaDatabase.shared.setCurrentScanSessionId(sourceId: source.id, sessionId: nil)
                         continue
                     }
+                    // bPhantomScanInterruptedDialog — dissolved rather than
+                    // patched. Since the unified scan model, every foreground
+                    // briefly sets scanState 'scanning' for an automatic change
+                    // check, so a kill in that window produced a "scan did not
+                    // complete" dialog for a scan the user never started and
+                    // which did no work. The session records BOTH its trigger
+                    // and what it planned, so that case is now identifiable:
+                    // an automatic run with nothing planned needs no decision,
+                    // it simply runs again on the next foreground.
+                    if let last = try? SorrivaDatabase.shared.activeScanSession(sourceId: source.id),
+                       last.trigger == SorrivaDatabase.ScanTrigger.automatic.rawValue,
+                       last.plannedFiles == 0 {
+                        sLog("SCAN: interrupted automatic check with no planned work — resetting silently")
+                        try? SorrivaDatabase.shared.updateScanSessionState(
+                            sessionId: last.id, state: .cancelled)
+                        try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "complete")
+                        continue
+                    }
                     sLog("SCAN: interrupted scan detected for \(source.displayName)")
                     interruptedScanSource = source
 
                 case "retrying":
-                    let pendingSkips = (try? SorrivaDatabase.shared.pendingScanSkips(sourceId: source.id)) ?? []
-                    let pendingArt   = (try? SorrivaDatabase.shared.albumsNeedingEmbeddedArtRetry()) ?? []
-                    if pendingSkips.isEmpty && pendingArt.isEmpty {
+                    if !hasOutstandingWork(source) {
                         sLog("SCAN: retrying state but queues empty — marking complete for \(source.displayName)")
                         try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "complete")
                     } else if await ScanRetryScheduler.shared.isRunning {
                         sLog("SCAN: retry scheduler already running — skipping restart for \(source.displayName)")
                     } else {
                         sLog("SCAN: resuming retry scheduler for \(source.displayName)")
-                        await ScanRetryScheduler.shared.start(source: source, scanner: scanner)
+                        let active = try? SorrivaDatabase.shared.activeScanSession(sourceId: source.id)
+                        await ScanRetryScheduler.shared.start(source: source, scanner: scanner,
+                                                             ledgerSessionId: active?.id)
                     }
 
                 case "complete":
@@ -296,13 +348,14 @@ final class ScanCoordinator: ObservableObject {
                             ?? nil
                         ScanLogSession.begin(artSession ?? UUID().uuidString)
                         sLog("SCAN: pending artwork work for \(source.displayName) — resuming artwork only")
-                        await runArtworkPasses(source: source)
+                        let artActive = try? SorrivaDatabase.shared.activeScanSession(sourceId: source.id)
+                        await runArtworkPasses(source: source, ledgerSessionId: artActive?.id)
                         ScanLogSession.end()
                         continue
                     }
 
                     sLog("SCAN: change check for \(source.displayName)")
-                    startFullScan(source: source)
+                    startFullScan(source: source, trigger: .automatic)
                     await scanTask?.value
 
                 default:
@@ -342,20 +395,23 @@ final class ScanCoordinator: ObservableObject {
         }
     }
 
-    private func startFullScan(source: LibrarySource) {
+    private func startFullScan(source: LibrarySource,
+                               trigger: SorrivaDatabase.ScanTrigger = .manual) {
         if activeScanSourceId == source.id { scanTask?.cancel() }
         // Fresh session — a user-initiated full scan must never skip folders,
         // or "Scan Now" on a completed source would do nothing.
         scanTask = Task {
             await runScan(source: source, folders: nil,
                           sessionId: UUID().uuidString,
-                          resumeSessionId: nil)
+                          resumeSessionId: nil,
+                          triggerKind: trigger)
         }
     }
 
 
     private func runScan(source: LibrarySource, folders: [String]?,
-                         sessionId: String, resumeSessionId: String?) async {
+                         sessionId: String, resumeSessionId: String?,
+                         triggerKind: SorrivaDatabase.ScanTrigger = .manual) async {
         activeScanSourceId = source.id
         lastPipelineProgress = Date()
         // Recorded BEFORE the scan starts, so if the app is killed mid-scan the
@@ -363,6 +419,21 @@ final class ScanCoordinator: ObservableObject {
         try? SorrivaDatabase.shared.setCurrentScanSessionId(sourceId: source.id, sessionId: sessionId)
         try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "scanning")
         ScanLogSession.begin(sessionId)
+
+        // fScanSessionLedger — the session is the unit of work. On resume we
+        // continue the existing one rather than opening another, which is what
+        // makes "this run's outstanding work" a fact rather than an inference.
+        let ledgerSessionId: String?
+        if resumeSessionId != nil,
+           let active = try? SorrivaDatabase.shared.activeScanSession(sourceId: source.id) {
+            ledgerSessionId = active.id
+            sLog("SCAN: ledger — resuming session \(active.id.prefix(8)) (\(active.plannedFiles) planned)")
+        } else {
+            let trigger: SorrivaDatabase.ScanTrigger = resumeSessionId != nil ? .resume : triggerKind
+            ledgerSessionId = try? SorrivaDatabase.shared.createScanSession(
+                sourceId: source.id, trigger: trigger)
+        }
+
         sLog("SCAN: state -> scanning (resume=\(resumeSessionId != nil))")
 
         // Prevent screen lock during scan
@@ -371,13 +442,15 @@ final class ScanCoordinator: ObservableObject {
         do {
             if let folders = folders {
                 try await scanner.scanChangedFolders(source: source, folderPaths: folders,
-                                                     scanSessionId: sessionId) { [weak self] p in
+                                                     scanSessionId: sessionId,
+                                                     ledgerSessionId: ledgerSessionId) { [weak self] p in
                     Task { @MainActor [weak self] in self?.handleProgress(p) }
                 }
             } else {
                 try await scanner.scan(source: source,
                                        scanSessionId: sessionId,
-                                       resumeSessionId: resumeSessionId) { [weak self] p in
+                                       resumeSessionId: resumeSessionId,
+                                       ledgerSessionId: ledgerSessionId) { [weak self] p in
                     Task { @MainActor [weak self] in self?.handleProgress(p) }
                 }
             }
@@ -385,6 +458,10 @@ final class ScanCoordinator: ObservableObject {
         } catch {
             sLog("SCAN: Failed — \(source.displayName): \(error)")
             sLog("SCAN: state -> error")
+            if let ledgerSessionId {
+                try? SorrivaDatabase.shared.updateScanSessionState(
+                    sessionId: ledgerSessionId, state: .failed)
+            }
             ScanLogSession.end()
             // Session id deliberately left in place — it is what a resume needs.
             try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "error")
@@ -408,10 +485,19 @@ final class ScanCoordinator: ObservableObject {
             // something better — only its expensive download is conditional.
             // Online fetch runs last, only for albums still below its fixed
             // 600×600 ceiling.
-            let (embeddedArtFound, folderArtFound) = await self.runArtworkPasses(source: source)
+            if let ledgerSessionId {
+                try? SorrivaDatabase.shared.updateScanSessionState(
+                    sessionId: ledgerSessionId, state: .artwork)
+            }
+            let (embeddedArtFound, folderArtFound) = await self.runArtworkPasses(
+                source: source, ledgerSessionId: ledgerSessionId)
 
             // Mark as retrying before scheduler starts
             try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "retrying")
+            if let ledgerSessionId {
+                try? SorrivaDatabase.shared.updateScanSessionState(
+                    sessionId: ledgerSessionId, state: .retrying)
+            }
             sLog("SCAN: state -> retrying")
             // Session id deliberately NOT cleared here. The retry scheduler runs
             // after this point, can be restarted independently after a kill, and
@@ -419,7 +505,8 @@ final class ScanCoordinator: ObservableObject {
             // searchable alongside the scan that produced their queue. The
             // scheduler clears it when it genuinely completes.
             scanLog("SCAN: pipeline complete — starting retry scheduler for \(source.displayName)")
-            await ScanRetryScheduler.shared.start(source: source, scanner: self.scanner)
+            await ScanRetryScheduler.shared.start(source: source, scanner: self.scanner,
+                                                  ledgerSessionId: ledgerSessionId)
 
             // Pass 1 done — restore screen lock and clear active state
             await MainActor.run {
@@ -441,11 +528,11 @@ final class ScanCoordinator: ObservableObject {
 
             // Enrich report with artwork and retry totals
             let artworkFound    = folderArtFound + embeddedArtFound
-            let permanent       = (try? SorrivaDatabase.shared.permanentScanSkipCount(sourceId: source.id)) ?? 0
-            let skipped         = (try? await SorrivaDatabase.shared.dbQueue.read { db in
-                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM scan_skips WHERE sourceId = ?", arguments: [source.id]) ?? 0
-            }) ?? 0
-            let retried         = skipped - permanent
+            let audit = ledgerSessionId.flatMap {
+                try? SorrivaDatabase.shared.scanSessionAudit(sessionId: $0)
+            } ?? [:]
+            let permanent       = audit["permanent"] ?? 0
+            let retried         = audit["resolved"] ?? 0
             await MainActor.run {
                 if var report = self.lastReport {
                     report.artworkFound      = artworkFound
@@ -477,7 +564,7 @@ final class ScanCoordinator: ObservableObject {
     // MARK: - Folder artwork pass
 
     @discardableResult
-    private func runFolderArtPass(source: LibrarySource) async -> Int {
+    private func runFolderArtPass(source: LibrarySource, ledgerSessionId: String? = nil) async -> Int {
         // Marker-driven, not every album in the source. Previously this
         // re-checked EVERY album on every scan — a rescan touching 2 folders
         // still checked all 11 (observed 2026-07-30), which at ~1000 albums
@@ -638,6 +725,12 @@ final class ScanCoordinator: ObservableObject {
             ) else {
                 if !measured.isEmpty {
                     self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] best candidate does not beat stored \(album.artworkWidth ?? 0)×\(album.artworkHeight ?? 0) — skip download")
+                    if let ledgerSessionId, album.artPathThumb != nil {
+                        // Already has artwork and nothing beat it — settled.
+                        try? SorrivaDatabase.shared.recordArtworkOutcome(
+                            sessionId: ledgerSessionId, albumId: album.id,
+                            outcome: .written, resolvedBy: .folder, incrementAttempt: true)
+                    }
                 } else if candidateFileCount > 0 {
                     // Real image files existed in the folder, but not one of them
                     // produced a readable header — every candidate hit a timeout or
@@ -703,6 +796,11 @@ final class ScanCoordinator: ObservableObject {
                         self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] SAVED LOW-RES (\(winner.width)×\(winner.height)px, nothing better found) — \(album.artistName) · \(album.title)")
                     } else {
                         self.scanLog("ARTWORK: folder [\(idx+1)/\(albums.count)] SAVED — \(winner.name) (\(winner.width)×\(winner.height)px) — \(album.artistName) · \(album.title)")
+                    }
+                    if let ledgerSessionId {
+                        try? SorrivaDatabase.shared.recordArtworkOutcome(
+                            sessionId: ledgerSessionId, albumId: album.id,
+                            outcome: .written, resolvedBy: .folder, incrementAttempt: true)
                     }
                     await MainActor.run {
                         NotificationCenter.default.post(name: .artworkDidUpdate, object: album.id)
@@ -782,9 +880,23 @@ final class ScanCoordinator: ObservableObject {
     /// download is conditional. Online runs last, and only for albums still
     /// below its fixed 600x600 ceiling.
     @discardableResult
-    private func runArtworkPasses(source: LibrarySource) async -> (embedded: Int, folder: Int) {
+    private func runArtworkPasses(source: LibrarySource,
+                                  ledgerSessionId: String? = nil) async -> (embedded: Int, folder: Int) {
+        // fScanSessionLedger — plan the artwork work now rather than at scan
+        // start, because the albums only exist once the file pass has created
+        // them. Idempotent, so a resume keeps the outcomes it already recorded.
+        if let ledgerSessionId {
+            let albums = (try? SorrivaDatabase.shared.albums(sourceId: source.id)) ?? []
+            let rows = albums
+                .filter { !$0.artManualOverride }
+                .map { (albumId: $0.id, folderPath: $0.folderPath ?? "") }
+            try? SorrivaDatabase.shared.recordArtworkPlan(
+                sessionId: ledgerSessionId, sourceId: source.id, albums: rows)
+            sLog("SCAN: ledger — planned artwork for \(rows.count) album(s)")
+        }
+
         sLog("SCAN: PHASE artwork-embedded START")
-        let embedded = await runEmbeddedArtPass(source: source)
+        let embedded = await runEmbeddedArtPass(source: source, ledgerSessionId: ledgerSessionId)
         sLog("SCAN: PHASE artwork-embedded END")
 
         // A 30s pause used to sit between these passes to let the NAS recover.
@@ -796,17 +908,28 @@ final class ScanCoordinator: ObservableObject {
         // timing, so the pause was pure dead time. Removed rather than
         // shortened: if stalls return we want to see them, not have them masked.
         sLog("SCAN: PHASE artwork-folder START")
-        let folder = await runFolderArtPass(source: source)
+        let folder = await runFolderArtPass(source: source, ledgerSessionId: ledgerSessionId)
         sLog("SCAN: PHASE artwork-folder END")
 
         sLog("SCAN: PHASE artwork-online START")
-        await ArtworkCache.shared.fetchMissingArtwork(sourceId: source.id)
+        await ArtworkCache.shared.fetchMissingArtwork(sourceId: source.id,
+                                                      ledgerSessionId: ledgerSessionId)
         sLog("SCAN: PHASE artwork-online END")
+
+        // Settle rows no pass touched. An album that already had artwork is
+        // skipped by all three selections, so its row would otherwise sit at
+        // 'planned' forever and the session could never complete.
+        if let ledgerSessionId {
+            try? SorrivaDatabase.shared.settleUntouchedArtworkRows(sessionId: ledgerSessionId)
+            let a = (try? SorrivaDatabase.shared.scanSessionAudit(
+                sessionId: ledgerSessionId, kind: .artwork)) ?? [:]
+            sLog("LEDGER: artwork — written \(a["written"] ?? 0), still failing \(a["skipped"] ?? 0), none found \(a["permanent"] ?? 0), unaccounted \(a["planned"] ?? 0)")
+        }
 
         return (embedded, folder)
     }
 
-    private func runEmbeddedArtPass(source: LibrarySource) async -> Int {
+    private func runEmbeddedArtPass(source: LibrarySource, ledgerSessionId: String? = nil) async -> Int {
         let albums = (try? SorrivaDatabase.shared.albumsNeedingEmbeddedArtScan(sourceId: source.id)) ?? []
         guard !albums.isEmpty else {
             scanLog("ARTWORK: embedded pass — nothing to scan")
@@ -940,6 +1063,11 @@ final class ScanCoordinator: ObservableObject {
                         width: winner.width, height: winner.height
                     )
                     try? SorrivaDatabase.shared.markEmbeddedArtScanned(albumId: album.id)
+                    if let ledgerSessionId {
+                        try? SorrivaDatabase.shared.recordArtworkOutcome(
+                            sessionId: ledgerSessionId, albumId: album.id,
+                            outcome: .written, resolvedBy: .embedded, incrementAttempt: true)
+                    }
                     found += 1
                     artFound = true
                     if winner.width < 200 && winner.height < 200 {
@@ -955,17 +1083,39 @@ final class ScanCoordinator: ObservableObject {
                 // Found embedded art, but it didn't beat what's already stored —
                 // still mark scanned, this album genuinely has no better embedded art.
                 try? SorrivaDatabase.shared.markEmbeddedArtScanned(albumId: album.id)
+                if let ledgerSessionId {
+                    // Considered and settled — the album has artwork, this pass
+                    // simply had nothing better. Terminal, not a failure.
+                    try? SorrivaDatabase.shared.recordArtworkOutcome(
+                        sessionId: ledgerSessionId, albumId: album.id,
+                        outcome: .written, resolvedBy: .embedded, incrementAttempt: true)
+                }
                 artFound = true
                 scanLog("ARTWORK: embedded — best candidate does not beat stored \(album.artworkWidth ?? 0)×\(album.artworkHeight ?? 0), keeping existing — \(album.artistName) · \(album.title)")
             }
 
             if !artFound {
                 if artReadErrored {
-                    // Read error — not genuinely artless. Queue for retry.
+                    // Read error — not genuinely artless. Retryable.
                     try? SorrivaDatabase.shared.markEmbeddedArtFailed(albumId: album.id)
+                    if let ledgerSessionId {
+                        // Left 'skipped' so the later passes and the retry loop
+                        // can still reach it. The ledger — not embeddedArtFailed
+                        // — is now what the session consults, which is what
+                        // stops resetArtworkPassMarkers silently emptying the
+                        // queue (bArtworkMarkerResetClearsRetryQueue).
+                        try? SorrivaDatabase.shared.recordArtworkOutcome(
+                            sessionId: ledgerSessionId, albumId: album.id,
+                            outcome: .skipped, failureKind: .read,
+                            failureDetail: "embedded art read failed",
+                            incrementAttempt: true)
+                    }
                     scanLog("ARTWORK: embedded FAILED (queued for retry) — \(album.artistName) · \(album.title)")
                 } else {
-                    // No read errors — file simply has no embedded art. Mark done permanently.
+                    // Read fine, the file simply has no embedded art. Terminal
+                    // for THIS pass but not for the album — the folder and
+                    // online passes still get their turn, so the ledger row
+                    // stays open and only they can close it.
                     try? SorrivaDatabase.shared.markEmbeddedArtScanned(albumId: album.id)
                     scanLog("ARTWORK: embedded — no art in file — \(album.artistName) · \(album.title)")
                 }

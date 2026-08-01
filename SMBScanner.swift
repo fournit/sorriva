@@ -129,11 +129,13 @@ actor SMBScanner {
         source: LibrarySource,
         scanSessionId: String? = nil,
         resumeSessionId: String? = nil,
+        ledgerSessionId: String? = nil,
         progressHandler: @Sendable @escaping (ScanProgress) -> Void
     ) async throws {
         try await scanFolders(source: source, folderPaths: nil,
                               scanSessionId: scanSessionId,
                               resumeSessionId: resumeSessionId,
+                              ledgerSessionId: ledgerSessionId,
                               progressHandler: progressHandler)
     }
 
@@ -142,11 +144,13 @@ actor SMBScanner {
         source: LibrarySource,
         folderPaths: [String],
         scanSessionId: String? = nil,
+        ledgerSessionId: String? = nil,
         progressHandler: @Sendable @escaping (ScanProgress) -> Void
     ) async throws {
         try await scanFolders(source: source, folderPaths: folderPaths,
                               scanSessionId: scanSessionId,
                               resumeSessionId: nil,
+                              ledgerSessionId: ledgerSessionId,
                               progressHandler: progressHandler)
     }
 
@@ -157,6 +161,7 @@ actor SMBScanner {
         folderPaths: [String]?,   // nil = full scan
         scanSessionId: String? = nil,
         resumeSessionId: String? = nil,
+        ledgerSessionId: String? = nil,
         progressHandler: @Sendable @escaping (ScanProgress) -> Void
     ) async throws {
 
@@ -220,6 +225,7 @@ actor SMBScanner {
         let walkedGroups = Dictionary(grouping: allFiles) {
             ($0.path as NSString).deletingLastPathComponent
         }
+        var skippedUnchangedCount = 0
 
         if folderPaths == nil {
             let stored = (try? SorrivaDatabase.shared.folderFingerprints(sourceId: source.id)) ?? [:]
@@ -263,7 +269,8 @@ actor SMBScanner {
             if !skipFolders.isEmpty {
                 let before = allFiles.count
                 allFiles.removeAll { skipFolders.contains(($0.path as NSString).deletingLastPathComponent) }
-                scanLog("SCAN: filter — skipping \(before - allFiles.count) file(s) in \(skipFolders.count) unchanged folder(s); \(newCount) new, \(changedCount) changed, \(allFiles.count) file(s) to scan")
+                skippedUnchangedCount = before - allFiles.count
+                scanLog("SCAN: filter — skipping \(skippedUnchangedCount) file(s) in \(skipFolders.count) unchanged folder(s); \(newCount) new, \(changedCount) changed, \(allFiles.count) file(s) to scan")
             } else {
                 scanLog("SCAN: filter — nothing skippable; \(newCount) new folder(s), \(changedCount) changed, \(allFiles.count) file(s) to scan")
             }
@@ -308,6 +315,34 @@ actor SMBScanner {
                 folderPaths: Array(foldersToScan)
             )
             scanLog("SCAN: artwork markers reset for \(foldersToScan.count) folder(s) being scanned")
+        }
+
+        // fScanSessionLedger — record the plan. One row per file this run intends
+        // to read, written AFTER the filter so the ledger describes what THIS
+        // run intended rather than what the library contains.
+        //
+        // On resume the plan already exists: recordScanPlan is skipped and the
+        // existing rows are worked, which is what makes resume exact rather than
+        // "start over and rely on idempotency".
+        if let ledgerSessionId {
+            let existing = (try? SorrivaDatabase.shared.unfinishedLedgerFiles(sessionId: ledgerSessionId)) ?? []
+            if existing.isEmpty {
+                let planRows = allFiles.map {
+                    (path: $0.path,
+                     folder: ($0.path as NSString).deletingLastPathComponent,
+                     size: $0.size)
+                }
+                try? SorrivaDatabase.shared.recordScanPlan(
+                    sessionId: ledgerSessionId,
+                    sourceId: source.id,
+                    files: planRows,
+                    plannedFolders: foldersToScan.count,
+                    skippedUnchangedFiles: skippedUnchangedCount
+                )
+                scanLog("SCAN: ledger — planned \(planRows.count) file(s) in \(foldersToScan.count) folder(s)")
+            } else {
+                scanLog("SCAN: ledger — resuming, \(existing.count) file(s) still planned")
+            }
         }
 
         let totalFiles = allFiles.count
@@ -362,7 +397,10 @@ actor SMBScanner {
             // Per-file fresh connection — eliminates session degradation on UNAS Pro.
             // 100ms throttle gives NAS time to release each connection before the next opens.
             let folderPath = (file.path as NSString).deletingLastPathComponent
-            let headerData = await readFileHeader(reader: reader, path: file.path, fileSize: file.size)
+            let readResult = await readFileHeader(reader: reader, path: file.path, fileSize: file.size)
+            let headerData = readResult.data
+            let lastReadFailureKind = readResult.kind
+            let lastReadFailureDetail = readResult.detail
 
             if let data = headerData {
                 var meta = ParsedMetadata()
@@ -406,10 +444,23 @@ actor SMBScanner {
                 let wrote = await writeTrackWithRetry(track, trackArtistId: trackArtist.id)
                 if wrote {
                     writtenInFolder[folderPath, default: 0] += 1
+                    if let ledgerSessionId {
+                        try? SorrivaDatabase.shared.recordLedgerOutcome(
+                            sessionId: ledgerSessionId, filePath: file.path,
+                            outcome: .written, incrementAttempt: true)
+                    }
                 }
                 if !wrote {
                     writeFailures += 1
-                    try? SorrivaDatabase.shared.insertScanSkip(filePath: file.path, sourceId: source.id)
+                    if let ledgerSessionId {
+                        try? SorrivaDatabase.shared.recordLedgerOutcome(
+                            sessionId: ledgerSessionId, filePath: file.path,
+                            outcome: .skipped, failureKind: .write,
+                            failureDetail: "database write failed after retries",
+                            incrementAttempt: true)
+                    } else {
+                        try? SorrivaDatabase.shared.insertScanSkip(filePath: file.path, sourceId: source.id)
+                    }
                 }
             } else {
                 skipped += 1
@@ -429,7 +480,23 @@ actor SMBScanner {
                 // just makes read failures behave the same. The batching saved
                 // one transaction per scan against 2-18 rows, which is not worth
                 // losing the queue to an interruption.
-                try? SorrivaDatabase.shared.insertScanSkip(filePath: file.path, sourceId: source.id)
+                // fScanSessionLedger — the ledger replaces scan_skips as the
+                // retry queue. It carries the same information plus the REASON,
+                // which is what lets the retry policy and the user-facing message
+                // differ between a timeout (very likely recoverable) and a
+                // corrupt file (retrying is pointless). It also makes retry part
+                // of the session rather than a parallel queue with its own
+                // lifecycle — which is what allowed bArtworkMarkerResetClearsRetryQueue
+                // and the unaccounted-for tracks of 2026-07-31.
+                if let ledgerSessionId {
+                    try? SorrivaDatabase.shared.recordLedgerOutcome(
+                        sessionId: ledgerSessionId, filePath: file.path,
+                        outcome: .skipped, failureKind: lastReadFailureKind,
+                        failureDetail: lastReadFailureDetail,
+                        incrementAttempt: true)
+                } else {
+                    try? SorrivaDatabase.shared.insertScanSkip(filePath: file.path, sourceId: source.id)
+                }
                 skippedPaths.append(file.path)
             }
             try? await Task.sleep(nanoseconds: 200_000_000) // 200ms throttle
@@ -796,28 +863,41 @@ actor SMBScanner {
     /// produced. Returns nil on any failure — callers already treat nil as skip.
     /// bScannerTestSeam — the actual connection handling now lives in
     /// SMBMediaSourceReader.readHeader; this wrapper only adds logging.
-    private func readFileHeader(reader: MediaSourceReader, path: String, fileSize: Int) async -> Data? {
+    /// Returns the header bytes, or the classified reason it could not be read.
+    ///
+    /// The reason was previously computed for the log line and then discarded.
+    /// The ledger needs it: all 439 skips in the 2026-07-31 full-library run
+    /// were timeouts, which are very likely recoverable, and that is a different
+    /// retry policy and a different user-facing message from a corrupt file or a
+    /// permission error.
+    private func readFileHeader(
+        reader: MediaSourceReader, path: String, fileSize: Int
+    ) async -> (data: Data?, kind: SorrivaDatabase.LedgerFailureKind?, detail: String?) {
         let byteCount = min(65536, fileSize)
         do {
-            return try await reader.readHeader(path: path, byteCount: byteCount)
+            return (try await reader.readHeader(path: path, byteCount: byteCount), nil, nil)
         } catch let error as MediaSourceReaderError {
             let name = (path as NSString).lastPathComponent
             switch error {
             case .auth(_, let underlying):
                 scanLog("SCAN: auth error — \(name): \(underlying.localizedDescription)")
+                return (nil, .auth, underlying.localizedDescription)
             case .share(_, let underlying):
                 scanLog("SCAN: share error for \(name): \(underlying.localizedDescription)")
+                return (nil, .share, underlying.localizedDescription)
             case .read(_, let underlying):
                 scanLog("SCAN: read error — \(name): \(underlying.localizedDescription)")
+                return (nil, .read, underlying.localizedDescription)
             case .timeout:
                 scanLog("SCAN: TIMEOUT 15s — \(path)")
+                return (nil, .timeout, "no response within the read timeout")
             case .unsupported:
                 scanLog("SCAN: readHeader unsupported for this reader — \(path)")
+                return (nil, .unsupported, "reader does not support header reads")
             }
-            return nil
         } catch {
             scanLog("SCAN: read error — \(path): \(error.localizedDescription)")
-            return nil
+            return (nil, .read, error.localizedDescription)
         }
     }
 
@@ -1336,50 +1416,72 @@ actor SMBScanner {
         ScanCoordinator.shared.appendStatus(message)
     }
 
-    func retrySkippedTracks(source: LibrarySource) async {
-        let skips: [ScanSkip]
-        do {
-            skips = try SorrivaDatabase.shared.pendingScanSkips(sourceId: source.id)
-        } catch {
-            scanLog("RETRY: tracks — failed to fetch pending skips: \(error.localizedDescription)")
-            return
-        }
-        guard !skips.isEmpty else {
-            scanLog("RETRY: tracks — no pending skips for \(source.displayName)")
+    /// Retry files the scan could not read, driven by the LEDGER rather than
+    /// scan_skips (fScanSessionLedger).
+    ///
+    /// This is the change that makes retry part of the session instead of a
+    /// parallel queue with its own lifecycle. scan_skips was a separate table
+    /// another component could clobber — which is exactly what
+    /// bArtworkMarkerResetClearsRetryQueue did to the artwork queue, and why 20
+    /// tracks could leave the track queue on 2026-07-31 with no record of being
+    /// processed. A ledger row is owned by the session and only ever moves
+    /// between defined outcomes.
+    ///
+    /// Retry policy now depends on the recorded REASON. A timeout means the NAS
+    /// did not answer and is very likely recoverable, so it does not count
+    /// against the attempt limit. A read that succeeds but yields no usable tags
+    /// is a content problem and does, since retrying cannot change the file.
+    func retrySkippedTracks(source: LibrarySource, ledgerSessionId: String?) async {
+        guard let ledgerSessionId else {
+            scanLog("RETRY: tracks — no ledger session, nothing to retry")
             return
         }
 
-        scanLog("RETRY: tracks START — \(skips.count) pending for \(source.displayName)")
-        // Keychain-aware resolution now happens inside the reader.
+        let failures: [(filePath: String, folderPath: String, kind: String?, detail: String?, attempts: Int)]
+        do {
+            failures = try SorrivaDatabase.shared.scanSessionFailures(sessionId: ledgerSessionId)
+        } catch {
+            scanLog("RETRY: tracks — failed to read ledger: \(error.localizedDescription)")
+            return
+        }
+
+        // 'permanent' rows are terminal and deliberately excluded.
+        let pending = failures.filter { $0.attempts < 5 }
+        guard !pending.isEmpty else {
+            scanLog("RETRY: tracks — no pending failures for \(source.displayName)")
+            return
+        }
+
+        scanLog("RETRY: tracks START — \(pending.count) pending for \(source.displayName)")
         let reader = readerFactory(source)
         let root = rootPath(source)
         var artistCache: [String: Artist] = [:]
         var albumCache: [String: Album] = [:]
         var resolved = 0
         var stillFailing = 0
+        var consecutiveTimeouts = 0
 
-        for skip in skips {
-            let filename = (skip.filePath as NSString).lastPathComponent
+        for entry in pending {
+            let filename = (entry.filePath as NSString).lastPathComponent
             let ext = (filename as NSString).pathExtension.lowercased()
-            let attemptNum = skip.attemptCount + 1
+            let attemptNum = entry.attempts + 1
 
             scanLog("RETRY: track attempt \(attemptNum)/5 — \(filename)")
 
-            let existingTrack = try? SorrivaDatabase.shared.track(filePath: skip.filePath)
+            let existingTrack = try? SorrivaDatabase.shared.track(filePath: entry.filePath)
             let fileSize = existingTrack?.fileSize ?? 65536
 
-            let headerData = await readFileHeader(reader: reader, path: skip.filePath, fileSize: fileSize)
+            let readResult = await readFileHeader(reader: reader, path: entry.filePath, fileSize: fileSize)
 
-            if let data = headerData {
+            if let data = readResult.data {
+                consecutiveTimeouts = 0
                 let parsed = parseTagData(data: data, ext: ext)
                 let hasUsefulTags = parsed.title != nil || parsed.artist != nil
                                  || parsed.album != nil || parsed.duration != nil
                 if hasUsefulTags {
                     if existingTrack != nil {
-                        // Read-failure origin — row already exists with fallback
-                        // metadata, backfill the real tags now that they're readable.
                         try? SorrivaDatabase.shared.updateTrackTags(
-                            filePath: skip.filePath,
+                            filePath: entry.filePath,
                             title: parsed.title,
                             artistName: parsed.artist ?? parsed.albumArtist,
                             trackNumber: parsed.trackNumber,
@@ -1389,11 +1491,9 @@ actor SMBScanner {
                             duration: parsed.duration
                         )
                     } else {
-                        // Write-failure origin — no row was ever created. Build one
-                        // fresh from these newly-parsed tags, same as the main scan.
                         do {
                             let (track, trackArtist) = try buildTrack(
-                                meta: parsed, filePath: skip.filePath, fileSize: fileSize,
+                                meta: parsed, filePath: entry.filePath, fileSize: fileSize,
                                 rootPath: root, source: source,
                                 artistCache: &artistCache, albumCache: &albumCache
                             )
@@ -1402,30 +1502,56 @@ actor SMBScanner {
                             scanLog("RETRY: track insert failed — \(filename): \(error)")
                         }
                     }
-                    try? SorrivaDatabase.shared.resolveScanSkip(filePath: skip.filePath)
+                    try? SorrivaDatabase.shared.recordLedgerOutcome(
+                        sessionId: ledgerSessionId, filePath: entry.filePath,
+                        outcome: .resolved, incrementAttempt: true)
                     scanLog("RETRY: track RESOLVED (attempt \(attemptNum)) — \(filename)")
                     resolved += 1
                 } else {
-                    // Read succeeded but no tags — genuine content issue (e.g. AIFF with no metadata)
-                    try? SorrivaDatabase.shared.incrementScanSkip(filePath: skip.filePath)
-                    if attemptNum >= 5 {
-                        scanLog("RETRY: track PERMANENT FAIL (no tags after 5 attempts) — \(filename)")
-                    } else {
-                        scanLog("RETRY: track attempt \(attemptNum) — read ok but no tags — \(filename)")
-                    }
+                    // Read fine, no usable tags — a content problem. Retrying
+                    // cannot change the file, so this DOES count against the limit.
+                    let terminal = attemptNum >= 5
+                    try? SorrivaDatabase.shared.recordLedgerOutcome(
+                        sessionId: ledgerSessionId, filePath: entry.filePath,
+                        outcome: terminal ? .permanent : .skipped,
+                        failureKind: .read,
+                        failureDetail: "read succeeded but no usable tags",
+                        incrementAttempt: true)
+                    scanLog(terminal
+                        ? "RETRY: track PERMANENT (no tags after \(attemptNum) attempts) — \(filename)"
+                        : "RETRY: track attempt \(attemptNum) — read ok but no tags — \(filename)")
                     stillFailing += 1
                 }
             } else {
-                // Read error — transient NAS issue, don't count against attempt limit
-                scanLog("RETRY: track attempt \(attemptNum) failed (read error) — \(filename)")
+                // Read error. A timeout is the NAS not answering, not a property
+                // of the file, so it does not consume an attempt — otherwise a
+                // few bad minutes would permanently retire recoverable tracks.
+                let isTimeout = readResult.kind == .timeout
+                if isTimeout { consecutiveTimeouts += 1 }
+                try? SorrivaDatabase.shared.recordLedgerOutcome(
+                    sessionId: ledgerSessionId, filePath: entry.filePath,
+                    outcome: .skipped,
+                    failureKind: readResult.kind ?? .read,
+                    failureDetail: readResult.detail,
+                    incrementAttempt: !isTimeout)
+                scanLog("RETRY: track attempt \(attemptNum) failed (\(readResult.kind?.rawValue ?? "read")) — \(filename)")
                 stillFailing += 1
+
+                // bScanRetryNoCircuitBreaker — if the NAS has stopped answering
+                // entirely, every remaining file costs a full timeout for
+                // nothing. Stop and leave them queued for the next pass.
+                if consecutiveTimeouts >= 5 {
+                    scanLog("RETRY: tracks ABORTED — 5 consecutive timeouts, NAS not responding")
+                    scanLog("RETRY: remaining files stay queued for the next pass")
+                    break
+                }
             }
 
-            try? await Task.sleep(nanoseconds: 200_000_000) // 200ms between files
+            try? await Task.sleep(nanoseconds: 200_000_000)
         }
 
-        let permanent = (try? SorrivaDatabase.shared.permanentScanSkipCount(sourceId: source.id)) ?? 0
-        scanLog("RETRY: tracks COMPLETE — \(resolved) resolved, \(stillFailing) still failing, \(permanent) permanent")
+        let audit = (try? SorrivaDatabase.shared.scanSessionAudit(sessionId: ledgerSessionId)) ?? [:]
+        scanLog("RETRY: tracks COMPLETE — \(resolved) resolved, \(stillFailing) still failing, \(audit["permanent"] ?? 0) permanent")
     }
 
     // MARK: - ID3 genre table
