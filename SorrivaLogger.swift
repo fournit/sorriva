@@ -73,7 +73,18 @@ final class SorrivaLogger {
 
     private let logFileName     = "sorriva-debug.log"
     private let prevLogFileName = "sorriva-debug-prev.log"
-    private let maxBytes        = 256 * 1024  // 256KB — small enough to view/export without lag
+    // Raised from 256KB for full-library scan runs. A 11,670-file scan emits
+    // roughly 5,000 lines (one per folder-done, one per album resolved, progress
+    // every 50, plus both artwork passes iterating ~562 albums) — around 650KB,
+    // so 256KB would rotate two or three times mid-scan and lose the beginning,
+    // which is exactly the part that shows how the run started.
+    //
+    // The original 256KB was chosen to keep export and in-app viewing responsive.
+    // 8MB is comfortably past any single scan but is a large file to share, so
+    // this is a deliberate trade for the current phase rather than a permanent
+    // default. See the log-handling options discussed 2026-07-31: on-demand
+    // upload to the share, multi-file rotation, or verbosity levels.
+    private let maxBytes        = 8 * 1024 * 1024
     private let queue           = DispatchQueue(label: "sorriva.logger", qos: .utility)
     private var fileHandle: FileHandle?
 

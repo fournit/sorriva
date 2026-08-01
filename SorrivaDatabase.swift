@@ -1932,11 +1932,28 @@ final class SorrivaDatabase {
     /// way back in, since the passes only ever ran inside a scan's pipeline.
     func hasPendingArtworkWork(sourceId: String) throws -> Bool {
         try dbQueue.read { db in
+            // These predicates MUST mirror the three pass selections exactly.
+            //
+            // They did not, and the result was a foreground loop: the online
+            // pass is gap-fill only, so an album that already has artwork is
+            // correctly skipped and keeps onlineArtAttempted = 0 forever. A
+            // looser check here read that as pending work, so every foreground
+            // ran three empty artwork passes and `continue`d past the change
+            // check — meaning change detection never ran at all once any album
+            // had artwork (observed 2026-07-30).
+            //
+            // Kept as one query rather than three round trips, at the cost of
+            // having to keep it in step with albumsNeedingEmbeddedArtScan,
+            // albumsNeedingFolderArtScan and albumsNeedingOnlineArtScan.
             let count = try Int.fetchOne(db, sql: """
                 SELECT COUNT(*) FROM albums
                 WHERE sourceId = ?
                   AND artManualOverride = 0
-                  AND (embeddedArtScanned = 0 OR folderArtScanned = 0 OR onlineArtAttempted = 0)
+                  AND (
+                        (embeddedArtScanned = 0 AND embeddedArtFailed = 0)
+                     OR folderArtScanned = 0
+                     OR (onlineArtAttempted = 0 AND artPathThumb IS NULL)
+                  )
             """, arguments: [sourceId]) ?? 0
             return count > 0
         }
