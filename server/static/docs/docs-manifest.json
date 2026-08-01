@@ -118,14 +118,26 @@
     {
       "file": "passione-deploy-reference.html",
       "display_name": "Passione Deploy Reference",
-      "description": "",
+      "description": "Deploy mechanics across Passione products -- iosdeploy target codes (so, so-test), gitops, session-close zip structure, and Hub workflow. Note: iosdeploy so-test is required for files belonging to the test target; using so places them at repo root where they compile into nothing.",
       "category": "engineering"
     },
     {
       "file": "xcode-wifi-deploy.html",
       "display_name": "Xcode Wifi Deploy",
-      "description": "",
-      "category": "unfiled"
+      "description": "Setting up and troubleshooting wireless deployment from Xcode to a paired device.",
+      "category": "engineering"
+    },
+    {
+      "file": "handoffs/HANDOFF-scanner-architecture.md",
+      "display_name": "Scanner Architecture (Unified Scan Model)",
+      "description": "The agreed replacement for the full/incremental scan split, worked out case by case with Tom. One primitive -- walk the tree, skip folders whose fingerprint still matches, scan the rest -- serving manual scan, automatic foreground scan and resume. Covers modification-time change detection, deletion reconciliation, artwork pass markers, share-overlap absorb, and why fully-qualified paths were rejected. Items 1-6 are now built; 7 and 8 remain.",
+      "category": "handoff"
+    },
+    {
+      "file": "handoffs/HANDOFF-scan-session-ledger.md",
+      "display_name": "Scan Session Ledger",
+      "description": "Design for making a scan session a bounded, auditable unit of work: record the plan at scan start, write every outcome against it with a session id and a failure reason, and treat the session as incomplete until every planned row is terminal. Prompted by a full-library scan where 20 tracks and 5 albums left the retry queue with no record of being processed. Includes the DB-vs-share storage split, the human-readable report a user without a second machine can actually reach, and the in-place recovery tool.",
+      "category": "handoff"
     }
   ]
 }

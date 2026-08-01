@@ -143,13 +143,13 @@
         {
           "id": "fScanResume",
           "name": "Scan resume after interruption",
-          "desc": "When a full scan is interrupted mid-process (app killed, crash), resume from the last successfully completed folder rather than restarting from the beginning. Requires persisting a scan cursor (last completed folder path) to the DB during the scan loop. On restart, skip already-processed folders and continue from the cursor. Critical for large libraries where a full rescan takes 30+ minutes.",
+          "desc": "When a full scan is interrupted mid-process (app killed, crash), resume from work already completed rather than restarting from the beginning.\n\nBUILT AND VERIFIED 2026-07-29. Implemented via per-folder completion records rather than the linear cursor this record originally specified -- folder_stats already records exactly 'this folder was fully processed with N files and B bytes', which is a better cursor than a last-completed-path because it handles partial folders and does not care about processing order. v16 migration adds scanSessionId to folder_stats and currentScanSessionId to library_sources: without a run identifier, folder_stats rows from a killed scan are indistinguishable from rows left by a previous completed scan, so resuming would skip folders the interrupted run never touched (harmless on a first-ever import, silently wrong on any re-import).\n\nAlso fixed a prerequisite bug found while building this: the launch-time 'scanning' -> 'error' reset that sorriva-context.html documents was never actually built. checkForChanges' guard skipped any source stuck at 'scanning' outright, so a hard-terminated scan produced no alert, no resume, and a source showing a live ScanStatusPanel forever. Now treats 'scanning' with no active task in this process as a killed scan.\n\nAlert offers Resume / Start Over / Cancel. Session id is written before the scan starts (survives termination), left in place on error (resume needs it), cleared on genuine completion and by confirmAndScanSource (so an explicit rescan can never inherit a stale session and skip folders).\n\nVERIFIED: killed mid-scan, resumed, skipped 31 files in 4 already-complete folders, 642 remaining, progress reported against the filtered total. Negative test also passed -- a subsequent manual scan rescanned all 673 files with no skip lines.\n\nNOTE: artwork passes are NOT yet resumable -- see HANDOFF-scanner-architecture-2026-07-29.md item 5. Quitting during the artwork phase still loses that work, because nothing except a scan ever starts those passes.",
           "priority": "High",
           "complexity": "M",
           "tag": "feature",
-          "done": false,
+          "done": true,
           "createdAt": "2026-07-18",
-          "completedAt": null,
+          "completedAt": "2026-07-29",
           "requires": []
         },
         {
@@ -388,8 +388,8 @@
         {
           "id": "bMissingTracksInAlbum",
           "name": "Albums indexed with fewer tracks than the folder contains",
-          "desc": "Some albums appear in the library with only one track while the corresponding NAS folder holds a full album. Root cause not yet identified \u2014 needs testing before a fix is proposed. Ruled out by code inspection: file enumeration in collectAudioFiles is recursive, lowercases extensions and correctly skips dotfiles; read failures do not cause missing rows because a Track is still written from path data when a header read fails; and the albumCache folderKey is checked first so every file in a folder always resolves to the same album. Remaining candidates, in order of likelihood: (1) an interrupted incremental scan \u2014 deleteTracksInFolder removes every track in a changed folder before re-adding them one at a time, so cancellation or backgrounding partway leaves the folder partially populated, and fScanResume is not built yet so nothing repairs it; (2) SMBClient listDirectory returning a truncated entry set on large folders, consistent with known UNAS Pro session behaviour; (3) a full scan cancelled mid-folder. Diagnostics to run next session, cheapest first: pick one affected album, count the files in that folder on the NAS, then grep the scan log for the 'SCAN: folder done' line on that path and compare its reported count; check filesFound on the 'SCAN: START' line against the true library total; query scan_skips for that folder to confirm skips are not involved. UPDATE 2026-07-28 (gate-readiness audit): a real, newly-discovered interaction with bFailedReadCreatesWrongAlbumFromFallback (fixed same session). This record's own 'ruled out' reasoning explicitly relied on 'a Track is still written from path data when a header read fails' -- that exact behavior was removed by the fallback fix, for good reason (it was causing wrong album names). Side effect, not previously considered: a track that now fails BOTH its initial read AND all 5 retry attempts has ZERO representation in the library, where before it would have had at least a path-derived stub row. This may be making this bug worse for that specific case. Not yet confirmed either way -- needs checking as part of whatever session investigates this next, using the diagnostics already specified below.",
-          "priority": "High",
+          "desc": "Some albums appear in the library with only one track while the corresponding NAS folder holds a full album. Root cause not yet identified \u2014 needs testing before a fix is proposed. Ruled out by code inspection: file enumeration in collectAudioFiles is recursive, lowercases extensions and correctly skips dotfiles; read failures do not cause missing rows because a Track is still written from path data when a header read fails; and the albumCache folderKey is checked first so every file in a folder always resolves to the same album. Remaining candidates, in order of likelihood: (1) an interrupted incremental scan \u2014 deleteTracksInFolder removes every track in a changed folder before re-adding them one at a time, so cancellation or backgrounding partway leaves the folder partially populated, and fScanResume is not built yet so nothing repairs it; (2) SMBClient listDirectory returning a truncated entry set on large folders, consistent with known UNAS Pro session behaviour; (3) a full scan cancelled mid-folder. Diagnostics to run next session, cheapest first: pick one affected album, count the files in that folder on the NAS, then grep the scan log for the 'SCAN: folder done' line on that path and compare its reported count; check filesFound on the 'SCAN: START' line against the true library total; query scan_skips for that folder to confirm skips are not involved. UPDATE 2026-07-28 (gate-readiness audit): a real, newly-discovered interaction with bFailedReadCreatesWrongAlbumFromFallback (fixed same session). This record's own 'ruled out' reasoning explicitly relied on 'a Track is still written from path data when a header read fails' -- that exact behavior was removed by the fallback fix, for good reason (it was causing wrong album names). Side effect, not previously considered: a track that now fails BOTH its initial read AND all 5 retry attempts has ZERO representation in the library, where before it would have had at least a path-derived stub row. This may be making this bug worse for that specific case. Not yet confirmed either way -- needs checking as part of whatever session investigates this next, using the diagnostics already specified below.\n\nUPDATE 2026-07-29: lowered to Low priority per Tom. Did not manifest in a full clean 673-file scan after the connection-exhaustion fix -- 663 tracks plus 10 skips all resolved on retry attempt 1 accounted for every file. Plausibly a symptom of connection exhaustion rather than an independent bug: reads failed, and the retry scheduler that should have recovered them was itself burning connections in an exhausted state. Keeping open at Low pending several more scans before calling it. Note the diagnostic this record recommends (comparing the 'SCAN: folder done' count against real files in the folder) was INVALID until 2026-07-29 -- that line reported the enumerated file count, not persisted tracks, so a folder where every read failed still logged its full track count. Now fixed to report written vs enumerated with an explicit shortfall.",
+          "priority": "Low",
           "complexity": "M",
           "tag": "bug",
           "done": false,
@@ -472,13 +472,13 @@
         {
           "id": "bScanConnectionExhaustionOnRepeatedScans",
           "complexity": "M",
-          "done": false,
+          "done": true,
           "priority": "High",
           "name": "Repeated back-to-back scans cause cascading read failures",
-          "desc": "2026-07-26: after many consecutive full scans in one session (heavy testing, not normal once-a-day use), a rescan failed 445 of 476 files with 'NSPOSIXErrorDomain Code=12 Cannot allocate memory' on the per-file SMBClient login() call \u2014 consistent with connection/socket/file-descriptor exhaustion from the fresh-connection-per-file read pattern (intentional, empirically required for the UNAS Pro \u2014 see SMBMediaSourceReader). A scan run earlier in the same session, same device, same NAS, completed with 0 failures. The scan_skips retry-visibility fix shipped the same night is confirmed working correctly independent of this issue \u2014 all 445 skips were written and immediately found as pending (see fScannerIdentityIntegrity notes). Suspected cause: sustained rapid back-to-back scanning without recovery time between runs, not necessarily present in normal daily use. Tom's plan: observe whether the condition self-clears with normal time between scans before treating as urgent. If it recurs under normal (non-testing) use, investigate socket/connection lifecycle in SMBMediaSourceReader.readHeader more closely \u2014 possible candidates: OS-level ephemeral port/file-descriptor exhaustion, SMBClient not fully releasing resources on teardown, or the 200ms per-file throttle being insufficient under sustained load. MAJOR UPDATE 2026-07-27, researched properly rather than assumed: this is very likely NOT specific to the UNAS Pro's own session-dropping behavior after all. Same 'NWError 12 - Cannot allocate memory' reproduced on a COMPLETELY DIFFERENT device (Tom's Mac mini, plain SMB, no UNAS Pro involved) just listing shares, not even scanning. Found a directly relevant Apple Developer Forums thread with a CONFIRMED ANSWER FROM AN APPLE DTS ENGINEER describing a documented per-process ceiling on simultaneous nw_connection_t objects (cited threshold: 512+), where affected connections enter nw_connection_state_waiting and report exactly this error - and CRITICALLY, per the DTS engineer, 'these connections remain stuck indefinitely, even after other connections are deallocated and resources should theoretically be available again.' This means even fully correct connection hygiene on Sorriva's side (proper disconnectShare/logoff on every teardown path, already the case) may not fully prevent this - it can be an OS-level accounting bug, not necessarily an app-level leak. Fits the observed pattern precisely: worsens over a long continuous app session (many hundreds to low thousands of fresh per-file SMB connections accumulate across a full scan + retry + 3 artwork passes), and is tied to the app PROCESS's cumulative lifetime, not which NAS device is being talked to. REAL RISK FOR THE FULL 10K+ TRACK LIBRARY: Apple's cited 512+ threshold is well within reach of a single full scan pipeline at that scale, independent of anything wrong in Sorriva's own code. NO EASY FIX: genuine architectural tension between the NAS's own constraint (fresh connection per file, required - UNAS Pro drops sessions after ~2 sequential reads on one connection) and iOS's per-process connection ceiling (fewer total connections over a session's lifetime). Options worth investigating, not yet decided: batching a large scan into smaller chunks with a full app restart between batches; investigating whether more aggressive connection-level cleanup beyond SMBClient's own disconnect/logoff is possible. Immediate mitigation when it occurs: force-quit and relaunch the app; a full device reboot if that doesn't clear it, since this can be a genuinely stuck OS-level resource, not just app state. This deserves a dedicated investigation session before attempting a 10k+ file library scan, not a quick patch.",
+          "desc": "2026-07-26: after many consecutive full scans in one session, a rescan failed 445 of 476 files with 'NSPOSIXErrorDomain Code=12 Cannot allocate memory' on the per-file SMBClient login() call. Original suspicion was connection/socket/file-descriptor exhaustion from the fresh-connection-per-file read pattern.\n\nROOT-CAUSED AND FIXED 2026-07-29. THE CAUSE: SMBClient v0.3.1 never calls NWConnection.cancel() anywhere in the library. Session.disconnect() -> connection.disconnect() -> cancel() exists, but nothing in the library ever calls it -- the only occurrence of .disconnect() in the entire source is its own definition at Session.swift:66. SMBClient exposes no public method reaching it, and there is no deinit on Connection, Session, or SMBClient (only TreeAccessor has one). logoff() sends the SMB2 LOGOFF frame and zeroes sessionId, then stops -- leaving the TCP connection open. So every file read leaked one kernel flow entry against a hard per-process ceiling of exactly 512, and Sorriva's readHeader (doing disconnectShare() then logoff()) was doing everything the public API offered while never cancelling a single socket.\n\nNote for the record: a prior session's note claiming 'SMBClient's logoff() -> session.disconnect() -> NWConnection.cancel() was verified in source' was WRONG. That chain does not exist in v0.3.1. A comment in ScanCoordinator.swift still asserts the same false thing and should be corrected.\n\nTHE FIX: call client.session.disconnect() on every teardown path in SMBMediaSourceReader -- walk close, auth failure, share-connect failure, and read success. The timeout handler now calls it INSTEAD of logoff(): logoff() sends an SMB2 frame and awaits a response, which on a genuinely hung connection may never arrive, so the very call meant to break the hang could itself hang. disconnect() goes straight to cancel(): synchronous, no round-trip, no live session required. NO FORK NEEDED -- `session` is a public property on SMBClient and Session.disconnect() is public, so the seam was reachable all along.\n\nVERIFICATION, in order:\n(1) Raw NWConnection churn (NWConnectionProbe, no SMBClient at all): 600 connect/ready/cancel cycles in 10.7s, ~18ms each, rate never degraded. The OS reclaims flow entries correctly and quickly -- it was never an OS limitation.\n(2) SMBClient churn WITHOUT session.disconnect(): failed at exactly connection 512 after 87.3s, ~170ms per cycle, degrading from 2.9s per 25 cycles to 6.8s as the flow table filled.\n(3) SMBClient churn WITH session.disconnect(): 600 connections, 80.5s, zero failures, flat rate, and zero session stalls (previously ~1 stall per 90 connections).\n(4) Real 673-file scan: completed in 400.8s, 663 tracks, 10 read-skipped, 0 write-failed, ZERO NWError 12. All three artwork passes ran (embedded 21/47, folder 27/47) and the retry scheduler resolved all 10 skips on attempt 1 -- the entire pipeline ran 10 minutes in one process, well past a thousand cumulative connections. The same scan previously died at record ~475.\n\nSUPERSEDED FINDINGS from earlier the same session, kept because they were load-bearing at the time: the long-standing 'UNAS Pro drops sessions after ~2 sequential reads' premise -- the stated justification for the fresh-connection-per-file architecture -- is FALSE. Measured sessions carried 55, 80, 91, and across a 1000-file run 1 to 139 reads, averaging 37. That premise almost certainly came from measurements taken inside already-exhausted processes, where session death and budget exhaustion are indistinguishable from the failure signature. Session reuse with transparent reconnect was also verified working (1000 files on 27 connections, every reconnect succeeding immediately on the file that had just stalled). With the leak fixed, session reuse is now a PERFORMANCE OPTIMIZATION rather than a survival requirement -- 673 files at ~37 reads/session would cost ~18 connections instead of 673.\n\nSTILL OPEN, lower priority now that the ceiling is gone:\n- ScanCoordinator.swift has six SMBClient creation sites (folder art pass, embedded art pass, and four reconnect-after-timeout/error paths) that still tear down with disconnectShare() + logoff() and never call session.disconnect(). They use one persistent connection per pass rather than one per file, so they leak a handful rather than hundreds -- the 673-file run completed with them unfixed. Worth fixing for correctness. The false comment about logoff() triggering Session.disconnect() lives here too.\n- SMBConnectionCounter (added to MediaSourceReader.swift as instrumentation) never emitted a single line in a run where SCAN, ARTWORK and RETRY all logged normally -- sLog appears unreachable from a plain class outside the actor. Tom's direction: strip it later rather than fix the logging path. Dead weight until then.\n- Session stalls are reduced but not eliminated: 20 TIMEOUT lines across the clean run, all 10 resulting skips resolved on retry attempt 1. Transient rather than terminal now.\n- The ~512 figure was only ever measured on one iPhone. It is a Network.framework/kernel construct and very likely iOS-wide, but that was never tested. Design guidance stands regardless: treat error 12 as a signal to checkpoint and stop cleanly, never as a threshold to tune against.",
           "tag": "bug",
           "createdAt": "2026-07-26",
-          "completedAt": null,
+          "completedAt": "2026-07-29",
           "requires": []
         },
         {
@@ -563,6 +563,422 @@
           "tag": "bug",
           "createdAt": "2026-07-27",
           "completedAt": "2026-07-27",
+          "requires": []
+        },
+        {
+          "id": "bNewFoldersNotDetected",
+          "name": "Automated change detection cannot see new folders",
+          "desc": "findChangedFolders iterates folderStats(sourceId:) -- the folders already recorded in the DB -- and re-counts each one. It never walks the tree. So a newly added album folder has no folder_stats row, is never in the loop, is never checked, and is never scanned: new music on the NAS does not appear in the library until a manual full rescan. Found 2026-07-29 while designing the unified scan model. Fixed structurally by walk-then-filter (HANDOFF-scanner-architecture-2026-07-29.md item 3): the walk enumerates what is actually on disk, and absence of a stat means 'scan it', never 'skip it'. That change retires findChangedFolders entirely.\n\nFIXED 2026-07-30 by fUnifiedScanWalkThenFilter. The walk now enumerates what is actually on disk, and absence of a stat means 'scan it' rather than being invisible. VERIFIED: app quit, folder added to the NAS, relaunch -- the foreground change check reported '2 new folder(s)' and scanned them with no manual action.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-07-29",
+          "completedAt": "2026-07-30",
+          "requires": []
+        },
+        {
+          "id": "bTrackFilePathGloballyUnique",
+          "name": "tracks.filePath is globally unique, not scoped by source",
+          "desc": "t.column(\"filePath\", .text).notNull().unique() -- uniqueness is on the path alone, NOT (sourceId, filePath). Paths are share-relative (rootPath + walk path); host and share are never concatenated in. So two sources covering the same relative path produce ONE track row whose sourceId flips to whichever scanned last (upsertTrackIdempotent finds by filePath and updates). Combined with onDelete: .cascade on tracks.sourceId, REMOVING THE SHARE THAT SCANNED LAST DELETES TRACKS THE OTHER SHARE STILL COVERS ON DISK -- silently, no error, recoverable only by full rescan. Playback is also affected: the row's sourceId resolves to host and credentials, so after the second source scans, Sonos gets an x-file-cifs:// URI for the wrong machine.\n\nThis is a hard blocker on any second library source (fMacBridge, a second NAS). Correct key is (host, share, filePath), which is what WP-12 meant by 'file paths are not used as application-level identity'.\n\nMitigated for the single-server case by share-overlap prevention (HANDOFF item 7) rather than fixed -- that makes same-server overlap impossible, so the cascade is unreachable. Fully-qualified paths were considered and deliberately deferred: they require rewriting every existing track and album path, reworking Sonos URI construction (which currently concatenates host + share + filePath and would double-prefix), and requalifying folder_stats.\n\nCheaper partial mitigation if ever needed sooner: make upsertTrackIdempotent first-writer-wins on sourceId (do not overwrite it on an existing row). No migration. Still wrong if the FIRST share is removed instead of the last.",
+          "priority": "Critical",
+          "complexity": "M",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-29",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bAlbumFolderPathGloballyUnique",
+          "name": "album lookup by folderPath is global, not scoped by source",
+          "desc": "album(folderPath:) filters on the path string only -- no host, share or sourceId. Combined with albums.sourceId being a single NOT NULL column, an album physically cannot reference two sources. Two sources with the same relative path therefore share one album owned by whichever scanned first, and that album is invisible to the other source's artwork passes and scan report (both select via albums(sourceId:)) -- this is what fOverlappingShareDetection meant by 'produces 0 tracks in its report'.\n\nNote this same mechanism is CORRECT and desirable for nested shares on one server: two shares whose folderPath strings coincide resolving to one album is the intended 'one folder is one album' behaviour. The defect is only that it cannot distinguish two different servers. Same class as bTrackFilePathGloballyUnique; blocks multi-source. If one-album-many-sources is ever wanted, that is an album_sources join table or the WP-12 canonical model.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-29",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bArtworkPassNotResumable",
+          "name": "Interrupted artwork phase never restarts",
+          "desc": "Quitting the app during the artwork phase loses that work permanently. Backgrounding is fine -- the same process resumes the same task -- but a quit destroys it, and NOTHING except a scan ever starts the artwork passes: they only run inside runScan's pipeline task. After a completed file scan, checkForChanges takes the 'complete' branch, finds no changed folders, and does nothing. Confirmed in a real log: launch, checkForChanges fires, not a single SCAN line follows.\n\nPer-pass state today: embedded has a permanent per-album marker (embeddedArtScanned); folder pass has NO marker and restarts from album 1 every time; online uses artPathThumb == nil, so albums with no findable art retry forever.\n\nFix agreed 2026-07-29 (HANDOFF-scanner-architecture-2026-07-29.md item 5): per-album markers for all three passes with FolderStat semantics -- the marker means 'done for this scan', reset only for albums in the folders being scanned, never reset on resume, artManualOverride skipped permanently. Plus resumeArtworkIfNeeded(source:) on the 'complete' branch so an interrupted artwork phase resumes without needing a scan. Must NOT gate on albumsWithoutArtwork() -- some albums never have findable art, so that count never reaches zero and the pass would re-run on every foreground.\n\nFIXED 2026-07-30. All three passes are marker-driven with FolderStat semantics. v17 adds folderArtScanned and onlineArtAttempted; embeddedArtScanned changes from permanent to per-scan. Markers are reset at scan start for exactly the folders being scanned -- never the whole source -- so an incremental scan of 2 folders re-evaluates 2 albums, not all of them. Resume never resets, so an interrupted phase continues.\n\nMarking happens via `defer` in the folder pass and after the attempt in the online pass, NOT at the top of the iteration. Tom caught this: marking up front treats an album killed mid-check as done and silently skips its artwork. defer runs on normal completion and on every `continue` exit (manual override, no folder path, reconnect-after-timeout, no winner, no winner path) but never when the process is killed -- so a considered album is always marked and an interrupted one is always retried.\n\nrunArtworkPasses extracted so the passes can run outside a scan, and checkForChanges calls it when hasPendingArtworkWork is true. Previously the passes existed only inside the scan pipeline, so quitting during artwork lost that work with no way back in: the file scan was already complete, so the next foreground found nothing to do.\n\nOnline selection deliberately KEEPS the hard artPathThumb == nil gate, preserving the 2026-07-27 revert -- iTunes always claims 600x600, so area comparison cannot tell a right match from a wrong one, and a wrong match must never overwrite correct folder artwork. The marker only stops albums with no findable art being re-queried forever.\n\nVERIFIED: rescan of an unchanged share reports 'nothing to scan' for all three passes; a rescan with 1 new folder runs embedded [1/1] and folder [1/1] rather than [1/13]; killed during embedded at [4/13] resumed at [1/9] and killed during folder at [3/13] resumed at [1/11] -- remainder plus the interrupted album, in both cases.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-07-29",
+          "completedAt": "2026-07-30",
+          "requires": []
+        },
+        {
+          "id": "fShareOverlapValidation",
+          "name": "Prevent or absorb overlapping library shares",
+          "desc": "Agreed 2026-07-29 as the cheap alternative to fully-qualified paths. Rules at share-add time, using host, share and rootPath: new share INSIDE an existing one on the same host+share -> block, already covered; new share CONTAINING an existing one -> offer absorb; same relative rootPath on a DIFFERENT host -> warn only (legitimate backup case, rare); no overlap -> proceed. Prefix comparison needs a trailing-separator guard so /Music does not falsely match /Music II.\n\nABSORB: adding a share at the root when a narrow share exists deeper is legitimate expansion, not an error. It is nearly free because the path strings already coincide -- rootPath is embedded in the path the walk builds, so both shares produce identical folderPath values. Existing rows are already valid; only sourceId is wrong. In ONE transaction, reassign albums/tracks/folder_stats/scan_skips to the new sourceId, clear currentScanSessionId, then delete the old library_sources row -- IN THAT ORDER, because onDelete: .cascade on both albums.sourceId and tracks.sourceId would otherwise take everything with it. Then scan normally; carried-over folder_stats mean walk-then-filter skips the already-scanned subtree.\n\ncurrentScanSessionId MUST be cleared: carried-over folder_stats rows carry the old share's session id, and resuming against it would filter using a session that scanned a different tree. Worst case after clearing is a full rescan of an already-correct library -- slow, never wrong.\n\nPRECONDITION: block absorb if either share has scanState == 'scanning', with a message to let it finish or cancel. Absorbing mid-scan silently discards in-flight work.\n\nWhy this instead of qualified paths: the only reason to create a second share into the same tree is to rescan a changed album, and under the unified scan model finding one changed album in 10k tracks takes well under a minute (walk ~25-30s extrapolated from 673 files in 1.7s, in-memory filter, ~8s for the one folder). The targeted share has no purpose, so preventing same-server overlap makes the whole class of cascade problem unreachable.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-29",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fUnifiedScanWalkThenFilter",
+          "name": "Unified scan model \u2014 walk the tree, skip unchanged folders",
+          "desc": "Agreed 2026-07-29, replaces the full-scan/incremental split. ONE primitive: walk the tree, skip folders whose stored stat still matches (file count + total bytes + newest modification time), scan the rest. Manual scan, automatic foreground scan and resume all use it; they differ only in trigger, and in what resume additionally skips.\n\nReplaces two paths: the full scan (folderPaths == nil), which reads EVERY header with no stat comparison at all -- a manual rescan of 13.5k tracks re-reads everything, roughly two hours, even if nothing changed -- and findChangedFolders, which iterates the DB rather than the disk and therefore cannot see new folders at all (bNewFoldersNotDetected).\n\nRequires modification time through the reader seam. VERIFIED AVAILABLE: SMBClient.File exposes public var lastWriteTime: Date (Sources/SMBClient/SMBClient.swift:281), no fork needed. MediaSourceEntry gains modifiedAt; both SMBMediaSourceReader and FixtureMediaSourceReader map it. mtime is NOT optional -- it is what closes bTagEditsNotDetected (taggers write into the FLAC PADDING block, so neither count nor bytes changes) and, more importantly, once manual and automatic share the same skip logic, the old de facto workaround of 'manual rescan re-reads everything' disappears.\n\nAlso includes deletion reconciliation: the walk produces the complete disk picture, so storedPaths - walkedPaths identifies deleted folders, whose tracks and stats today persist forever. VERIFIED SAFE -- both folderStats(sourceId:) and the DELETE are sourceId-scoped, so shares cannot affect each other's rows. Only valid on full-tree walks; must be skipped if any folder-scoped scan is ever reintroduced.\n\nCompute totalFiles AFTER filtering or progress reports against the wrong denominator. The resume filter built for fScanResume is the same shape and should be folded into this one code path rather than kept separate. Full detail in HANDOFF-scanner-architecture-2026-07-29.md items 1-4.\n\nBUILT AND VERIFIED 2026-07-30. One primitive now serves manual scan, automatic foreground scan and resume: walk the tree, group by folder, skip folders whose stored FolderFingerprint still matches (file count + total bytes + newest mtime), scan the rest. Resume adds one condition -- the folder must also carry the resumed session's stamp. findChangedFolders, startIncrementalScan, collectAudioFilesPublic and SMBClientListingOnlyReader all deleted; they existed only to serve the old incremental path. Modification time reaches the seam via MediaSourceEntry.modifiedAt, mapped from SMBClient.File.lastWriteTime in production and real filesystem mtime in the fixture reader. FolderFingerprint holds the match rule in one place so the write path and the skip decision cannot drift. A NULL stored mtime counts as changed, so pre-v17 rows are rescanned once rather than silently trusted. Deletion reconciliation included: storedPaths - walkedPaths identifies folders gone from disk and removes their tracks and stats, guarded to full-tree walks and sourceId-scoped throughout. VERIFIED: initial scan 104 files/9 folders in 37s; immediate rescan 0.6s with all 104 skipped; 2 new folders detected and only their 25 files scanned; a deleted folder reconciled and its album cleaned up; and the foreground change check picked up 2 new folders with no user action.",
+          "priority": "High",
+          "complexity": "L",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-29",
+          "completedAt": "2026-07-30",
+          "requires": []
+        },
+        {
+          "id": "fWalkConnectionResilience",
+          "name": "Directory walk needs reconnect-on-stall handling",
+          "desc": "connectedWalkClient() holds ONE SMB connection across the entire directory walk. At 673 files that completed in 1.7s with no trouble; at ~10k files / ~1000 listDirectory calls it is untested. Session 2026-07-29 established that SMB sessions die unpredictably -- measured 1 to 139 reads before a stall, averaging 37, with no correlation to read count, bytes transferred or elapsed time. The walk needs the same treatment readHeader has: timeout, session.disconnect(), fresh client, retry the failed listDirectory, continue. Build it in rather than discovering it at 10k.\n\nBUILT 2026-07-31. listDirectory retries up to 3 times, each on a fresh connection, with a 10s stall ceiling per attempt; on timeout it force-cancels via session.disconnect(), discards the client and reconnects. 10s rather than 15 because a listing returns metadata only \u2014 on a healthy connection it completes in milliseconds, so anything near the ceiling is a dead session, and shorter waits matter across ~1000 folders.\n\nNOT YET EXERCISED. The full 11,670-file scan the same night produced zero 'walk recovered on attempt N' lines \u2014 one connection survived all 562 listDirectory calls. So the retry is correct by construction but unproven in practice. Kept because the walk runs before any file is read: a single mid-walk stall fails the entire scan with no partial result and nothing for resume to pick up.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-29",
+          "completedAt": "2026-07-31",
+          "requires": []
+        },
+        {
+          "id": "bScanRetryNoCircuitBreaker",
+          "name": "Retry scheduler hammers a failing NAS with no backoff",
+          "desc": "Observed 2026-07-29: after connection exhaustion the retry scheduler fired hundreds of doomed retries, cycling the same file list repeatedly, burning further connection attempts for zero possible gain and deepening the hole it was trying to climb out of. No circuit breaker exists. Needs: N consecutive failures of the same class -> stop, surface an actionable message, do not keep hammering. Gate-relevant under 'critical failures produce actionable diagnostics' -- the retry noise actively buries real signal in the log.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-29",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bScanCoordinatorReconnectLeak",
+          "name": "findChangedFolders leaks one connection per foreground check",
+          "desc": "Its defer blocks tear down with logoff() and disconnectShare() only, never session.disconnect() -- so NWConnection.cancel() is never reached and one kernel flow entry leaks on every foreground change detection. Same root cause as bScanConnectionExhaustionOnRepeatedScans; this specific call site was not covered by that fix because it uses a different call shape. Becomes moot once fUnifiedScanWalkThenFilter retires findChangedFolders, so fix there rather than separately.",
+          "priority": "Normal",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-29",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bPlaybackContextResolveChurn",
+          "name": "PlaybackContextService re-resolves the same zone hundreds of times per second",
+          "desc": "Observed 2026-07-29 in a real log: 'CONTEXT: resolved idle station' fires hundreds of times within a single second at launch, repeatedly for the same zone id. Harmless functionally but it is write-side heuristic recomputation on every topology update, and it floods the debug log at exactly the moment launch diagnostics matter most. Likely folds into the PlaybackStore write-side architecture conversation (HANDOFF-playbackstore-architecture.md) rather than being worth fixing standalone.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-29",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bFolderDoneCountMisreported",
+          "name": "'folder done' logged enumerated files, not persisted tracks",
+          "desc": "The scan log line printed folderFiles.count -- the ENUMERATED file count -- so a folder where every read failed still logged its full track count. Real case 2026-07-29: folders logging 'folder done (10 tracks)' while all 10 reads failed with NWError 12, and the folder-done lines summing to ~50 against a scan total of 14 tracks. This invalidated the diagnostic bMissingTracksInAlbum's own investigation notes call for. FIXED 2026-07-29 -- now reports written vs enumerated with an explicit shortfall: 'folder done (11 of 12 tracks written, 1 missing)'.",
+          "priority": "Normal",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-07-29",
+          "completedAt": "2026-07-29",
+          "requires": []
+        },
+        {
+          "id": "bPipelineWedgeUnrecoverable",
+          "name": "A hang in the post-scan pipeline was permanent",
+          "desc": "scanState -> 'retrying' and activeScanSourceId = nil both happen AFTER the artwork passes, inside the same detached task. So a stall during artwork left the app permanently believing a scan was healthy and running: no alert, no resume, a live ScanStatusPanel forever, the retry scheduler never ran, and it also blocked the new killed-scan detection (which correctly reads activeScanSourceId being set as 'running'). Observed 2026-07-29: folder art pass stopped mid-album-10 when the app was backgrounded and never resumed across two foregrounds and fifteen minutes, with none of its own timeouts firing.\n\nFIXED 2026-07-29: lastPipelineProgress heartbeat updated by the scan progress callback and by every artwork album iteration; the previously-unheld pipelineTask captured so detached artwork work can actually be cancelled; a 240s stall threshold in checkForChanges that cancels both tasks, restores the idle timer, sets 'error' and offers resume. 240s is deliberately generous -- a slow album read plus reconnect can legitimately exceed a minute and a false positive interrupts real work.\n\nNOT YET VERIFIED. Test: start a scan, reach the folder art pass, background 5 minutes, foreground -- expect 'SCAN: pipeline WEDGED'.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-07-29",
+          "completedAt": "2026-07-29",
+          "requires": []
+        },
+        {
+          "id": "fScanSessionLogCorrelation",
+          "name": "Tag scan pipeline log lines with the run's session id",
+          "desc": "A scan writes under three prefixes -- SCAN, ARTWORK and RETRY -- with nothing tying them to a run, and neither Console's filter nor a text search can express 'SCAN or ARTWORK or RETRY'. Following one scan meant three separate searches and manual interleaving by timestamp.\n\nBUILT 2026-07-30. Format is 'SCAN [3A10C9D2]: message' -- category first so existing search habits still work and the log still reads in aligned columns, session id after it. Searching SCAN still finds scan lines, 3A10C9D2 finds the whole run, 'ARTWORK [3A10C9D2]' finds one phase of one run. Implemented centrally in SorrivaLogger.log via ScanLogSession.decorate, so all four emitting files were covered with no call-site changes; only the three pipeline categories are tagged, leaving ZONES/CONTEXT/PROBE untouched. The window opens at scan start and closes at pipeline end, including the failure path.\n\nA resumed scan reuses the interrupted run's session id, so one search spans the original attempt, the kill and the resume. VERIFIED across a sequence of three kills and resumes: session E3A7AD93 appears on every line across four app launches.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-30",
+          "completedAt": "2026-07-30",
+          "requires": []
+        },
+        {
+          "id": "bLogRotatesOnLaunchDestroyingCrashEvidence",
+          "name": "Debug log rotated on every launch, discarding crash and kill evidence",
+          "desc": "SorrivaLogger.openLog() rotated the log on every app launch, moving everything to sorriva-debug-prev.log and opening an empty file. That discarded the log at exactly the moment it mattered most -- relaunching after a crash or kill -- so exporting immediately after an interruption showed nothing but the relaunch. Diagnostics that erase themselves on failure are worse than none, because they look like evidence that nothing happened. This made every kill/resume test unobservable and cost real debugging time on 2026-07-29 and 2026-07-30.\n\nWrites were also unflushed, so anything still in the file buffer was lost when the process died.\n\nFIXED 2026-07-30: rotation is size-driven only (256KB, already handled in write()); launches append a '===== APP LAUNCH =====' marker instead. Every write now synchronize()s to disk. VERIFIED: a single log spanning ten launches and three app kills, with all pre-kill entries intact. Gate-relevant under 'critical failures produce actionable diagnostics'.",
+          "priority": "High",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-07-30",
+          "completedAt": "2026-07-30",
+          "requires": []
+        },
+        {
+          "id": "bScanStateIdleDuringArtwork",
+          "name": "Scanner marked scanState 'idle' before the artwork passes ran",
+          "desc": "SorrivaDatabase.updateScanComplete hardcoded scanState = 'idle' alongside the counts update, so the scanner declared the whole pipeline finished the moment the FILE pass ended -- before the artwork passes had even started. Two consequences: a kill during artwork left the source at 'idle', which matched no branch in checkForChanges, so no interrupted-scan alert appeared and the work was lost silently; and any source left at 'idle' fell through to `default: break`, so change detection never ran for it again. Killing during the FILE pass worked fine, which is why this hid for so long -- that path leaves 'scanning'.\n\nFIXED 2026-07-30: updateScanComplete owns counts and fingerprint only. scanState is ScanCoordinator's across the whole pipeline. A recovery branch was added for sources stranded at 'idle' by earlier builds.",
+          "priority": "High",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-07-30",
+          "completedAt": "2026-07-30",
+          "requires": []
+        },
+        {
+          "id": "bInterruptedScanAlertNotObserved",
+          "name": "Scan Incomplete alert only appeared intermittently",
+          "desc": "SorrivaAppEnvironment declares `@Published var scanCoordinator: ScanCoordinator = .shared`, but @Published on a reference type fires only when the REFERENCE changes -- never, since it is assigned once. Mutating interruptedScanSource fired objectWillChange on ScanCoordinator, which nothing observed, so the alert binding was never re-evaluated.\n\nIt appeared intermittently, which made it look like a detection bug rather than a rendering one: any unrelated publish on `environment` triggered a re-render that then found the non-nil value. Proven by a repro where the same pending state produced no alert on a cold relaunch and then appeared on a later foreground with nothing having changed in between.\n\nFIXED 2026-07-30 by extracting the alert into a ViewModifier holding @ObservedObject var coordinator: ScanCoordinator -- the same pattern ContentView already documents for tabState, discovery and playbackStore.",
+          "priority": "High",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-07-30",
+          "completedAt": "2026-07-30",
+          "requires": []
+        },
+        {
+          "id": "bChangeCheckStartsConcurrentScans",
+          "name": "Foreground change check launched overlapping scans across sources",
+          "desc": "checkForChanges loops every source and, after fUnifiedScanWalkThenFilter, calls a full scan for each one that is 'complete'. There is a single scanTask property, so each call silently overwrote the previous handle and `await scanTask?.value` waited on whichever was current rather than the one just started -- the loop raced ahead launching more. Observed 2026-07-30: seven sources produced four different activeScanSourceId values within 130ms, clobbering each other and leaving sources in 'error'. The old code only reached this path for sources with detected changes, so it rarely fired more than once.\n\nFIXED 2026-07-30: the loop breaks entirely if any scan is active. Whatever is not reached is picked up on the next foreground.",
+          "priority": "High",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-07-30",
+          "completedAt": "2026-07-30",
+          "requires": []
+        },
+        {
+          "id": "bAutoScanTriggeredOnNeverScannedSource",
+          "name": "Never-scanned shares started importing themselves on foreground",
+          "desc": "'idle' is both the state a stranded scan leaves behind AND the schema default for a newly added source, so a recovery branch that promoted stranded 'idle' sources to 'complete' also promoted shares that had never been scanned. The change check then found no folder_stats, classified every folder as new, and began a full 673-file import triggered by a foreground rather than by the user.\n\nFIXED 2026-07-30 with hasBeenScanned(source), true only when the source has recorded at least one folder. All three branches ('idle', 'error', 'complete') now enforce the same rule: a never-scanned source does nothing automatically. Initial scans stay user-initiated. A source at 'error' with no stats is reset to idle rather than offered for resume, since there is nothing to resume TO.",
+          "priority": "High",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-07-30",
+          "completedAt": "2026-07-30",
+          "requires": []
+        },
+        {
+          "id": "bScanSkipsLostOnInterruption",
+          "name": "Read-failure skip records were batched and lost when a scan was killed",
+          "desc": "Read failures accumulated in memory and were written to scan_skips only after the entire file loop finished, so a kill mid-scan lost every one recorded so far. Worse under resume: a folder gets its FolderStat when all its files are CONSIDERED -- skips included -- so on resume that folder is skipped, the failed files are never retried, and the records that would have driven retry were never written. The track is silently absent with nothing pointing at it. Write failures were already persisted immediately; only read failures batched.\n\nFIXED 2026-07-30: skips are written the moment they occur. The batching saved one transaction per scan against 2-18 rows, which is not worth losing the queue to an interruption.",
+          "priority": "High",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-07-30",
+          "completedAt": "2026-07-30",
+          "requires": []
+        },
+        {
+          "id": "bPhantomScanInterruptedDialog",
+          "name": "Interrupted-scan dialog offered for automatic change checks the user never started",
+          "desc": "Since fUnifiedScanWalkThenFilter, checkForChanges starts a full scan for every 'complete' source on every foreground. Those scans are usually sub-second no-ops, but runScan writes scanState = 'scanning' before doing anything, so the window in which a kill produces an interrupted-scan state is now much wider -- and most of those scans are automatic change checks, not user actions.\n\nThe result is a 'the scan did not complete' dialog offering Resume/Start Over for a scan the user never started and which did no work. An interrupted change check needs no user decision; it should simply run again on the next foreground. The distinction is available -- a run that filtered to zero files did nothing worth resuming -- so the fix is to record whether the run actually scanned anything and only offer the dialog when it did.\n\nRaised by Tom 2026-07-30 while testing; deliberately not fixed mid-test-run to avoid adding a variable during verification of items 1-5.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-30",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bArtworkResumeRequiresCancellingDialog",
+          "name": "Artwork-only resume is reachable only by tapping Cancel on the interrupted-scan dialog",
+          "desc": "Killing during the artwork phase leaves scanState 'scanning', which resetStaleScanStates converts to 'error' at launch, so the Scan Incomplete dialog appears. But artwork resume lives in the 'complete' branch of checkForChanges -- so the user has to tap CANCEL (which sets 'complete') for artwork to resume. Tapping Resume instead runs a full scan resume, which also works but is the wrong path for artwork-only outstanding work.\n\nThe dialog probably should not appear at all when only artwork remains: hasPendingArtworkWork already answers that question, and the artwork passes can simply continue without asking. Found 2026-07-30 while testing bArtworkPassNotResumable.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-30",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bVersionNumberDriftBetweenRepoAndState",
+          "name": "Version numbers drift between version.json and the git history",
+          "desc": "The version is assigned when the session-close manifest is written, but the Swift push happens separately and sometimes carries a different number, with no single source of truth. Observed 2026-07-30: the 2026-07-29 session recorded 0.0.48 in version.json and sessions.json, but that work was pushed to git as part of 0.0.49; then this session's Swift commit reused 0.0.49 as well, so two distinct commits (d398080 and 3d00c18) carry the same version string. Resolved by moving this session to 0.0.50 rather than rewriting history.\n\nCandidate fix: have gitops read the version from version.json and pre-fill it in the commit prompt, so the repo and the state files cannot disagree.",
+          "priority": "Low",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-30",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bArtRetryHangsForever",
+          "name": "Artwork retry read had no timeout \u2014 hung the pipeline permanently",
+          "desc": "ScanRetryScheduler.retryFailedEmbeddedArt awaited reader.read() with no stall ceiling. SMBClient's async methods never check for cancellation, so an unresponsive read is not slow, it is permanent.\n\nObserved 2026-07-31: a full 11,670-file scan completed successfully, then stalled on the FIRST album of the art retry and sat there. Every relaunch reproduced it, because scanState 'retrying' restarts the scheduler, which hit the same album and stalled again \u2014 unrecoverable without clearing the library. The pipeline wedge watchdog could not help either: lastPipelineProgress was only updated by the scan progress callback and the artwork album loops, so from the watchdog's point of view the retry scheduler did not exist. And no interrupted-scan alert appeared, because that requires scanState 'scanning' and this is 'retrying'.\n\nFIXED 2026-07-31: 15s ceiling with session.disconnect() on timeout (the only call reaching NWConnection.cancel(); logoff() would send a frame and await a response on a connection unresponsive by definition). Heartbeat added per album via notePipelineProgressExternal() so the watchdog can see the retry pass at all.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-07-31",
+          "completedAt": "2026-07-31",
+          "requires": []
+        },
+        {
+          "id": "bRetrySchedulerConnectionLeak",
+          "name": "Retry scheduler leaked a connection per pass",
+          "desc": "Three teardown sites in ScanRetryScheduler called logoff() without session.disconnect() \u2014 end of pass, the mid-loop reconnect path, and the early-return path. logoff() sends the SMB2 LOGOFF frame and zeroes sessionId while leaving the TCP connection open, so each retry pass leaked kernel flow entries against the hard ~512 per-process ceiling (bScanConnectionExhaustionOnRepeatedScans). Same omission as the original bug, in a file that was not covered when that fix went in. FIXED 2026-07-31.",
+          "priority": "High",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-07-31",
+          "completedAt": "2026-07-31",
+          "requires": []
+        },
+        {
+          "id": "bRetryLogSessionTagRace",
+          "name": "RETRY log lines lost their session tag mid-run",
+          "desc": "Two causes. The scheduler outlives the scan pipeline and can be restarted independently after a kill, so it had no way to re-establish the tag \u2014 RETRY lines after a relaunch carried no session id and could not be searched alongside the scan that produced their queue. And ScanCoordinator's pipeline completion called ScanLogSession.end() immediately after starting the scheduler, racing it and stripping the tag off everything after the first two lines.\n\nFIXED 2026-07-31: the scheduler reads currentScanSessionId at start and calls ScanLogSession.begin; the pipeline no longer ends the session; the scheduler clears both the tag and the stored session id when it genuinely completes, which is the real end of the run.",
+          "priority": "Normal",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-07-31",
+          "completedAt": "2026-07-31",
+          "requires": []
+        },
+        {
+          "id": "fScanSessionLedger",
+          "name": "Scan session ledger \u2014 record the plan, account for every outcome",
+          "desc": "THE central open item for the scanner. Full design in HANDOFF-scan-session-ledger-2026-07-31.md.\n\nA scan session should be a bounded, auditable unit of work: it records what it intended to do, records every outcome against that intent, and is not complete until every planned item has reached a terminal state. Today it is none of those things \u2014 the session id exists but nothing is attributed to it, the retry scheduler is a separate actor that happens to run afterward, nothing records what the scan intended, and completion is a scanState string written by four different code paths.\n\nWHAT PROMPTED IT: the 2026-07-31 full-library scan produced 11,231 tracks with 439 skipped; retry recovered 419, leaving 20 tracks and 5 albums outstanding. The scheduler then hung, and after a relaunch both queues eventually read as empty with no log line saying the work had been done. Nobody could say what happened to those 20 tracks and 5 albums \u2014 not the user, not the log, not Claude reading the log. That uncertainty is the defect; the specific bugs are downstream of it.\n\nTom's framing: 'this would also allow a user to see specifically what failed rather than saying 20 of your 11,000 tracks didn't make it. have fun trying to figure out which ones.' The app currently cannot tell a user WHICH tracks are missing, and cannot tell them anything is missing at all \u2014 an album showing 12 tracks looks like a 12-track album.\n\nAGREED RULES: the retry phase is part of the session, not a separate process; no other scan of that share runs until the session completes or is cancelled; interrupted retries recover exactly as interrupted tracks and artwork do; the record survives automatic scans and is cleared only by a manual scan of that same share; albums, tracks AND artwork are all auditable.\n\nTHE ARITHMETIC: planned = written + skipped-resolved + skipped-permanent + unaccounted. Any non-zero unaccounted is a bug, and it names the exact files. Failure REASON must be recorded, not just failure \u2014 all 439 skips that night were timeouts, which are very likely recoverable, and that is a different user message and a different retry policy from a corrupt file or a permission error.",
+          "priority": "Critical",
+          "complexity": "L",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-31",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fScanReportShareExport",
+          "name": "Write a human-readable scan report to the share after each session",
+          "desc": "Agreed 2026-07-31. The DB stays authoritative \u2014 the audit's job is to answer 'what's missing', and the most likely reason something is missing is that the NAS was unreachable, so a ledger living only on the NAS is unavailable exactly when it is needed. It is also a query, not a document, and it drives the inline '12 of 15 tracks' signal which must be instant on a scroll.\n\nBut a report should be WRITTEN to the share when a session reaches terminal state. One connection, one write, after the fact \u2014 never during the scan, which would consume the connection budget being tested and fail precisely when diagnostics matter.\n\nThis is a first-class feature, not a developer convenience. Tom: 'its not about the mini. its about some future user who doesn't have a mini.' For a user with no second machine the share is the only place they can reach a file from a computer they are already sitting at \u2014 they already have the NAS mounted, because that is how the music got there. The Settings \u2192 share sheet \u2192 AirDrop \u2192 find-it-in-Downloads flow is a developer's workaround.\n\nWhich means the FORMAT matters: a human opens this directly. Not a JSON dump \u2014 album, tracks that did not import, and why, readable in TextEdit by someone who knows nothing about the app's internals. Same mechanism answers debug log retention generally (see fLogTransportAndRetention).",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-31",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fScanFailureRecoveryTool",
+          "name": "Library Management \u2014 review scan failures and retry them in place",
+          "desc": "Agreed 2026-07-31. Supersedes fScanFailureUtility, which was scoped as a Settings screen without a ledger underneath it to make it possible.\n\nReview the session record and recover from it on the same screen. The machinery largely exists: scan_skips holds exact file paths, the retry scheduler already knows how to re-read a single file, and folderPath gives album-level scope. Three actions: retry this track, retry this album, retry everything.\n\nThe difference from today's automatic retry is that it is user-initiated and REPORTS BACK. Today it runs invisibly on a backoff schedule and the user finds out by noticing a track missing months later.\n\nSurface the failure REASON so the user knows whether retrying is worth anything before they tap it \u2014 '12 tracks timed out, likely recoverable' versus '1 track unreadable, check the file'. Depends on fScanSessionLedger.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-31",
+          "completedAt": null,
+          "requires": [
+            "fScanSessionLedger"
+          ]
+        },
+        {
+          "id": "bAlbumMissingTracksNotVisible",
+          "name": "An album with failed reads is indistinguishable from a short album",
+          "desc": "An album showing 12 tracks looks like a 12-track album. There is no marker distinguishing 'this album has 12 tracks' from 'three reads failed and those tracks are simply absent'. The user has no way to know anything is missing, let alone what. Raised 2026-07-31 while designing fScanSessionLedger, which is what would make the inline signal possible \u2014 the ledger knows the planned track count per folder, so '12 of 15' can be shown at the point the user actually encounters the album.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-31",
+          "completedAt": null,
+          "requires": [
+            "fScanSessionLedger"
+          ]
+        },
+        {
+          "id": "bArtworkMarkerResetClearsRetryQueue",
+          "name": "resetArtworkPassMarkers silently empties the artwork retry queue",
+          "desc": "resetArtworkPassMarkers (added 2026-07-30 for bArtworkPassNotResumable) zeroes embeddedArtFailed along with the three pass markers. But embeddedArtFailed is the column albumsNeedingEmbeddedArtRetry() selects on \u2014 so any scan touching those folders silently empties the artwork retry queue rather than working it. The albums are not retried, they are dropped, with no log line because nothing processed them.\n\nProbable cause of 5 albums vanishing from the retry queue during the 2026-07-31 full-library run, though not proven: the scan that would have cleared them filtered to zero files, so the reset should not have run. The inability to establish this from the record is itself the argument for fScanSessionLedger.\n\nA narrow fix (exclude embeddedArtFailed from the reset) was proposed and REJECTED as symptom-patching. The real issue is that retry state and pass state are conflated: the three markers mean 'not yet done this scan', while embeddedArtFailed means 'a read errored and this is queued for retry'. The ledger resolves this properly by making retry part of the session rather than a parallel queue.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-31",
+          "completedAt": null,
+          "requires": [
+            "fScanSessionLedger"
+          ]
+        },
+        {
+          "id": "fReduceHeaderReadTimeout",
+          "name": "Header read timeout of 15s costs most of a full scan's runtime",
+          "desc": "Measured 2026-07-31 on the full library: 439 timeouts x 15s = 110 minutes of a 3h03m header pass, roughly 60% of total runtime spent waiting on reads that never return. At 5s the same run would have spent ~37 minutes.\n\nThe 15s buys nothing on this path. readHeader opens a FRESH connection per file, so a timeout does not trigger reconnect-and-continue \u2014 it skips the file and moves on, with the retry scheduler picking it up later. A read that has not returned in 5 seconds on a local gigabit NAS is not slow, it is dead. The probe harness was dropped to 3s on exactly this reasoning.\n\nDELIBERATELY HELD until the retry changes land: the correct value depends on failures carrying a reason and the user being able to retry deliberately, so changing the number now would move it without the structure that makes it correct. Note the skip rate also drifted upward during the run \u2014 roughly 2.8% over files 900-1400 rising to 5.5% by 2100 \u2014 which may indicate the NAS degrading under sustained load and would argue for pacing as well as a shorter ceiling.",
+          "priority": "Normal",
+          "complexity": "XS",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-31",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fLogTransportAndRetention",
+          "name": "Log retention, multi-file rotation, and export destinations",
+          "desc": "Agreed 2026-07-31, three parts. (1) MULTI-FILE ROTATION \u2014 keep the last several rotations rather than a single prev file, so a long run stays fully recoverable. maxBytes was raised 256KB -> 8MB for the full-library scan, which is a deliberate trade for the current phase rather than a permanent default. (2) ARCHIVE EXPORT \u2014 bundle every rotation into one zip (ZIPFoundation is already a dependency for DB backup) offered to both the share sheet AND the NAS, because a user cannot currently reach even the single rotated file: logFileURL returns only the current log. (3) VERBOSITY LEVELS \u2014 an 11,670-file scan does not need a resolveAlbum line per album at normal verbosity; most of the volume is per-album detail that only matters when investigating.\n\nWriting to the share on demand after a run, not continuously during it: per-line SMB writes would consume the connection budget and fail exactly when diagnostics matter. Same destination and reasoning as fScanReportShareExport.",
+          "priority": "Normal",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-31",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bRetryPassNotResumableMidPass",
+          "name": "Retry pass restarts from the first album rather than resuming mid-pass",
+          "desc": "The artwork retry pass has no per-album progress marker within a pass, so an interruption restarts it from album 1, re-attempting albums it already handled. Cheap at a handful of albums and self-limiting via embeddedArtRetryCount, but it is the same gap bArtworkPassNotResumable closed for the scan's own artwork passes. Subsumed by fScanSessionLedger, which makes retry part of the session and therefore resumable by construction.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-31",
+          "completedAt": null,
+          "requires": [
+            "fScanSessionLedger"
+          ]
+        },
+        {
+          "id": "bChangeCheckRunsFullPipelineOnNoChange",
+          "name": "Foreground change check runs artwork passes and retry scheduler even when nothing changed",
+          "desc": "A change check that filters to zero files still runs all three artwork passes, the retry scheduler, and the full state transition sequence. Harmless in wall-clock terms \u2014 measured 16.9s on an 11,670-file library, most of which is the walk \u2014 but it is ceremony for nothing, and it is what widens the window for bPhantomScanInterruptedDialog by setting scanState 'scanning' on every foreground. Observed 2026-07-31.",
+          "priority": "Low",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-07-31",
+          "completedAt": null,
           "requires": []
         }
       ]
@@ -704,13 +1120,13 @@
         {
           "id": "bTagEditsNotDetected",
           "name": "On-disk tag edits not detected by folder change detection",
-          "desc": "FolderStat change detection compares fileCount and totalBytes per folder. External taggers such as dbPoweramp, Picard, Yate and Mp3tag write tag changes into the FLAC PADDING block reserved for that purpose, so neither file count nor total byte size changes and the folder is never flagged for rescan. Sorriva shows stale metadata indefinitely after a user retags their library. Requires a stronger change signal, such as per-file modified timestamp in FolderStat, or a user-triggered rescan that bypasses FolderStat entirely.",
+          "desc": "FolderStat change detection compares fileCount and totalBytes per folder. External taggers such as dbPoweramp, Picard, Yate and Mp3tag write tag changes into the FLAC PADDING block reserved for that purpose, so neither file count nor total byte size changes and the folder is never flagged for rescan. Sorriva shows stale metadata indefinitely after a user retags their library. Requires a stronger change signal, such as per-file modified timestamp in FolderStat, or a user-triggered rescan that bypasses FolderStat entirely.\n\nPARTIALLY ADDRESSED 2026-07-30: fUnifiedScanWalkThenFilter added newest-mtime to the folder fingerprint, which is what allows a tag-only edit to be detected -- taggers write into the FLAC PADDING block, so file count and total bytes are unchanged but mtime is not. NOT YET VERIFIED: the matching direction is proven (an unchanged folder correctly skips), but no test has confirmed that a changed mtime with identical size triggers a rescan, because no way to edit a file was available during testing. This matters more than before -- manual rescan used to re-read every header, which was the de facto workaround for retagging, and under the unified model that workaround is gone. Test: `touch` a file over SMB without changing content, then rescan and confirm that folder is scanned.\n\nVERIFIED AND CLOSED 2026-07-31 with a real Mp3tag edit, through BOTH paths. Manual scan: 'filter \u2014 skipping 132 file(s) in 12 unchanged folder(s); 0 new, 1 changed' and the folder rescanned. Foreground change check: same result with no user action. Artwork markers reset for that one folder only, and the album's artwork correctly re-evaluated. mtime is what makes this detectable \u2014 the tag write left file count and total bytes unchanged, exactly as predicted.",
           "priority": "Normal",
           "complexity": "M",
           "tag": "bug",
-          "done": false,
+          "done": true,
           "createdAt": "2026-07-25",
-          "completedAt": null,
+          "completedAt": "2026-07-31",
           "requires": [
             "fIncrementalRescan"
           ]
@@ -1654,6 +2070,42 @@
           "requires": [
             "bLocalPlaybackStateSync"
           ]
+        },
+        {
+          "id": "bZoneDiscoveryRestartLoop",
+          "name": "Zone discovery restart loop on uncached devices",
+          "desc": "Discovery restart loop on any device with no cached zone topology. NWPathMonitor invokes pathUpdateHandler immediately on start(), not only on change. The monitor was created inside startDiscovery() and cancelled by stopDiscovery(), so the satisfied callback fired handleNetworkRestored() -> stopDiscovery() -> startDiscovery() -> new monitor -> callback. Approximately 400 iterations/sec; 48,374 cycles observed in 122s on first iPad launch. The NetServiceBrowser was destroyed roughly every 2.5ms, well before Bonjour could resolve any service, so zones never populated and the exit condition was never reachable. Fix: network monitor and both NotificationCenter observers moved to init as service-lifetime concerns; stopDiscovery no longer cancels the monitor; transition-into-satisfied detection added so only a real network change triggers rediscovery; 10s restart floor added as a guard against any future repeating caller. Also fixed in the same pass: both observers were re-registered on every startDiscovery() call and never removed, leaking approximately 96,700 live observers over the captured session. Browser and resolve delegate diagnostics converted from print() to sLog() so Bonjour behaviour reaches the debug export.",
+          "priority": "Critical",
+          "complexity": "S",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-07-30",
+          "completedAt": "2026-07-30",
+          "requires": []
+        },
+        {
+          "id": "fNetworkScopedZoneCache",
+          "name": "Network-scoped zone topology cache",
+          "desc": "Zone topology cache keyed by IPv4 subnet rather than a single flat UserDefaults key, so a device taken to a different Sonos system restores nothing and discovers fresh. New file NetworkIdentity.swift derives the key from getifaddrs as CIDR (e.g. 192.168.1.0/24) with no entitlements and no permission prompts. Subnet keys collide across locations sharing a common private range, so the cached entry also carries the Sonos household ID from GetZoneGroupAttributes; once real topology arrives the live household is compared against the restored one and the entry is discarded and rewritten on mismatch. syncTopologyToDB now returns the live household ID and the cache write moved to after it, so the household is known at write time. The pre-existing network-agnostic key is deleted on sight and never read. Default gateway was evaluated as an additional key component and rejected: within a given subnet the gateway is almost always x.x.x.1, so it adds no entropy in the exact collision case it was intended to resolve, at the cost of a fragile routing-table walk.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-07-30",
+          "completedAt": "2026-07-30",
+          "requires": []
+        },
+        {
+          "id": "fMultiHouseholdScoping",
+          "name": "Scope user-owned state to Sonos household",
+          "desc": "Investigate scoping user-owned state to the Sonos household rather than globally, for users with more than one Sonos system (home plus a second property or a work install). Library sources, favorites, presets, and persisted zone state are currently global, so a home NAS share would appear on a system that cannot reach it. The household ID is already persisted in the households table and validated against cached topology, so the join key exists; the open questions are which entities scope per-household and whether a user-facing household name is surfaced in settings. The raw CurrentMuseHouseholdId is opaque and should stay hidden; if anything is surfaced it should be a friendly name read from GetZoneGroupAttributes and renameable by the user. Distinct from fHouseholdProfiles, which is multi-profile support within one account, not multi-system scoping.",
+          "priority": "Normal",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-07-30",
+          "completedAt": null,
+          "requires": []
         }
       ]
     },

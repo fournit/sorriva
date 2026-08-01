@@ -1,7 +1,7 @@
 {
-  "version": "0.0.45",
-  "build": 45,
-  "released": "2026-07-27",
+  "version": "0.0.51",
+  "build": 51,
+  "released": "2026-07-31",
   "status": "active",
-  "notes": "Fixed two real zone-grouping bugs (topology-fetch race condition, and full-array-replacement wiping live zone state on every refresh). Completed bArtworkSelectionNotBestWins: true best-wins artwork selection with header-only dimension reading. Real-world testing surfaced and fixed 3 bugs in the new artwork code, most seriously online fetch overwriting correct artwork with wrong iTunes matches -- reverted to gap-filling-only as the safe default. Fixed a second instance of the retry-loop-never-resolves bug class (embedded art). Fixed a failed tag read creating a wrong track/album from empty fallback data. NOT YET PUSHED TO GIT as of this build number -- see session notes."
+  "notes": "First full-library scan: 562 folders and 11,670 files, matching the filesystem exactly, with zero NWError 12 across ~11,700 connections and a 16.9-second rescan when nothing had changed. Built walk-connection resilience (item 6) and finally verified mtime-based tag-edit detection with a real Mp3tag edit. Fixed a retry scheduler that could hang the pipeline permanently, leaked a connection per pass, and lost its log session tag. The run exposed that the app cannot account for what it intended to import versus what actually landed -- 20 tracks and 5 albums left the retry queue with no record of being processed. That design is captured in HANDOFF-scan-session-ledger-2026-07-31.md and logged as fScanSessionLedger (Critical)."
 }

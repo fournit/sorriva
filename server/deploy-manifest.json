@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.1 — Doc corrections: stack updated to Swift/SwiftUI, Flask backend on Mac Mini confirmed, fNavShell and fFlaskBackend added to roadmap, Expo references removed, Swift/Xcode session protocol section added",
-  "version": "0.0.1",
+  "message": "v0.0.51 \u2014 Full-library scan verified; retry scheduler fixes; scan session ledger design",
+  "version": "0.0.51",
   "db_migrate": false
 }
