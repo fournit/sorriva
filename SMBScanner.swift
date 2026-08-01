@@ -889,7 +889,7 @@ actor SMBScanner {
                 scanLog("SCAN: read error — \(name): \(underlying.localizedDescription)")
                 return (nil, .read, underlying.localizedDescription)
             case .timeout:
-                scanLog("SCAN: TIMEOUT 15s — \(path)")
+                scanLog("SCAN: TIMEOUT — \(path)")
                 return (nil, .timeout, "no response within the read timeout")
             case .unsupported:
                 scanLog("SCAN: readHeader unsupported for this reader — \(path)")

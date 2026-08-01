@@ -390,8 +390,7 @@ final class ScanCoordinator: ObservableObject {
         if activeScanSourceId == source.id { scanTask?.cancel() }
         scanTask = Task {
             await runScan(source: source, folders: nil,
-                          sessionId: resumeId ?? UUID().uuidString,
-                          resumeSessionId: resumeId)
+                          resumeSessionId: resumeId ?? "resume")
         }
     }
 
@@ -402,14 +401,55 @@ final class ScanCoordinator: ObservableObject {
         // or "Scan Now" on a completed source would do nothing.
         scanTask = Task {
             await runScan(source: source, folders: nil,
-                          sessionId: UUID().uuidString,
                           resumeSessionId: nil,
                           triggerKind: trigger)
         }
     }
 
 
+    /// Establishes session identity for the whole run, then delegates.
+    ///
+    /// ONE id. There used to be two — a scan sessionId used for the
+    /// folder_stats stamp and the log tag, and a separate ledger session id used
+    /// for the audit. They were different UUIDs for the same thing, so the log
+    /// said one and the audit said another (2026-08-01: scan tagged D60CE953,
+    /// retry tagged 107962AD, same run). Two identifiers for one concept is the
+    /// same duplication that produced the parallel-queue bugs this ledger
+    /// replaced.
+    ///
+    /// The ledger id wins because it is the durable one: scan_sessions survives
+    /// a kill and is recoverable via activeScanSession, whereas
+    /// currentScanSessionId is cleared at pipeline completion.
+    ///
+    /// The tag is bound around the ENTIRE run rather than set globally, because
+    /// a second scan starting while the first was still in its artwork phase
+    /// used to overwrite the first scan's tag. A task-local is scoped to this
+    /// task and its children, so concurrent pipelines cannot interfere.
     private func runScan(source: LibrarySource, folders: [String]?,
+                         resumeSessionId: String?,
+                         triggerKind: SorrivaDatabase.ScanTrigger = .manual) async {
+        // Resume continues the existing session; anything else opens a new one.
+        let sessionId: String
+        if resumeSessionId != nil,
+           let active = try? SorrivaDatabase.shared.activeScanSession(sourceId: source.id) {
+            sessionId = active.id
+            sLog("SCAN: ledger — resuming session \(active.id.prefix(8)) (\(active.plannedFiles) planned)")
+        } else {
+            let trigger: SorrivaDatabase.ScanTrigger = resumeSessionId != nil ? .resume : triggerKind
+            sessionId = (try? SorrivaDatabase.shared.createScanSession(
+                sourceId: source.id, trigger: trigger)) ?? UUID().uuidString
+        }
+
+        await ScanLogSession.with(sessionId) {
+            await runScanBody(source: source, folders: folders,
+                              sessionId: sessionId,
+                              resumeSessionId: resumeSessionId,
+                              triggerKind: triggerKind)
+        }
+    }
+
+
+    private func runScanBody(source: LibrarySource, folders: [String]?,
                          sessionId: String, resumeSessionId: String?,
                          triggerKind: SorrivaDatabase.ScanTrigger = .manual) async {
         activeScanSourceId = source.id
@@ -420,19 +460,10 @@ final class ScanCoordinator: ObservableObject {
         try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "scanning")
         ScanLogSession.begin(sessionId)
 
-        // fScanSessionLedger — the session is the unit of work. On resume we
-        // continue the existing one rather than opening another, which is what
-        // makes "this run's outstanding work" a fact rather than an inference.
-        let ledgerSessionId: String?
-        if resumeSessionId != nil,
-           let active = try? SorrivaDatabase.shared.activeScanSession(sourceId: source.id) {
-            ledgerSessionId = active.id
-            sLog("SCAN: ledger — resuming session \(active.id.prefix(8)) (\(active.plannedFiles) planned)")
-        } else {
-            let trigger: SorrivaDatabase.ScanTrigger = resumeSessionId != nil ? .resume : triggerKind
-            ledgerSessionId = try? SorrivaDatabase.shared.createScanSession(
-                sourceId: source.id, trigger: trigger)
-        }
+        // fScanSessionLedger — sessionId IS the ledger session, established by
+        // the wrapper above. Kept as an optional-shaped local so the call sites
+        // below read unchanged.
+        let ledgerSessionId: String? = sessionId
 
         sLog("SCAN: state -> scanning (resume=\(resumeSessionId != nil))")
 
@@ -477,6 +508,11 @@ final class ScanCoordinator: ObservableObject {
 
         pipelineTask = Task.detached { [weak self] in
             guard let self else { return }
+            // Task.detached deliberately does NOT inherit task-locals, so the
+            // pipeline rebinds the tag. Without this the artwork and retry lines
+            // come out untagged — exactly what the 2026-08-01 log showed for the
+            // LEDGER: artwork line.
+            await ScanLogSession.with(sessionId) {
             // bArtworkSelectionNotBestWins — embedded art is checked first since
             // it has the highest likelihood of being high-resolution (e.g. the
             // real-world MP3 case found during the ID3v2 investigation). Folder
@@ -504,7 +540,7 @@ final class ScanCoordinator: ObservableObject {
             // needs the id to re-establish its log tag so its lines stay
             // searchable alongside the scan that produced their queue. The
             // scheduler clears it when it genuinely completes.
-            scanLog("SCAN: pipeline complete — starting retry scheduler for \(source.displayName)")
+            self.scanLog("SCAN: pipeline complete — starting retry scheduler for \(source.displayName)")
             await ScanRetryScheduler.shared.start(source: source, scanner: self.scanner,
                                                   ledgerSessionId: ledgerSessionId)
 
@@ -540,6 +576,7 @@ final class ScanCoordinator: ObservableObject {
                     report.permanentFailures = permanent
                     self.lastReport = report
                 }
+            }
             }
         }
     }

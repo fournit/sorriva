@@ -60,14 +60,23 @@ actor ScanRetryScheduler {
         schedulerTask?.cancel()
 
         // fScanSessionLogCorrelation — the scheduler outlives the scan pipeline
-        // and can also be restarted independently after a kill, so it has to
-        // re-establish the tag itself. Without this the retry lines carried no
-        // session id after a relaunch, and could not be searched alongside the
-        // scan that produced their queue (observed 2026-07-31).
-        let sessionId = (try? SorrivaDatabase.shared.currentScanSessionId(sourceId: source.id)) ?? nil
-        if let sessionId { ScanLogSession.begin(sessionId) }
+        // and can be restarted independently after a kill, so it re-establishes
+        // the tag itself.
+        //
+        // The LEDGER session id is the primary source. currentScanSessionId is
+        // cleared by the scan at pipeline completion, so after a kill mid-retry
+        // it is already nil and the RETRY lines came back untagged — correct
+        // ledger, unsearchable log. The ledger session survives because
+        // activeScanSession reads scan_sessions directly, which is also how the
+        // retry queue itself is recovered, so the tag and the work now come from
+        // the same place and cannot disagree.
+        let tagSource = ledgerSessionId
+            ?? ((try? SorrivaDatabase.shared.currentScanSessionId(sourceId: source.id)) ?? nil)
+        if let tagSource { ScanLogSession.begin(tagSource) }
 
+        let tagId = tagSource
         schedulerTask = Task {
+            await ScanLogSession.with(tagId ?? "") {
             scanLog("RETRY: scheduler START for \(source.displayName)")
 
             // Pass 1 — immediate
@@ -132,6 +141,7 @@ actor ScanRetryScheduler {
                 NotificationCenter.default.post(name: .libraryDidUpdate, object: nil)
             }
         }
+            }
     }
 
     /// Cancel the scheduler — called if a new full scan starts mid-schedule.

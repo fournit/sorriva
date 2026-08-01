@@ -94,6 +94,24 @@ actor SMBMediaSourceReader: MediaSourceReader {
     /// longer only adds dead time to a 1000-folder walk.
     private static let listTimeout: TimeInterval = 10
 
+    /// fReduceHeaderReadTimeout. Was 15s.
+    ///
+    /// Measured on the 2026-07-31 full-library scan: 439 timeouts x 15s = 110
+    /// minutes of a 3h03m header pass, roughly 60% of total runtime spent
+    /// waiting on reads that never return.
+    ///
+    /// The long wait bought nothing here. readHeader opens a FRESH connection
+    /// per file, so a timeout does not trigger reconnect-and-continue — it
+    /// records the failure and moves on, and the retry pass picks it up later. A
+    /// read that has not returned in 5 seconds on a local NAS is dead, not slow.
+    ///
+    /// Held until the ledger landed, because the right value depends on failures
+    /// carrying a reason: a timeout is now recorded as kind `.timeout`, does not
+    /// consume a retry attempt, and is retried on a fresh connection. Expect
+    /// MORE skips and correspondingly more `resolved` in the audit — the end
+    /// state is the same, reached faster.
+    private static let headerTimeout: TimeInterval = 5
+
     /// How many times a single directory is retried on a fresh connection before
     /// the walk gives up on it. Three is enough to survive a session dying at an
     /// unlucky moment without masking a genuinely unreachable path — a folder
@@ -307,7 +325,7 @@ actor SMBMediaSourceReader: MediaSourceReader {
             }
 
             DispatchQueue.global(qos: .utility).async {
-                if semaphore.wait(timeout: .now() + 15) == .timedOut {
+                if semaphore.wait(timeout: .now() + Self.headerTimeout) == .timedOut {
                     result = .failure(MediaSourceReaderError.timeout)
                     // The Task.detached above is still running at this point — Swift
                     // Task cancellation is cooperative and SMBClient's own async

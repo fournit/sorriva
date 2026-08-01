@@ -31,30 +31,69 @@ import Foundation
 // hardest to follow otherwise.
 
 enum ScanLogSession {
+    /// Task-local, NOT a single global.
+    ///
+    /// It was a global, and a second scan starting while the first was still in
+    /// its artwork phase called begin() and clobbered the first scan's tag. The
+    /// 2026-08-01 phase 1 run shows it plainly: three separate runs where the id
+    /// changes partway through (A04FDA45 -> 85A3A2FB) and the artwork audit line
+    /// comes out untagged entirely. The ledger was correct throughout; only the
+    /// log became unsearchable, which defeats the one property
+    /// fScanSessionLogCorrelation exists to provide.
+    ///
+    /// A task-local is scoped to the task that binds it and to that task's
+    /// children, so two concurrent pipelines cannot interfere by construction —
+    /// no locking, no ownership rules to get wrong.
+    @TaskLocal static var current: String?
+
+    /// Fallback for log calls made from outside any bound task — DispatchQueue
+    /// closures and other non-structured contexts, where a task-local reads as
+    /// nil. Correct in the common single-scan case and harmless otherwise,
+    /// since the task-local always wins when present.
     private static let lock = NSLock()
-    private static var current: String?
+    private static var ambient: String?
 
     /// Categories that belong to a scan run. Everything else (ZONES, CONTEXT,
     /// PROBE) is unrelated and stays untagged rather than adding noise.
-    private static let taggedPrefixes = ["SCAN: ", "ARTWORK: ", "RETRY: "]
+    ///
+    /// LEDGER is included deliberately: those lines ARE the audit summary, and
+    /// an untagged summary is unsearchable in precisely the way this tagging
+    /// exists to prevent. They were omitted when LEDGER was added as a category
+    /// after this list was written.
+    private static let taggedPrefixes = ["SCAN: ", "ARTWORK: ", "RETRY: ", "LEDGER: "]
+
+    static func shortId(_ sessionId: String) -> String {
+        String(sessionId.prefix(8)).uppercased()
+    }
+
+    /// Run `operation` with every SCAN/ARTWORK/RETRY line inside it — including
+    /// in child tasks — tagged with this session.
+    static func with<T>(_ sessionId: String, operation: () async -> T) async -> T {
+        await $current.withValue(shortId(sessionId)) {
+            await operation()
+        }
+    }
 
     static func begin(_ sessionId: String) {
         lock.lock(); defer { lock.unlock() }
-        current = String(sessionId.prefix(8)).uppercased()
+        ambient = shortId(sessionId)
     }
 
     static func end() {
         lock.lock(); defer { lock.unlock() }
-        current = nil
+        ambient = nil
     }
 
     /// Rewrites "SCAN: foo" as "SCAN [3A10C9D2]: foo" while a run is active.
     /// Returns the message unchanged when no run is active or the category is
     /// not part of the pipeline.
     static func decorate(_ message: String) -> String {
-        lock.lock()
-        let id = current
-        lock.unlock()
+        let id: String?
+        if let scoped = current {
+            id = scoped
+        } else {
+            lock.lock(); id = ambient; lock.unlock()
+        }
         guard let id else { return message }
         for prefix in taggedPrefixes where message.hasPrefix(prefix) {
             let category = String(prefix.dropLast(2))   // strip ": "
