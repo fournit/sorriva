@@ -84,21 +84,125 @@ actor SMBMediaSourceReader: MediaSourceReader {
         self.password = creds.password
     }
 
-    // MARK: - Directory listing (one shared connection)
+    // MARK: - Directory listing (one shared connection, reconnected on stall)
 
+    /// Stall ceiling for a single directory listing.
+    ///
+    /// Shorter than readHeader's original 15s because a listing returns metadata
+    /// only — on a healthy connection it completes in milliseconds, so anything
+    /// approaching this is a dead session rather than a slow one, and waiting
+    /// longer only adds dead time to a 1000-folder walk.
+    private static let listTimeout: TimeInterval = 10
+
+    /// How many times a single directory is retried on a fresh connection before
+    /// the walk gives up on it. Three is enough to survive a session dying at an
+    /// unlucky moment without masking a genuinely unreachable path — a folder
+    /// that fails three times in a row on three separate connections is not a
+    /// transient problem.
+    private static let maxListAttempts = 3
+
+    /// fWalkConnectionResilience.
+    ///
+    /// The walk holds ONE connection across the entire directory tree. At 673
+    /// files that completed in 1.7s and never stalled, but at ~13.5k files and
+    /// ~1000 listDirectory calls it had never been exercised — and this session
+    /// established that SMB sessions die unpredictably, carrying anywhere from 1
+    /// to 139 operations with no correlation to count, bytes or elapsed time.
+    ///
+    /// Without this, a single mid-walk stall failed the entire scan: the walk
+    /// runs before any file is read, so there is no partial result to keep and
+    /// nothing for resume to pick up. Header reads already had this treatment;
+    /// the walk was the remaining gap.
+    ///
+    /// Recovery mirrors readHeader — timeout, force-cancel via
+    /// session.disconnect() (the only call that reaches NWConnection.cancel();
+    /// logoff() does not), fresh client, retry the same path.
     func listDirectory(path: String) async throws -> [MediaSourceEntry] {
-        let client = try await connectedWalkClient()
-        let entries = try await client.listDirectory(path: path)
-        return entries.map {
-            // SMBClient.File exposes lastWriteTime as a Date, derived from the
-            // SMB2 FileStat the directory query already returns — no extra
-            // round trip, and no fork needed.
-            MediaSourceEntry(
-                name: $0.name,
-                isDirectory: $0.isDirectory,
-                size: Int($0.size),
-                modifiedAt: $0.lastWriteTime
-            )
+        var lastError: Error?
+
+        for attempt in 1...Self.maxListAttempts {
+            let client: SMBClient
+            do {
+                client = try await connectedWalkClient()
+            } catch {
+                lastError = error
+                sLog("SCAN: walk connect failed (attempt \(attempt)/\(Self.maxListAttempts)) — \(error.localizedDescription)")
+                await discardWalkClient()
+                continue
+            }
+
+            do {
+                let entries = try await timedList(client: client, path: path)
+                if attempt > 1 {
+                    sLog("SCAN: walk recovered on attempt \(attempt) — \(path)")
+                }
+                return entries.map {
+                    // SMBClient.File exposes lastWriteTime as a Date, derived
+                    // from the SMB2 FileStat the directory query already
+                    // returns — no extra round trip, and no fork needed.
+                    MediaSourceEntry(
+                        name: $0.name,
+                        isDirectory: $0.isDirectory,
+                        size: Int($0.size),
+                        modifiedAt: $0.lastWriteTime
+                    )
+                }
+            } catch {
+                lastError = error
+                sLog("SCAN: walk listDirectory failed (attempt \(attempt)/\(Self.maxListAttempts)) — \(path): \(error.localizedDescription)")
+                // Assume the session is dead. Tearing down and reconnecting is
+                // cheap; continuing on a dead connection means every subsequent
+                // listing in the walk also fails.
+                await discardWalkClient()
+            }
+        }
+
+        sLog("SCAN: walk GAVE UP after \(Self.maxListAttempts) attempts — \(path)")
+        throw lastError ?? MediaSourceReaderError.timeout
+    }
+
+    /// One listing with a stall ceiling. Mirrors readHeader's structure: SMBClient's
+    /// async methods never check for cancellation, so abandoning the task would
+    /// leave it and its connection running indefinitely if the operation is
+    /// genuinely hung rather than slow.
+    nonisolated private func timedList(client: SMBClient, path: String) async throws -> [File] {
+        try await withCheckedThrowingContinuation { continuation in
+            let semaphore = DispatchSemaphore(value: 0)
+            var result: Result<[File], Error> = .failure(MediaSourceReaderError.timeout)
+
+            Task.detached {
+                do {
+                    result = .success(try await client.listDirectory(path: path))
+                } catch {
+                    result = .failure(error)
+                }
+                semaphore.signal()
+            }
+
+            DispatchQueue.global(qos: .utility).async {
+                if semaphore.wait(timeout: .now() + Self.listTimeout) == .timedOut {
+                    result = .failure(MediaSourceReaderError.timeout)
+                    // Synchronous, no round trip, no live session required —
+                    // and the only call that actually releases the kernel flow
+                    // entry. logoff() would send a frame and await a response on
+                    // a connection that is unresponsive by definition.
+                    client.session.disconnect()
+                }
+                continuation.resume(with: result)
+            }
+        }
+    }
+
+    /// Drop the current walk client so the next call builds a fresh one.
+    private func discardWalkClient() async {
+        guard let client = walkClient else { return }
+        walkClient = nil
+        // Fire-and-forget: on a stalled session an awaited disconnectShare() or
+        // logoff() blocks indefinitely, and the caller is about to reconnect.
+        Task {
+            try? await client.disconnectShare()
+            try? await client.logoff()
+            client.session.disconnect()
         }
     }
 

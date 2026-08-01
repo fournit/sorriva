@@ -59,6 +59,14 @@ actor ScanRetryScheduler {
     func start(source: LibrarySource, scanner: SMBScanner) async {
         schedulerTask?.cancel()
 
+        // fScanSessionLogCorrelation — the scheduler outlives the scan pipeline
+        // and can also be restarted independently after a kill, so it has to
+        // re-establish the tag itself. Without this the retry lines carried no
+        // session id after a relaunch, and could not be searched alongside the
+        // scan that produced their queue (observed 2026-07-31).
+        let sessionId = (try? SorrivaDatabase.shared.currentScanSessionId(sourceId: source.id)) ?? nil
+        if let sessionId { ScanLogSession.begin(sessionId) }
+
         schedulerTask = Task {
             scanLog("RETRY: scheduler START for \(source.displayName)")
 
@@ -101,6 +109,10 @@ actor ScanRetryScheduler {
             scanLog("RETRY: scheduler COMPLETE — \(tracksPending) tracks still pending, \(tracksPermanent) tracks permanent, \(artPending) art still pending")
             try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "complete")
             scanLog("SCAN: state = complete for \(source.displayName)")
+            // Pipeline is genuinely over — clear the session so a later killed
+            // run cannot be confused with this one, and close the log tag.
+            try? SorrivaDatabase.shared.setCurrentScanSessionId(sourceId: source.id, sessionId: nil)
+            ScanLogSession.end()
             await MainActor.run {
                 NotificationCenter.default.post(name: .libraryDidUpdate, object: nil)
             }
@@ -158,6 +170,14 @@ actor ScanRetryScheduler {
         var resolved = 0
         var stillFailing = 0
 
+        // bScanRetryNoCircuitBreaker. If the NAS stops responding entirely,
+        // every remaining album costs a full 15s timeout plus a reconnect for
+        // nothing — at a large queue that is many minutes of hammering a server
+        // that is already refusing service, and it buries real signal in the log.
+        // Consecutive timeouts are the signal; an isolated failure is not.
+        var consecutiveTimeouts = 0
+        let timeoutCircuitBreaker = 5
+
         var client = SMBClient(host: source.host)
         do {
             try await client.login(username: source.loginCredentials.username, password: source.loginCredentials.password)
@@ -168,6 +188,12 @@ actor ScanRetryScheduler {
         }
 
         for album in albums {
+            // Heartbeat. lastPipelineProgress was previously updated only by the
+            // scan progress callback and the artwork album loops, so from the
+            // wedge watchdog's point of view the retry scheduler did not exist —
+            // a hang here was invisible to it.
+            ScanCoordinator.shared.notePipelineProgressExternal()
+
             let attemptNum = album.embeddedArtRetryCount + 1
             scanLog("RETRY: embedded art attempt \(attemptNum)/5 — \(album.artistName) · \(album.title)")
 
@@ -180,9 +206,19 @@ actor ScanRetryScheduler {
                 guard ["mp3", "flac", "m4a", "aac", "alac"].contains(ext) else { continue }
 
                 do {
-                    let reader = client.fileReader(path: track.filePath)
-                    let raw = try await reader.read(offset: 0, length: 1048576)
-                    try? await reader.close()
+                    // Timed. Without this the retry pass hangs FOREVER on a dead
+                    // session: SMBClient's async methods never check for
+                    // cancellation, so an unresponsive read is not slow, it is
+                    // permanent. Observed 2026-07-31 — a full 11,670-file scan
+                    // completed successfully and then stalled here on the first
+                    // album of the art retry, and every relaunch reproduced it
+                    // because scanState 'retrying' restarts the scheduler, which
+                    // hit the same album and stalled again. Unrecoverable without
+                    // clearing the library.
+                    //
+                    // The scan's own artwork passes already had this treatment;
+                    // the retry path did not.
+                    let raw = try await Self.timedRead(client: client, path: track.filePath)
 
                     if let imageData = ScanCoordinator.extractArt(from: raw, ext: ext),
                        let image = UIImage(data: imageData),
@@ -202,8 +238,12 @@ actor ScanRetryScheduler {
                 } catch {
                     scanLog("RETRY: embedded art read error — \((track.filePath as NSString).lastPathComponent): \(error.localizedDescription)")
                     readErrored = true
+                    if case RetryError.timeout = error {
+                        consecutiveTimeouts += 1
+                    }
                     try? await client.disconnectShare()
                     try? await client.logoff()
+                    client.session.disconnect()
                     client = SMBClient(host: source.host)
                     if (try? await client.login(username: source.loginCredentials.username, password: source.loginCredentials.password)) != nil,
                        (try? await client.connectShare(source.share)) != nil {
@@ -227,12 +267,65 @@ actor ScanRetryScheduler {
                 stillFailing += 1
             }
 
+            if !readErrored { consecutiveTimeouts = 0 }
+
+            if consecutiveTimeouts >= timeoutCircuitBreaker {
+                scanLog("RETRY: embedded art ABORTED — \(consecutiveTimeouts) consecutive timeouts, NAS not responding")
+                scanLog("RETRY: remaining albums stay queued for the next pass")
+                break
+            }
+
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
 
         try? await client.disconnectShare()
         try? await client.logoff()
+        // logoff() does NOT reach NWConnection.cancel() — only session.disconnect()
+        // does. Without this the retry pass leaked one kernel flow entry per run
+        // against the hard ~512 per-process ceiling
+        // (bScanConnectionExhaustionOnRepeatedScans).
+        client.session.disconnect()
         scanLog("RETRY: embedded art COMPLETE — \(resolved) resolved, \(stillFailing) still failing")
+    }
+
+    // MARK: - Timed read
+
+    /// One 1MB read with a stall ceiling, mirroring SMBMediaSourceReader.readHeader.
+    ///
+    /// On timeout the connection is force-cancelled via session.disconnect() —
+    /// the ONLY call that reaches NWConnection.cancel(). logoff() would send a
+    /// frame and await a response on a connection that is unresponsive by
+    /// definition, so the very call meant to break the hang could itself hang.
+    private static func timedRead(client: SMBClient, path: String) async throws -> Data {
+        try await withCheckedThrowingContinuation { continuation in
+            let semaphore = DispatchSemaphore(value: 0)
+            var result: Result<Data, Error> = .failure(RetryError.timeout)
+
+            Task.detached {
+                do {
+                    let reader = client.fileReader(path: path)
+                    let data = try await reader.read(offset: 0, length: 1_048_576)
+                    try? await reader.close()
+                    result = .success(data)
+                } catch {
+                    result = .failure(error)
+                }
+                semaphore.signal()
+            }
+
+            DispatchQueue.global(qos: .utility).async {
+                if semaphore.wait(timeout: .now() + 15) == .timedOut {
+                    result = .failure(RetryError.timeout)
+                    client.session.disconnect()
+                }
+                continuation.resume(with: result)
+            }
+        }
+    }
+
+    private enum RetryError: Error, CustomStringConvertible {
+        case timeout
+        var description: String { "read stalled — no response within 15s (session presumed dead)" }
     }
 
     // MARK: - Artwork save helpers

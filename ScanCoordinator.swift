@@ -74,6 +74,13 @@ final class ScanCoordinator: ObservableObject {
         return !stats.isEmpty
     }
 
+    /// Heartbeat entry point for ScanRetryScheduler, which is a separate actor
+    /// and outlives the scan pipeline. Without it the watchdog cannot see the
+    /// retry passes at all, so a hang there is invisible and unrecoverable.
+    nonisolated func notePipelineProgressExternal() {
+        notePipelineProgress()
+    }
+
     nonisolated private func notePipelineProgress() {
         Task { @MainActor in ScanCoordinator.shared.lastPipelineProgress = Date() }
     }
@@ -406,11 +413,11 @@ final class ScanCoordinator: ObservableObject {
             // Mark as retrying before scheduler starts
             try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "retrying")
             sLog("SCAN: state -> retrying")
-            // Main pass and artwork are done, so there is nothing left for a
-            // resume to pick up — clear the session so a future killed run
-            // can't be confused with this one. The retry scheduler owns its own
-            // state via scan_skips and is independently resumable.
-            try? SorrivaDatabase.shared.setCurrentScanSessionId(sourceId: source.id, sessionId: nil)
+            // Session id deliberately NOT cleared here. The retry scheduler runs
+            // after this point, can be restarted independently after a kill, and
+            // needs the id to re-establish its log tag so its lines stay
+            // searchable alongside the scan that produced their queue. The
+            // scheduler clears it when it genuinely completes.
             scanLog("SCAN: pipeline complete — starting retry scheduler for \(source.displayName)")
             await ScanRetryScheduler.shared.start(source: source, scanner: self.scanner)
 
@@ -425,7 +432,11 @@ final class ScanCoordinator: ObservableObject {
                 // idle period can't be mistaken for a wedge.
                 self.lastPipelineProgress = nil
                 self.pipelineTask = nil
-                ScanLogSession.end()
+                // ScanLogSession is NOT ended here. The retry scheduler starts
+                // just above and owns the tag from this point until it genuinely
+                // completes — ending it here raced the scheduler and stripped the
+                // session id off every RETRY line after the first two (observed
+                // 2026-07-31).
             }
 
             // Enrich report with artwork and retry totals
