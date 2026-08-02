@@ -7,9 +7,27 @@ through every scanning scenario case by case. It supersedes the
 full-scan/incremental split currently in the code. Items 1–4 are a single
 coherent change and should be built together; 5–8 follow.
 
-Nothing in items 1–8 has been built yet. What HAS been built and verified this
-session is listed under "Already shipped" at the end — read that first so you
-don't redo it.
+**STATUS 2026-08-01 — items 1-6 are BUILT AND VERIFIED. Items 7 and 8 remain.**
+
+- 1-4 (unified walk-then-filter, mtime change detection, deletion
+  reconciliation) — built 2026-07-30, verified across six scenario tests.
+- 5 (artwork pass markers and resumability) — built 2026-07-30.
+- 6 (walk-connection resilience) — built 2026-07-31. Still **unexercised**: a
+  full 11,670-file scan produced zero `walk recovered on attempt N` lines, so
+  one connection survived all 562 `listDirectory` calls and the retry never
+  fired. Correct by construction, unproven in practice.
+- 7 (share-overlap validation and absorb) — **NOT STARTED.**
+- 8 (retry scheduler circuit breaker) — built 2026-07-31 as part of the retry
+  hardening, though not in the form this document describes.
+
+`bTagEditsNotDetected` was the one open question from item 2 and is now
+**closed** — verified 2026-07-31 with a real Mp3tag edit through both the manual
+scan and the foreground change check, and covered permanently by
+`testTagEditDetectedViaModificationTime`.
+
+Work has since moved on to the scan session ledger; see
+`HANDOFF-scan-session-ledger.md`. The design reasoning below still governs the
+scan model and should be read before changing it.
 
 Repo: github.com/fournit/sorriva | Mini: `~/projects/sorriva-app/`
 

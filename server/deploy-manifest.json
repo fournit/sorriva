@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.51 \u2014 Full-library scan verified; retry scheduler fixes; scan session ledger design",
-  "version": "0.0.51",
-  "db_migrate": false
+  "message": "v0.0.53 \u2014 Scan session ledger, verified end to end and unit tested",
+  "version": "0.0.53",
+  "db_migrate": true
 }

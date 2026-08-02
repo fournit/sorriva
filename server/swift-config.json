@@ -61,6 +61,8 @@
     "SorrivaTests/ArtworkSelectionTests.swift",
     "SorrivaTests/FixtureMediaSourceReader.swift",
     "SorrivaTests/ID3v2EmbeddedArtTests.swift",
+    "SorrivaTests/LedgerTestFixtures.swift",
+    "SorrivaTests/ScanLedgerTests.swift",
     "SorrivaTests/ScannerIdentityTests.swift",
     "SorrivaTests/ScannerParsingEdgeCaseTests.swift",
     "SorrivaTests/ScannerRegressionTests.swift",

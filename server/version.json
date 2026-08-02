@@ -1,7 +1,7 @@
 {
-  "version": "0.0.51",
-  "build": 51,
-  "released": "2026-07-31",
+  "version": "0.0.53",
+  "build": 53,
+  "released": "2026-08-01",
   "status": "active",
-  "notes": "First full-library scan: 562 folders and 11,670 files, matching the filesystem exactly, with zero NWError 12 across ~11,700 connections and a 16.9-second rescan when nothing had changed. Built walk-connection resilience (item 6) and finally verified mtime-based tag-edit detection with a real Mp3tag edit. Fixed a retry scheduler that could hang the pipeline permanently, leaked a connection per pass, and lost its log session tag. The run exposed that the app cannot account for what it intended to import versus what actually landed -- 20 tracks and 5 albums left the retry queue with no record of being processed. That design is captured in HANDOFF-scan-session-ledger-2026-07-31.md and logged as fScanSessionLedger (Critical)."
+  "notes": "Scan session ledger built and verified. A scan is now a bounded, auditable unit of work \u2014 it records its plan, records every outcome against it with a failure reason, and is not complete until every planned row is terminal. Retry is part of the session; artwork shares the same ledger. Verified across a four-phase device regression with five kills in three pipeline phases, UNACCOUNTED 0 throughout, plus a 20-test unit suite that was itself proven by deliberately breaking the scanner and confirming the right half went red. Header read timeout 15s -> 5s. Also collapsed two session identifiers into one and made the log session tag task-local."
 }

@@ -2,10 +2,126 @@
 
 ## Current product state
 
-v0.0.51. Scanner architecture items 1-6 built and verified, and the first
-full-library scan has run end to end. Seven-day
+v0.0.53. The scan session ledger is built, verified end to end on device, and
+unit tested. Scanner architecture items 1-6 complete; the first full-library
+scan has run end to end.
+
+### Known open — read this before assuming the suite is healthy
+
+Two things are outstanding and neither is visible from a passing scan:
+
+**`bRetrySchedulerReportsPhantomArtPending`** (High, XS). Every run ends with
+`LEDGER: artwork — ... unaccounted 0` immediately followed by
+`scheduler COMPLETE — 1 art still pending`. Those contradict each other and the
+ledger is correct. The scheduler's completion line still reads
+`albumsNeedingEmbeddedArtRetry()`, a pre-v18 fallback, which is now a second
+opinion on a question the ledger already answers. It is the last artwork path
+not reading the ledger, and it is the same class of problem the ledger was built
+to remove.
+
+**`bTestSuiteRedByDefault`** (High, M). The full suite runs 66 tests with **4
+failures**, none of them from the ledger work — `ScanLedgerTests` is 20/20
+green. Known: `AlbumGenreTests.testRescanReplacesGenresRatherThanAccumulating`
+expects `["Rock"]` and gets `["Synth-Pop"]`, so rescanning is not replacing an
+album's genre set. Three more, one each in a 2-test, 3-test and 16-test suite,
+not yet identified. This matters beyond the individual bugs: a suite that is red
+by default trains everyone to ignore it, and the ledger suite's value is
+materially reduced by sitting inside a red overall run. Seven-day
 reliability gate running but due to be restarted — see below. fScannerPolish
 substantially advanced. Zone discovery restart loop fixed and verified.
+
+## 2026-08-01 — the scan session ledger
+
+The question the previous session could not answer — *what happened to those 20
+tracks and 5 albums?* — is now answerable by construction.
+
+A scan session records what it intended to do, records every outcome against
+that intent with a failure reason, and is not complete until every planned row
+reaches a terminal outcome. The audit is arithmetic:
+
+```
+planned = written + resolved + skipped + permanent + unaccounted
+```
+
+**`UNACCOUNTED` above zero is a bug by definition**, and `unfinishedLedgerFiles`
+names the exact files. That is the property the app previously lacked.
+
+### Schema
+
+- **v18** — `scan_sessions` (state, trigger, planned counts, `lastProgressAt`)
+  and `scan_ledger` (one row per planned file, with outcome, failure kind,
+  failure detail and attempt count).
+- **v19** — `kind` and `resolvedBy`, so artwork joins the *same* table rather
+  than getting a parallel one. Separate tables would have reintroduced exactly
+  the duplication being removed; one table means one audit query, one retry
+  loop, one completeness test.
+
+`scan_skips` is retired as the retry queue. Nothing outside `SorrivaDatabase`
+reads it.
+
+### Device regression — four phases, all passed
+
+159 files across 14 folders, `UNACCOUNTED 0` on every audit line in every phase.
+
+| Phase | Result |
+|---|---|
+| 1 · Baseline, full scan, rescan | 173 ledger rows (159 track + 14 artwork), full scan 58.5s, unchanged rescan 1.9s |
+| 2 · Interruption and resume | **Five kills** across three pipeline phases, one session id throughout |
+| 3 · Manual add / delete | Artwork scoped to the changed album only — `[1/1]`, not `[1/15]` |
+| 4 · Automatic add / delete | Same through the foreground change check, no user action |
+
+Phase 2 is the claim the ledger exists to support:
+
+| Killed during | Resumed at |
+|---|---|
+| Track scan | `resuming, 126 file(s) still planned` |
+| Track scan again | `resuming, 71 file(s) still planned` |
+| Artwork embedded `[4/14]` | `embedded [1/10]` — the remainder |
+| Artwork folder `[10/14]` | `folder [1/5]` — the remainder |
+| Retry, mid-file | `tracks START — 1 pending`, same session |
+
+After the first kill the folder filter reported 137 files to scan while the
+ledger reported 126 still planned. That 11-file difference is the ledger being
+finer-grained than the folder filter — those 11 were already written in a folder
+that had not completed. It is what makes resume exact rather than approximate.
+
+### Unit tests — 20, green, and proven
+
+They run the **real** `SMBScanner` against real synthesized FLAC files through
+`SorrivaDatabase.shared`. `LedgerTestFixtures` builds structurally valid FLAC and
+the byte arithmetic was checked against `parseVorbisComment`'s exact indexing
+before the fixtures were written — a fixture returning canned metadata would pass
+whether or not the parser worked.
+
+`FixtureMediaSourceReader` gained `beforeRead`/`beforeList` hooks and call
+counters. `cancelScanAfterReads(n)` simulates a kill; `failReadNumber(n)`
+simulates a bad read. **They are not the same thing**, and conflating them
+produced two false failures on the first run: the scanner catches read failures,
+records them, and runs to completion, so nothing is left outstanding to resume.
+Only cancelling the task stops the pass mid-flight.
+
+Three further tests construct known-bad ledger state directly and assert the
+*detection* machinery — unaccounted rows are found and named, audit arithmetic
+is exact, per-folder rollup splits correctly and omits clean folders. Nothing
+else would catch those queries silently breaking.
+
+**Then the tests were tested.** The success-path `recordLedgerOutcome` was
+commented out and the suite rerun: **10 red, 10 green**. All three detection
+tests stayed green — they write their own rows and never touch the scanner —
+while both resume tests and the audit tests went red, specifically rather than
+cascading. Reverted, all 20 green. The suite is not passing vacuously.
+
+### Also this session
+
+Header read timeout **15s → 5s**, held until the ledger landed because the right
+value depended on failures carrying a reason. Six timeouts on the phase 2 run,
+all six recovered on retry attempt 2; a clean 159-file scan went 91.9s → 58.5s.
+
+Three log-correlation bugs, all found by reading output rather than by any test:
+a single global session tag that concurrent scans clobbered (now `@TaskLocal`),
+**two session identifiers for one concept** (collapsed to one — the ledger id,
+because it is the durable one), and `LEDGER:` missing from the tagged prefixes
+so the audit summary itself was unsearchable.
 
 ## 2026-07-31 — first full-library scan, and what it exposed
 

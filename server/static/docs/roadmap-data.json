@@ -416,13 +416,13 @@
         {
           "id": "bScannerTestSeam",
           "name": "Scanner acceptance tests cannot observe the code they certify",
-          "desc": "ScannerTests never instantiates SMBScanner \u2014 the string does not appear in the file. testFullScanTwicePreservesIDs, testMetadataChangeUpdatesExistingTrack, testDeletedFileRemovedOnFolderRescan and testFailedWriteDoesNotMarkFolderComplete all drive SorrivaDatabaseTestable, a test double that carries its own hand-written copy of upsertTrackIdempotent annotated as the WP-02 fix. The tests therefore validate a reimplementation of the algorithm rather than the production scan path, and pass regardless of what SMBScanner actually calls. This is how WP-02 was logged complete on 2026-07-23 while the scanner still called the non-idempotent upsertTrack. Fix requires a source seam on SMBScanner so it can run against local fixture files without a live NAS \u2014 extract the SMB read and directory-walk operations behind a protocol, supply a fixture-backed implementation in tests, and rewrite the four acceptance tests to drive the real scanner through it. Until that seam exists the only honest verification of scan idempotency is manual: scan twice against the NAS and compare row counts and Track.id values. The seam is a prerequisite for verifying WP-02 and is not in WP-02's task list as written. UPDATE 2026-07-28 (gate-readiness audit): precisely scoped rather than left as a blanket concern. All 16 tests in ScannerTests.swift checked individually. 10 cover unrelated components (playback coordinator, keychain, DB migration, app environment, source resolver) where the fake database is a harmless convenience, not a risk. 2 more (testFullScanTwicePreservesIDs, testMetadataChangeUpdatesExistingTrack) genuinely overlap with newer tests built under fScannerIdentityIntegrity that DO exercise the real scanner via MediaSourceReader -- those specific behaviors are independently verified elsewhere despite this file's own version being untrustworthy on its own. That leaves exactly 2 tests with real, unverified exposure: testDeletedFileRemovedOnFolderRescan and testFailedWriteDoesNotMarkFolderComplete -- genuine scanner behaviors with no real-path equivalent found anywhere else. Recommended resolution: port these 2 specifically to the MediaSourceReader-based seam rather than reworking the whole file.",
+          "desc": "ScannerTests never instantiates SMBScanner \u2014 the string does not appear in the file. testFullScanTwicePreservesIDs, testMetadataChangeUpdatesExistingTrack, testDeletedFileRemovedOnFolderRescan and testFailedWriteDoesNotMarkFolderComplete all drive SorrivaDatabaseTestable, a test double that carries its own hand-written copy of upsertTrackIdempotent annotated as the WP-02 fix. The tests therefore validate a reimplementation of the algorithm rather than the production scan path, and pass regardless of what SMBScanner actually calls. This is how WP-02 was logged complete on 2026-07-23 while the scanner still called the non-idempotent upsertTrack. Fix requires a source seam on SMBScanner so it can run against local fixture files without a live NAS \u2014 extract the SMB read and directory-walk operations behind a protocol, supply a fixture-backed implementation in tests, and rewrite the four acceptance tests to drive the real scanner through it. Until that seam exists the only honest verification of scan idempotency is manual: scan twice against the NAS and compare row counts and Track.id values. The seam is a prerequisite for verifying WP-02 and is not in WP-02's task list as written. UPDATE 2026-07-28 (gate-readiness audit): precisely scoped rather than left as a blanket concern. All 16 tests in ScannerTests.swift checked individually. 10 cover unrelated components (playback coordinator, keychain, DB migration, app environment, source resolver) where the fake database is a harmless convenience, not a risk. 2 more (testFullScanTwicePreservesIDs, testMetadataChangeUpdatesExistingTrack) genuinely overlap with newer tests built under fScannerIdentityIntegrity that DO exercise the real scanner via MediaSourceReader -- those specific behaviors are independently verified elsewhere despite this file's own version being untrustworthy on its own. That leaves exactly 2 tests with real, unverified exposure: testDeletedFileRemovedOnFolderRescan and testFailedWriteDoesNotMarkFolderComplete -- genuine scanner behaviors with no real-path equivalent found anywhere else. Recommended resolution: port these 2 specifically to the MediaSourceReader-based seam rather than reworking the whole file.\n\nADDRESSED 2026-08-01 by fScanLedgerUnitTests. FixtureMediaSourceReader gained beforeRead/beforeList hooks plus call counters, and the new ScanLedgerTests run the REAL SMBScanner against real synthesized FLAC files through SorrivaDatabase.shared \u2014 no reimplementation. That is the distinction this record was about: the two tests it names assert against their own copy of the logic and would pass whether or not production works.\n\nThose two original tests have NOT yet been ported onto the seam; the new suite covers the ledger rather than replacing them. Worth doing, but the seam and the pattern now exist.",
           "priority": "High",
           "complexity": "M",
           "tag": "bug",
-          "done": false,
+          "done": true,
           "createdAt": "2026-07-25",
-          "completedAt": null,
+          "completedAt": "2026-08-01",
           "requires": [
             "fLibraryScanner"
           ]
@@ -796,20 +796,20 @@
         {
           "id": "bPhantomScanInterruptedDialog",
           "name": "Interrupted-scan dialog offered for automatic change checks the user never started",
-          "desc": "Since fUnifiedScanWalkThenFilter, checkForChanges starts a full scan for every 'complete' source on every foreground. Those scans are usually sub-second no-ops, but runScan writes scanState = 'scanning' before doing anything, so the window in which a kill produces an interrupted-scan state is now much wider -- and most of those scans are automatic change checks, not user actions.\n\nThe result is a 'the scan did not complete' dialog offering Resume/Start Over for a scan the user never started and which did no work. An interrupted change check needs no user decision; it should simply run again on the next foreground. The distinction is available -- a run that filtered to zero files did nothing worth resuming -- so the fix is to record whether the run actually scanned anything and only offer the dialog when it did.\n\nRaised by Tom 2026-07-30 while testing; deliberately not fixed mid-test-run to avoid adding a variable during verification of items 1-5.",
+          "desc": "Since fUnifiedScanWalkThenFilter, checkForChanges starts a full scan for every 'complete' source on every foreground. Those scans are usually sub-second no-ops, but runScan writes scanState = 'scanning' before doing anything, so the window in which a kill produces an interrupted-scan state is now much wider -- and most of those scans are automatic change checks, not user actions.\n\nThe result is a 'the scan did not complete' dialog offering Resume/Start Over for a scan the user never started and which did no work. An interrupted change check needs no user decision; it should simply run again on the next foreground. The distinction is available -- a run that filtered to zero files did nothing worth resuming -- so the fix is to record whether the run actually scanned anything and only offer the dialog when it did.\n\nRaised by Tom 2026-07-30 while testing; deliberately not fixed mid-test-run to avoid adding a variable during verification of items 1-5.\n\nFIXED 2026-08-01, dissolved rather than patched. The session records BOTH its trigger (manual/automatic/resume) and what it planned, so an interrupted automatic run with plannedFiles == 0 is cancelled silently \u2014 there is nothing to resume and the user never asked for it. No special case required; it falls out of the session having identity.",
           "priority": "Normal",
           "complexity": "S",
           "tag": "bug",
-          "done": false,
+          "done": true,
           "createdAt": "2026-07-30",
-          "completedAt": null,
+          "completedAt": "2026-08-01",
           "requires": []
         },
         {
           "id": "bArtworkResumeRequiresCancellingDialog",
           "name": "Artwork-only resume is reachable only by tapping Cancel on the interrupted-scan dialog",
-          "desc": "Killing during the artwork phase leaves scanState 'scanning', which resetStaleScanStates converts to 'error' at launch, so the Scan Incomplete dialog appears. But artwork resume lives in the 'complete' branch of checkForChanges -- so the user has to tap CANCEL (which sets 'complete') for artwork to resume. Tapping Resume instead runs a full scan resume, which also works but is the wrong path for artwork-only outstanding work.\n\nThe dialog probably should not appear at all when only artwork remains: hasPendingArtworkWork already answers that question, and the artwork passes can simply continue without asking. Found 2026-07-30 while testing bArtworkPassNotResumable.",
-          "priority": "Normal",
+          "desc": "CORRECTED 2026-08-01. This record originally claimed Cancel was the ONLY route to artwork resume. That was inferred from reading the branch structure, not observed, and the 2026-07-30 Test C contradicts it \u2014 killing during embedded art and tapping Resume worked correctly, because a full-scan resume filters to zero files and lands in the artwork passes anyway.\n\nThe real issue is narrower and cosmetic: the Scan Incomplete dialog appears when only artwork is outstanding, which needs no user decision. hasPendingArtworkWork already answers that question, so the passes could simply continue without asking. Lowered to Low.",
+          "priority": "Low",
           "complexity": "S",
           "tag": "bug",
           "done": false,
@@ -856,25 +856,25 @@
         {
           "id": "bRetryLogSessionTagRace",
           "name": "RETRY log lines lost their session tag mid-run",
-          "desc": "Two causes. The scheduler outlives the scan pipeline and can be restarted independently after a kill, so it had no way to re-establish the tag \u2014 RETRY lines after a relaunch carried no session id and could not be searched alongside the scan that produced their queue. And ScanCoordinator's pipeline completion called ScanLogSession.end() immediately after starting the scheduler, racing it and stripping the tag off everything after the first two lines.\n\nFIXED 2026-07-31: the scheduler reads currentScanSessionId at start and calls ScanLogSession.begin; the pipeline no longer ends the session; the scheduler clears both the tag and the stored session id when it genuinely completes, which is the real end of the run.",
+          "desc": "Two causes. The scheduler outlives the scan pipeline and can be restarted independently after a kill, so it had no way to re-establish the tag \u2014 RETRY lines after a relaunch carried no session id and could not be searched alongside the scan that produced their queue. And ScanCoordinator's pipeline completion called ScanLogSession.end() immediately after starting the scheduler, racing it and stripping the tag off everything after the first two lines.\n\nFIXED 2026-07-31: the scheduler reads currentScanSessionId at start and calls ScanLogSession.begin; the pipeline no longer ends the session; the scheduler clears both the tag and the stored session id when it genuinely completes, which is the real end of the run.\n\nFIXED 2026-08-01 by two changes. ScanLogSession became @TaskLocal, bound around the whole run and rebound inside the detached pipeline task (Task.detached deliberately does not inherit task-locals). And the two session identifiers were collapsed into one \u2014 see bScanSessionIdDuplication. Verified: a single id across scan, artwork, retry and both LEDGER lines.",
           "priority": "Normal",
           "complexity": "XS",
           "tag": "bug",
           "done": true,
           "createdAt": "2026-07-31",
-          "completedAt": "2026-07-31",
+          "completedAt": "2026-08-01",
           "requires": []
         },
         {
           "id": "fScanSessionLedger",
           "name": "Scan session ledger \u2014 record the plan, account for every outcome",
-          "desc": "THE central open item for the scanner. Full design in HANDOFF-scan-session-ledger-2026-07-31.md.\n\nA scan session should be a bounded, auditable unit of work: it records what it intended to do, records every outcome against that intent, and is not complete until every planned item has reached a terminal state. Today it is none of those things \u2014 the session id exists but nothing is attributed to it, the retry scheduler is a separate actor that happens to run afterward, nothing records what the scan intended, and completion is a scanState string written by four different code paths.\n\nWHAT PROMPTED IT: the 2026-07-31 full-library scan produced 11,231 tracks with 439 skipped; retry recovered 419, leaving 20 tracks and 5 albums outstanding. The scheduler then hung, and after a relaunch both queues eventually read as empty with no log line saying the work had been done. Nobody could say what happened to those 20 tracks and 5 albums \u2014 not the user, not the log, not Claude reading the log. That uncertainty is the defect; the specific bugs are downstream of it.\n\nTom's framing: 'this would also allow a user to see specifically what failed rather than saying 20 of your 11,000 tracks didn't make it. have fun trying to figure out which ones.' The app currently cannot tell a user WHICH tracks are missing, and cannot tell them anything is missing at all \u2014 an album showing 12 tracks looks like a 12-track album.\n\nAGREED RULES: the retry phase is part of the session, not a separate process; no other scan of that share runs until the session completes or is cancelled; interrupted retries recover exactly as interrupted tracks and artwork do; the record survives automatic scans and is cleared only by a manual scan of that same share; albums, tracks AND artwork are all auditable.\n\nTHE ARITHMETIC: planned = written + skipped-resolved + skipped-permanent + unaccounted. Any non-zero unaccounted is a bug, and it names the exact files. Failure REASON must be recorded, not just failure \u2014 all 439 skips that night were timeouts, which are very likely recoverable, and that is a different user message and a different retry policy from a corrupt file or a permission error.",
+          "desc": "THE central open item for the scanner. Full design in HANDOFF-scan-session-ledger-2026-07-31.md.\n\nA scan session should be a bounded, auditable unit of work: it records what it intended to do, records every outcome against that intent, and is not complete until every planned item has reached a terminal state. Today it is none of those things \u2014 the session id exists but nothing is attributed to it, the retry scheduler is a separate actor that happens to run afterward, nothing records what the scan intended, and completion is a scanState string written by four different code paths.\n\nWHAT PROMPTED IT: the 2026-07-31 full-library scan produced 11,231 tracks with 439 skipped; retry recovered 419, leaving 20 tracks and 5 albums outstanding. The scheduler then hung, and after a relaunch both queues eventually read as empty with no log line saying the work had been done. Nobody could say what happened to those 20 tracks and 5 albums \u2014 not the user, not the log, not Claude reading the log. That uncertainty is the defect; the specific bugs are downstream of it.\n\nTom's framing: 'this would also allow a user to see specifically what failed rather than saying 20 of your 11,000 tracks didn't make it. have fun trying to figure out which ones.' The app currently cannot tell a user WHICH tracks are missing, and cannot tell them anything is missing at all \u2014 an album showing 12 tracks looks like a 12-track album.\n\nAGREED RULES: the retry phase is part of the session, not a separate process; no other scan of that share runs until the session completes or is cancelled; interrupted retries recover exactly as interrupted tracks and artwork do; the record survives automatic scans and is cleared only by a manual scan of that same share; albums, tracks AND artwork are all auditable.\n\nTHE ARITHMETIC: planned = written + skipped-resolved + skipped-permanent + unaccounted. Any non-zero unaccounted is a bug, and it names the exact files. Failure REASON must be recorded, not just failure \u2014 all 439 skips that night were timeouts, which are very likely recoverable, and that is a different user message and a different retry policy from a corrupt file or a permission error.\n\nBUILT AND VERIFIED 2026-08-01. v18 added scan_sessions and scan_ledger (one row per planned file, carrying outcome, failure kind and attempt count). v19 added `kind` and `resolvedBy` so artwork joins the SAME table rather than getting a parallel one \u2014 Tom's call, on the grounds that separate tables would reintroduce exactly the duplication being removed. scan_skips is retired as the retry queue; nothing outside SorrivaDatabase reads it.\n\nRetry is now part of the session rather than a separate actor with its own lifecycle, and completeness is one query over one table (sessionHasOutstandingWork) covering tracks and artwork together. Failure REASON is recorded, which is what lets a timeout and a corrupt file get different retry policies and different user-facing messages.\n\nDEVICE REGRESSION, four phases on a 159-file / 14-folder share, UNACCOUNTED 0 on every audit line in every phase. Phase 2 is the one that matters: FIVE kills across three pipeline phases \u2014 twice during the track scan, twice during artwork, once mid-file during retry \u2014 with the session id constant throughout and each resume picking up the exact remainder. Artwork killed at [4/14] resumed at [1/10]; killed at [10/14] resumed at [1/5]; retry killed mid-file resumed with 1 pending, not 6. Final audits totalled 173 (159 track + 14 artwork) across all interruptions.\n\nOne detail worth keeping: after the first kill the folder filter reported 137 files to scan while the ledger reported 126 still planned. The 11-file difference is the ledger being finer-grained than the folder filter \u2014 those 11 were already written in a folder that had not completed. That is what makes resume exact rather than approximate.\n\nSteps 6-8 of HANDOFF-scan-session-ledger.md remain open and are tracked as fScanReportShareExport, fScanFailureRecoveryTool and bAlbumMissingTracksNotVisible.",
           "priority": "Critical",
           "complexity": "L",
           "tag": "feature",
-          "done": false,
+          "done": true,
           "createdAt": "2026-07-31",
-          "completedAt": null,
+          "completedAt": "2026-08-01",
           "requires": []
         },
         {
@@ -920,13 +920,13 @@
         {
           "id": "bArtworkMarkerResetClearsRetryQueue",
           "name": "resetArtworkPassMarkers silently empties the artwork retry queue",
-          "desc": "resetArtworkPassMarkers (added 2026-07-30 for bArtworkPassNotResumable) zeroes embeddedArtFailed along with the three pass markers. But embeddedArtFailed is the column albumsNeedingEmbeddedArtRetry() selects on \u2014 so any scan touching those folders silently empties the artwork retry queue rather than working it. The albums are not retried, they are dropped, with no log line because nothing processed them.\n\nProbable cause of 5 albums vanishing from the retry queue during the 2026-07-31 full-library run, though not proven: the scan that would have cleared them filtered to zero files, so the reset should not have run. The inability to establish this from the record is itself the argument for fScanSessionLedger.\n\nA narrow fix (exclude embeddedArtFailed from the reset) was proposed and REJECTED as symptom-patching. The real issue is that retry state and pass state are conflated: the three markers mean 'not yet done this scan', while embeddedArtFailed means 'a read errored and this is queued for retry'. The ledger resolves this properly by making retry part of the session rather than a parallel queue.",
+          "desc": "resetArtworkPassMarkers (added 2026-07-30 for bArtworkPassNotResumable) zeroes embeddedArtFailed along with the three pass markers. But embeddedArtFailed is the column albumsNeedingEmbeddedArtRetry() selects on \u2014 so any scan touching those folders silently empties the artwork retry queue rather than working it. The albums are not retried, they are dropped, with no log line because nothing processed them.\n\nProbable cause of 5 albums vanishing from the retry queue during the 2026-07-31 full-library run, though not proven: the scan that would have cleared them filtered to zero files, so the reset should not have run. The inability to establish this from the record is itself the argument for fScanSessionLedger.\n\nA narrow fix (exclude embeddedArtFailed from the reset) was proposed and REJECTED as symptom-patching. The real issue is that retry state and pass state are conflated: the three markers mean 'not yet done this scan', while embeddedArtFailed means 'a read errored and this is queued for retry'. The ledger resolves this properly by making retry part of the session rather than a parallel queue.\n\nFIXED 2026-08-01, dissolved rather than patched. The narrow fix (exclude embeddedArtFailed from the reset) was proposed and REJECTED as symptom-patching. Artwork now lives in the ledger via v19's `kind` column, where resetArtworkPassMarkers cannot reach it \u2014 the session's view of outstanding artwork is a ledger query, not a parallel queue another component can clobber.",
           "priority": "High",
           "complexity": "S",
           "tag": "bug",
-          "done": false,
+          "done": true,
           "createdAt": "2026-07-31",
-          "completedAt": null,
+          "completedAt": "2026-08-01",
           "requires": [
             "fScanSessionLedger"
           ]
@@ -934,13 +934,13 @@
         {
           "id": "fReduceHeaderReadTimeout",
           "name": "Header read timeout of 15s costs most of a full scan's runtime",
-          "desc": "Measured 2026-07-31 on the full library: 439 timeouts x 15s = 110 minutes of a 3h03m header pass, roughly 60% of total runtime spent waiting on reads that never return. At 5s the same run would have spent ~37 minutes.\n\nThe 15s buys nothing on this path. readHeader opens a FRESH connection per file, so a timeout does not trigger reconnect-and-continue \u2014 it skips the file and moves on, with the retry scheduler picking it up later. A read that has not returned in 5 seconds on a local gigabit NAS is not slow, it is dead. The probe harness was dropped to 3s on exactly this reasoning.\n\nDELIBERATELY HELD until the retry changes land: the correct value depends on failures carrying a reason and the user being able to retry deliberately, so changing the number now would move it without the structure that makes it correct. Note the skip rate also drifted upward during the run \u2014 roughly 2.8% over files 900-1400 rising to 5.5% by 2100 \u2014 which may indicate the NAS degrading under sustained load and would argue for pacing as well as a shorter ceiling.",
+          "desc": "Measured 2026-07-31 on the full library: 439 timeouts x 15s = 110 minutes of a 3h03m header pass, roughly 60% of total runtime spent waiting on reads that never return. At 5s the same run would have spent ~37 minutes.\n\nThe 15s buys nothing on this path. readHeader opens a FRESH connection per file, so a timeout does not trigger reconnect-and-continue \u2014 it skips the file and moves on, with the retry scheduler picking it up later. A read that has not returned in 5 seconds on a local gigabit NAS is not slow, it is dead. The probe harness was dropped to 3s on exactly this reasoning.\n\nDELIBERATELY HELD until the retry changes land: the correct value depends on failures carrying a reason and the user being able to retry deliberately, so changing the number now would move it without the structure that makes it correct. Note the skip rate also drifted upward during the run \u2014 roughly 2.8% over files 900-1400 rising to 5.5% by 2100 \u2014 which may indicate the NAS degrading under sustained load and would argue for pacing as well as a shorter ceiling.\n\nDONE 2026-08-01. readHeader 15s -> 5s, as a named constant with the measurement recorded in the comment. Held until the ledger landed because the correct value depended on failures carrying a reason; now a timeout is recorded as kind .timeout, does NOT consume a retry attempt, and is retried on a fresh connection.\n\nVerified on the phase 2 device run: 6 timeouts, all six recovered on retry attempt 2. A clean 159-file scan went 91.9s -> 58.5s. The long wait bought nothing on this path \u2014 readHeader opens a fresh connection per file, so a timeout does not trigger reconnect-and-continue, it records the failure and moves on.",
           "priority": "Normal",
           "complexity": "XS",
           "tag": "feature",
-          "done": false,
+          "done": true,
           "createdAt": "2026-07-31",
-          "completedAt": null,
+          "completedAt": "2026-08-01",
           "requires": []
         },
         {
@@ -958,13 +958,13 @@
         {
           "id": "bRetryPassNotResumableMidPass",
           "name": "Retry pass restarts from the first album rather than resuming mid-pass",
-          "desc": "The artwork retry pass has no per-album progress marker within a pass, so an interruption restarts it from album 1, re-attempting albums it already handled. Cheap at a handful of albums and self-limiting via embeddedArtRetryCount, but it is the same gap bArtworkPassNotResumable closed for the scan's own artwork passes. Subsumed by fScanSessionLedger, which makes retry part of the session and therefore resumable by construction.",
+          "desc": "The artwork retry pass has no per-album progress marker within a pass, so an interruption restarts it from album 1, re-attempting albums it already handled. Cheap at a handful of albums and self-limiting via embeddedArtRetryCount, but it is the same gap bArtworkPassNotResumable closed for the scan's own artwork passes. Subsumed by fScanSessionLedger, which makes retry part of the session and therefore resumable by construction.\n\nFIXED 2026-08-01, subsumed by the ledger. Verified directly on device: retry killed mid-file resumed reporting '1 pending', not the full queue of 6.",
           "priority": "Normal",
           "complexity": "S",
           "tag": "bug",
-          "done": false,
+          "done": true,
           "createdAt": "2026-07-31",
-          "completedAt": null,
+          "completedAt": "2026-08-01",
           "requires": [
             "fScanSessionLedger"
           ]
@@ -978,6 +978,66 @@
           "tag": "bug",
           "done": false,
           "createdAt": "2026-07-31",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fScanLedgerUnitTests",
+          "name": "Unit tests for the scan session ledger",
+          "desc": "BUILT AND VERIFIED 2026-08-01. 20 tests in SorrivaTests/ScanLedgerTests.swift, green, running in ~37s.\n\nThey run the REAL SMBScanner against a real directory of real FLAC files through SorrivaDatabase.shared. LedgerTestFixtures synthesizes structurally valid FLAC \u2014 fLaC magic, STREAMINFO carrying sample rate and total samples so duration parses, VORBIS_COMMENT with tags \u2014 and the byte arithmetic was verified against parseVorbisComment's exact indexing before the fixtures were written. A fixture returning canned metadata would pass whether or not the parser worked.\n\nFixtureMediaSourceReader gained beforeRead/beforeList hooks and call counters. cancelScanAfterReads(n) simulates a kill by cancelling the enclosing task, which is what the scan loop actually checks; failReadNumber(n) simulates a bad read, which the scanner catches and records. Conflating those two produced two false failures on the first run and is documented in both files \u2014 a read failure is recorded and the scan continues, only cancellation leaves rows planned.\n\nSeventeen tests drive a real scan: plan matches disk, audit totals, resume works the remainder without replanning, session id survives, timeout does not consume an attempt while a content failure does, mtime detects a tag edit with size held constant, deletion reconciles and stays source-scoped. Three more construct known-bad ledger state directly and assert the DETECTION machinery \u2014 unaccounted rows are found AND named, audit arithmetic is exact, per-folder rollup splits correctly and omits clean folders. Those three need no scan and run in ~0.02s each.\n\nTESTED THE TESTS. Per Tom: 'test end to end until working, build unit tests, then test the tests.' The success-path recordLedgerOutcome was commented out and the suite rerun: 10 red, 10 green. All three detection tests stayed green (they write their own rows and never touch the scanner), both resume tests and all the audit tests went red, and the failures were specific rather than cascading. Reverted, all 20 green again. The suite is not passing vacuously.\n\nNote testPlanMatchesFilesOnDisk correctly PASSED under the mutation \u2014 it asserts the total across all buckets, and the rows still existed, just stranded at 'planned'. testCleanScanLeavesNothingUnaccounted is what catches that.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-08-01",
+          "completedAt": "2026-08-01",
+          "requires": []
+        },
+        {
+          "id": "bRetrySchedulerReportsPhantomArtPending",
+          "name": "Retry scheduler reports art pending when the ledger says zero",
+          "desc": "ScanRetryScheduler's completion line reads albumsNeedingEmbeddedArtRetry(), a pre-v18 fallback selecting on embeddedArtFailed. Since artwork moved into the ledger that query is a second opinion, and it disagrees: every run ends with 'LEDGER: artwork \u2014 ... unaccounted 0' immediately followed by 'scheduler COMPLETE \u2014 1 art still pending'. The ledger is correct.\n\nThis is the last artwork path not reading the ledger, and it is the same class of problem the ledger was built to remove \u2014 two sources of truth for one question. Cosmetic today in that no work is actually lost, but it will confuse anyone reading the log, and it is exactly the kind of disagreement that hid real bugs before.\n\nFIX: report from scanSessionAudit(sessionId:kind: .artwork) when a ledger session exists, falling back to the old query only when it does not. While in there, re-read the other two callers (ScanCoordinator.hasOutstandingWork and ScanRetryScheduler.queuesClear) to confirm neither fallback can fire while a ledger session exists \u2014 if one ever wins over the ledger, a session can report outstanding work that is not real, which is how a scan gets stuck.\n\nVERIFY: the 'scheduler COMPLETE' line must agree with the 'LEDGER: artwork' line immediately above it. Observed on every run of the 2026-08-01 regression.",
+          "priority": "High",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-08-01",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bScanSessionIdDuplication",
+          "name": "Two session identifiers for one concept",
+          "desc": "There were two: a scan sessionId used for the folder_stats stamp and the log tag, and a separate ledger session id used for the audit. Different UUIDs for the same thing, so the log said one and the audit said another \u2014 visible 2026-08-01 as a scan tagged D60CE953 whose retry was tagged 107962AD, same run.\n\nTom rejected a one-line fix that would have made the tag agree, on the grounds that two identifiers for one thing is the same duplication the ledger exists to remove. FIXED by collapsing them: runScan now creates or resumes the ledger session BEFORE binding the log tag, and that id serves the ledger, the folder_stats stamp, currentScanSessionId and the tag. The ledger id wins because it is the durable one \u2014 scan_sessions survives a kill and is recoverable via activeScanSession, whereas currentScanSessionId is cleared at pipeline completion.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-08-01",
+          "completedAt": "2026-08-01",
+          "requires": []
+        },
+        {
+          "id": "bScanLogSessionTagClobbered",
+          "name": "Concurrent scans overwrote each other's log session tag",
+          "desc": "ScanLogSession held a single global `current`, so a second scan calling begin() while the first was still in its artwork phase overwrote the first scan's tag. The 2026-08-01 phase 1 log shows it in three separate runs where the id changes partway through, plus the LEDGER: artwork line coming out untagged entirely.\n\nThe ledger was correct throughout; only the log became unsearchable, which defeats the one property fScanSessionLogCorrelation exists to provide. FIXED with @TaskLocal \u2014 scoped to the task and its children, so concurrent pipelines cannot interfere by construction. Bound around the whole run and rebound inside the detached pipeline task, since Task.detached deliberately does not inherit task-locals. A global `ambient` remains as a fallback for log calls made outside any bound task.\n\nSeparately, 'LEDGER: ' had been omitted from taggedPrefixes when LEDGER was introduced as a category, so those lines were never tagged regardless of scope. Tom: 'the ledger can't wait that long. it is the summary of the audit.'",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-08-01",
+          "completedAt": "2026-08-01",
+          "requires": []
+        },
+        {
+          "id": "bTestSuiteRedByDefault",
+          "name": "Four pre-existing test failures leave the suite red",
+          "desc": "As of 2026-08-01 the full suite runs 66 tests with 4 failures, none from the ledger work (ScanLedgerTests is 20/20 green). Known: AlbumGenreTests.testRescanReplacesGenresRatherThanAccumulating fails with expected [\"Rock\"] but got [\"Synth-Pop\"] \u2014 rescanning is not replacing the album's genre set. Three more, one each in a 2-test, 3-test and 16-test suite, not yet identified.\n\nThis matters beyond the individual bugs: a suite that is red by default trains everyone to ignore it, and then a real regression hides in the noise. The ledger suite's value is materially reduced by sitting inside a red overall run. Identify all four and either fix them or mark them explicitly as expected failures with a reason.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-08-01",
           "completedAt": null,
           "requires": []
         }

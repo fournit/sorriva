@@ -6,9 +6,23 @@ This is a design agreed in session `2026-07-31-2`, arrived at after a full
 11,670-file library scan exposed that the app cannot answer the question
 "what was supposed to be in the library, and what actually made it?"
 
-Nothing here is built. What HAS been built and verified is in
-`HANDOFF-scanner-architecture-2026-07-29.md` items 1-6, plus the fixes listed
-under "What prompted this" below.
+**STATUS 2026-08-01 — steps 1-5 are BUILT, VERIFIED AND UNIT TESTED. Do not
+rebuild them.** The schema, the plan, outcome recording with reasons, retry
+folded into the session, and the reconciliation query all shipped in v0.0.53
+(v18 + v19 migrations). A four-phase device regression passed with
+`UNACCOUNTED 0` throughout, including five kills across three pipeline phases,
+and there is a 20-test suite in `SorrivaTests/ScanLedgerTests.swift`.
+
+**What remains is steps 6-8** — the share export, the Library Management review
+tool, and the inline "12 of 15 tracks" signal. All three are user-facing and
+need design input rather than just implementation.
+
+The design reasoning below is unchanged and still governs. Read it before
+touching steps 6-8: it records why the DB is authoritative, why the export
+matters for a user with no second machine, and why failure REASON is
+load-bearing.
+
+Prior context is in `HANDOFF-scanner-architecture.md` items 1-6.
 
 Repo: github.com/fournit/sorriva | Mini: `~/projects/sorriva-app/`
 
@@ -253,19 +267,31 @@ previously have re-read every header for three hours.
 
 ## Suggested build order
 
-1. **Schema** — session table, plan rows, outcome rows with reason. Retention
-   scoped by `sourceId`, cleared on manual scan of that share.
-2. **Record the plan** at scan start from the filter's output.
-3. **Write outcomes** with the session id from every write path — track, skip,
-   retry result, artwork per pass.
-4. **Fold retry into the session** so it works the ledger rather than its own
-   queues, and so the session is not complete until every planned row is
-   terminal.
-5. **Reconciliation query** — the arithmetic above, surfacing `unaccounted`.
-6. **Share export** on session completion, human-readable.
-7. **Library Management tool** — review plus in-place retry.
-8. **Inline signal** — "12 of 15 tracks" on the album itself.
-9. Then revisit `fReduceHeaderReadTimeout` with reasons recorded.
+1. ~~**Schema**~~ — **DONE 2026-08-01.** v18 `scan_sessions` + `scan_ledger`;
+   v19 added `kind`/`resolvedBy` so artwork shares the same table. Retention
+   scoped by `sourceId`, cleared by a manual scan of that share.
+2. ~~**Record the plan**~~ — **DONE.** Recorded after the filter, one row per
+   file, skipped on resume so existing rows are worked.
+3. ~~**Write outcomes**~~ — **DONE.** `written` / `skipped` / `resolved` /
+   `permanent`, with `failureKind` and `failureDetail`. `readFileHeader` now
+   returns the classified reason instead of discarding it.
+4. ~~**Fold retry into the session**~~ — **DONE.** `scan_skips` retired as the
+   retry queue; completeness is one query over one table covering tracks and
+   artwork together.
+5. ~~**Reconciliation query**~~ — **DONE.** `LEDGER: audit` line every run,
+   surfacing `UNACCOUNTED`.
+6. **Share export** on session completion, human-readable. **NOT STARTED.**
+7. **Library Management tool** — review plus in-place retry. **NOT STARTED.**
+8. **Inline signal** — "12 of 15 tracks" on the album itself. **NOT STARTED.**
+9. ~~Revisit `fReduceHeaderReadTimeout`~~ — **DONE 2026-08-01.** 15s -> 5s once
+   failures carried a reason. Six timeouts on the phase 2 device run, all six
+   recovered on retry attempt 2; a clean 159-file scan went 91.9s -> 58.5s.
 
-Steps 1-5 are the foundation and are worth doing together; 6-8 are the user-
-facing payoff and can follow.
+Steps 6-8 are the user-facing payoff. They need decisions on report format and
+screen placement, not just implementation — the format matters because a real
+user opens the exported report directly from a mounted share.
+
+**Also outstanding:** `bRetrySchedulerReportsPhantomArtPending` (High, XS), the
+last artwork path still reading a pre-v18 fallback query; and
+`bTestSuiteRedByDefault` (High, M) — four pre-existing failures leave the
+overall suite red even though `ScanLedgerTests` is 20/20 green.
