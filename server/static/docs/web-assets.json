@@ -21,13 +21,6 @@
       "type": "design",
       "version": 1,
       "added": "2026-07-23"
-    },
-    {
-      "url": "www.google.com",
-      "label": "test url once again",
-      "description": "",
-      "type": "reference",
-      "added": "2026-08-02"
     }
   ]
 }
