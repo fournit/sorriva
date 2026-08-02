@@ -3,13 +3,13 @@
     {
       "url": "https://sorriva.app",
       "label": "Sorriva Marketing Site",
-      "description": "Live marketing splash — sorriva.app via Cloudflare Pages.",
+      "description": "Live marketing splash \u2014 sorriva.app via Cloudflare Pages.",
       "type": "marketing",
       "added": "2026-07-04"
     },
     {
       "file": "sorriva-index.html",
-      "label": "Marketing Splash Page — Source",
+      "label": "Marketing Splash Page \u2014 Source",
       "description": "Editable source for sorriva.app. Letter-by-letter wordmark reveal, ambient ring expansion, scroll-triggered pillar reveals, email capture CTA.",
       "type": "marketing",
       "added": "2026-07-03"
@@ -21,6 +21,27 @@
       "type": "design",
       "version": 1,
       "added": "2026-07-23"
+    },
+    {
+      "url": "www.google.com",
+      "label": "test url",
+      "description": "",
+      "type": "reference",
+      "added": "2026-08-02"
+    },
+    {
+      "url": "https://example.com/difftest",
+      "label": "difftest",
+      "description": "",
+      "type": "reference",
+      "added": "2026-08-02"
+    },
+    {
+      "url": "https://example.com/synctest",
+      "label": "synctest",
+      "description": "",
+      "type": "reference",
+      "added": "2026-08-02"
     }
   ]
 }
