@@ -35,13 +35,6 @@
       "description": "",
       "type": "reference",
       "added": "2026-08-02"
-    },
-    {
-      "url": "https://example.com/synctest",
-      "label": "synctest",
-      "description": "",
-      "type": "reference",
-      "added": "2026-08-02"
     }
   ]
 }
