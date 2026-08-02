@@ -28,13 +28,6 @@
       "description": "",
       "type": "reference",
       "added": "2026-08-02"
-    },
-    {
-      "url": "https://example.com/difftest",
-      "label": "difftest",
-      "description": "",
-      "type": "reference",
-      "added": "2026-08-02"
     }
   ]
 }
