@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.53 \u2014 Scan session ledger, verified end to end and unit tested",
-  "version": "0.0.53",
-  "db_migrate": true
+  "message": "v0.0.56 - close 2026-08-03-1: doc-vs-code audit, PlaybackStore design spec, GENA capture, session-protocol enforcement",
+  "version": "0.0.56",
+  "db_migrate": false
 }

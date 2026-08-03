@@ -1,7 +1,7 @@
 {
-  "version": "0.0.53",
-  "build": 53,
-  "released": "2026-08-01",
+  "version": "0.0.56",
+  "build": 56,
+  "released": "2026-08-03",
   "status": "active",
-  "notes": "Scan session ledger built and verified. A scan is now a bounded, auditable unit of work \u2014 it records its plan, records every outcome against it with a failure reason, and is not complete until every planned row is terminal. Retry is part of the session; artwork shares the same ledger. Verified across a four-phase device regression with five kills in three pipeline phases, UNACCOUNTED 0 throughout, plus a 20-test unit suite that was itself proven by deliberately breaking the scanner and confirming the right half went red. Header read timeout 15s -> 5s. Also collapsed two session identifiers into one and made the log session tag task-local."
+  "notes": "Design and audit session (no app code changed). Ran a full documentation-vs-code audit of all 11 engineering and handoff docs (AUDIT-2026-08-03-doc-vs-code.md): the scanner/ledger/persistence foundation is solid and test-backed, a middle tier of seams is built-but-bypassed, and several doc acceptance checkmarks run ahead of the code. Agreed and specced the authoritative-PlaybackStore rearchitecture -- the app declares content-truth (resolving the Sonos URI to name and artwork), Sonos owns transport-truth via polling, and a name shows only while its URI matches what Sonos reports, with a no-blank rule (HANDOFF-playbackstore-design.md; logged as fPlaybackStoreAuthoritativeState). Captured Sonos GENA event subscriptions as the future push-based transport substrate (fSonosEventSubscriptions). Closed bMissingTracksInAlbum as an audit finding. Added session-protocol enforcement: sessions start in plan mode, and a SessionStart hook plus a CLAUDE.md standing rule enforce the open/close ritual."
 }
