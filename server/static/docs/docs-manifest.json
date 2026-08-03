@@ -62,6 +62,12 @@
       "category": "arch"
     },
     {
+      "file": "engineering/AUDIT-2026-08-03-doc-vs-code.md",
+      "display_name": "Doc-vs-Code Audit (2026-08-03)",
+      "description": "Per-claim verification of all 11 engineering + handoff docs against the ios/ source. Three-tier reality model: correctness/scanner/ledger work is done and test-backed; SourceResolver, canonical identity, typed EndpointCommand and PlaybackStore write side are built but bypassed; ScreenModel layer, HouseholdContext, and the PassioneUI/SorrivaMusicUI packages are unbuilt. Flags where acceptance checkmarks run ahead of code, plus stale/archival candidates.",
+      "category": "engineering"
+    },
+    {
       "file": "engineering/01_Constitution.md",
       "display_name": "AI Engineering Constitution",
       "description": "Highest-authority engineering instruction set for Sorriva. Product principles, architectural invariants, scope controls, operating rules, and definition of done. Governs all AI agent behavior.",
