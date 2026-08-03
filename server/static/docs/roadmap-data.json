@@ -1999,6 +1999,20 @@
           ]
         },
         {
+          "id": "fSonosEventSubscriptions",
+          "name": "Sonos GENA event subscriptions - push transport state instead of polling",
+          "desc": "Replace poll-based transport/zone state with Sonos GENA (UPnP General Event Notification Architecture) event subscriptions. The app SUBSCRIBEs to each speaker's AVTransport and RenderingControl services; Sonos then pushes an HTTP NOTIFY to an in-app callback (via the existing in-app HTTP server, fLocalHTTPServer) the instant transport, track, or volume changes, instead of Sorriva polling every 2-5s. Benefits: near-instant updates, no poll-interval latency, far less network chatter, and it dissolves the external-change staleness window that the PlaybackStore rearchitecture otherwise mitigates with hold-last-good. Requires subscription lifecycle management: renew before timeout, re-subscribe on network change, unsubscribe on teardown. Strategic note: had GENA been known at design time, the transport layer would have been built on it from the start. Sequenced as a future tightening AFTER the PlaybackStore authoritative-declaration rearchitecture is stable and ZoneDiscoveryService is decomposed, at which point poll-to-push can be swapped behind the same transport interface without changing anything above it.",
+          "priority": "High",
+          "complexity": "L",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-08-03",
+          "completedAt": null,
+          "requires": [
+            "fLocalHTTPServer"
+          ]
+        },
+        {
           "id": "fTrackArtwork",
           "name": "Track artwork in TracksView and library home",
           "desc": "Album artwork displays on track cards in TracksView and library home tracks section. TrackCard gets optional album param and uses AlbumArtView when showAlbum=true. TracksView builds albumsById dict from allAlbums() \u2014 one DB call per load, zero per-row. LibraryView passes album to track LibraryMediaItems. LazyVStack handles prefetch naturally.",

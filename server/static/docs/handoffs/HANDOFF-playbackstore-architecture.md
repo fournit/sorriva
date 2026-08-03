@@ -321,3 +321,52 @@ state their intent directly.
 mechanism has been explicitly discussed and confirmed with Tom.** This
 document exists precisely because that discipline slipped on this topic
 before — treat that as the one hard rule carried forward.
+
+---
+
+## 7. Design confirmed (2026-08-03) + the transport substrate it should sit on
+
+The section-5/6 design was worked through with Tom and **agreed**. Confirmed
+shape (a dedicated phased design doc will follow; this is the summary):
+
+- **Split content-truth from transport-truth.** Sonos is authoritative for the
+  URI (what is playing) and transport state (isPlaying/volume/elapsed/idle/
+  group) via polling, which stays. The app is authoritative for resolving that
+  URI into display metadata (name/artist/album/artwork) — because Sonos often
+  cannot (empty stream titles; no local album/art).
+- **URI-binding is the safety guarantee:** resolved metadata is displayed ONLY
+  while its URI matches the URI Sonos currently reports; on mismatch it is
+  invalidated. This is what prevents the wrong-info bugs — the old code let
+  `stationName` float free of any URI.
+- **Declarations** live on `PlaybackStore` (fulfils I-002): today's
+  `PlaybackContext` plus `{uri, source: .app/.external, declaredAt}`. Local play
+  already declares (`setLocalContext`); generalise to station/transfer/group/
+  ungroup.
+- **No-blank rule (Tom's requirement):** an actively-playing zone never renders
+  empty content — hold last-known until the replacement resolves, then swap
+  atomically. This is a reducer rule, NOT a poll-frequency setting.
+- **Phasing:** A) declaration primitive + precedence rule (no behaviour change)
+  → B) route station-play + transfer through it, delete optimistic field-copies
+  (fixes the round-trip-transfer repro) → C) group/ungroup → D) demote polling
+  to transport-only + shrink the heuristic to external-only → E) retire the
+  side-channels (`stationNameURI`, content-grace `playingUntil`).
+- **ZoneDiscoveryService decomposition** (it does far too much) comes AFTER the
+  store is stable — the store work extracts content as the first cut.
+
+### The transport substrate: Sonos GENA event subscriptions (roadmap `fSonosEventSubscriptions`)
+
+The design above runs on polling and is correct on polling. But the *right*
+long-term substrate is **Sonos GENA (UPnP General Event Notification
+Architecture) event subscriptions** — push instead of poll. The app SUBSCRIBEs
+to each speaker's `AVTransport`/`RenderingControl` services and Sonos pushes an
+HTTP `NOTIFY` to an in-app callback (the existing `SorrivaHTTPServer`) the
+instant transport/track/volume changes. This near-eliminates the external-change
+staleness window and the poll-interval latency, with far less network traffic.
+
+**Had GENA been known at design time, the transport layer would have been built
+on it from the start** (Tom, 2026-08-03). It is deliberately sequenced as a
+future tightening AFTER the PlaybackStore rearchitecture is stable and
+ZoneDiscoveryService is decomposed — at which point poll→push can be swapped in
+behind the same transport interface without changing anything above it. It is
+NOT a prerequisite for the declaration work. Tracked as `fSonosEventSubscriptions`
+(Phase 4) so it is not lost.
