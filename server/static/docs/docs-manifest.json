@@ -116,6 +116,12 @@
       "category": "handoff"
     },
     {
+      "file": "handoffs/HANDOFF-playbackstore-design.md",
+      "display_name": "PlaybackStore Design (Implementation Spec)",
+      "description": "The agreed implementation spec for making PlaybackStore authoritative. Splits content-truth (app resolves the URI to name/artwork) from transport-truth (Sonos owns URI + play state via polling), bound by the rule that metadata shows only while its URI matches what Sonos reports. Covers the declaration type, precedence rule, no-blank rule, module de-aggregation, the full caller-audit list, phases A-E, verification repros, and the open decisions still needing Tom before coding.",
+      "category": "handoff"
+    },
+    {
       "file": "handoffs/HANDOFF-gate-readiness-assessment.md",
       "display_name": "Reliability Gate Readiness Assessment",
       "description": "Honest, tiered audit of what's actually verified vs merely marked done ahead of the 7-day reliability gate. Surfaces bMissingTracksInAlbum and bScannerTestSeam as previously-unconnected High-priority gaps found via a full roadmap pass. Recommends next diagnostic steps before trusting the gate clock.",

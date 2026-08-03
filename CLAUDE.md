@@ -38,6 +38,7 @@ Note the earlier "UNAS Pro drops sessions after ~2 reads" finding is suspect: a 
 
 ## Standing rules
 
+- **Session ritual — every session, unconditionally.** At the first message of every session, before any work, ask Tom for the local time and record it as `session_start_time` — do not wait for an explicit "start a session" phrase. When Tom signals the end ("close", "wrap up", "done for the day"), run the Section 3 close checklist in `shared/passione-session-protocol.md`: state the start time, ask `owner_hrs` (never estimate), update `roadmap-data.json` / `sessions.json` / `version.json` / relevant handoff, then hand Tom the deploy command.
 - **No code changes without explicit confirmation.** Diagnose, propose exact changes, wait for approval.
 - **One terminal command at a time.** Wait for output before the next.
 - **Timestamps are CDT/CST.** `TZ='America/Chicago' date`.

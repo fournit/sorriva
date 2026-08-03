@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "defaultMode": "plan"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"SESSION PROTOCOL (shared/passione-session-protocol.md): Before any work, ask Tom for the current local time and record it as session_start_time. Do this at the first message of every session; do not wait for an explicit start-session phrase. At session close (Tom says close, wrap up, or done for the day), run the Section 3 checklist: state the recorded start time, ask how many hours Tom personally spent (owner_hrs, never estimate), update roadmap-data.json, sessions.json, version.json and the relevant handoff, then hand Tom the deploy command.\"}}'"
+          }
+        ]
+      }
+    ]
+  }
+}
