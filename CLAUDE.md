@@ -7,7 +7,8 @@ Native iOS/iPadOS music app for audiophiles with NAS-based local FLAC libraries 
 **Key architecture:** Sonos pulls audio directly from the NAS via `x-file-cifs://` — the iPhone is never in the audio path for local files. Pure App Store product, no backend required for core functionality. `server/` holds docs and roadmap only; there is no Flask app to deploy.
 
 **Read before scanner work:** `server/static/docs/handoffs/HANDOFF-scanner-hardening.md`
-**Read before playback/zone work:** `server/static/docs/handoffs/HANDOFF-playbackstore-architecture.md`
+**Read before playback/zone work:** `server/static/docs/handoffs/HANDOFF-playbackstore-design.md` — the live spec and current state (phases A+B built; C, D, E remain). Its §14 as-built notes are the hard-won ones. Then `HANDOFF-playbackstore-architecture.md` for problem history and *rejected* patches — do not re-propose them.
+**Read before radio/streaming-service work:** `server/static/docs/engineering/radio-service-integration.md` — each service gets its own adapter; never add a global URI heuristic.
 **Engineering corpus:** `server/static/docs/engineering/` — constitution, target architecture, ADRs, UI spec.
 
 **Known constraints — verify against source before acting on these:**

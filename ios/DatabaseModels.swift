@@ -140,6 +140,35 @@ struct ZoneState: Codable, FetchableRecord, PersistableRecord {
     static var databaseDecodingUserInfo: [CodingUserInfoKey: Any] = [:]
 }
 
+// MARK: - ZoneLastPlaying
+// The last thing the app knew a zone to be playing — station or local track.
+//
+// Distinct from ZoneState, which records the last station a zone was sent FROM
+// SORRIVA and is written only by persistStationPlay. That single-writer gap is why a
+// zone that received a transfer used to revert to an older station: nothing recorded
+// what it actually ended up playing. This table is written by PlaybackStore whenever
+// a zone's playback is declared, whatever the origin, so it is the durable form of
+// "what was last playing here" and survives relaunch for every zone.
+//
+// Keyed by the Sonos zone id (RINCON) — the same key PlaybackStore uses — rather than
+// the Sorriva device UUID, so no mapping is needed to restore it.
+
+struct ZoneLastPlaying: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "zone_last_playing"
+
+    var zoneId: String          // Sonos RINCON id
+    var uri: String             // content URI this described
+    var track: String
+    var artist: String
+    var albumName: String       // album title for local, station name for streams
+    var artURL: String?         // remote artwork (stations)
+    var albumId: String?        // local tracks — album UUID, re-fetched on restore for art
+    var isLocal: Bool
+    var updatedAt: Int
+
+    static let databasePrimaryKey = ["zoneId"]
+}
+
 // MARK: - Genre
 // Canonical genre taxonomy based on AllMusic hierarchy.
 // Parent genres have parentId = nil. Subgenres point to their parent.

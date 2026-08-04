@@ -947,10 +947,29 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             // Only write for non-local zones — local file playback has its own metadata path.
             let isLocalZone = zones[idx].currentTrackURI.hasPrefix("x-file-cifs://")
             if !isLocalZone {
-                if let name = resolved.name, zones[idx].stationName.isEmpty {
+                // Accept what Sonos reports for the URI it is currently playing, rather
+                // than only when the field happens to be empty. The old `isEmpty` gate
+                // meant that once a zone held any value — including a stale one — every
+                // later correction from Sonos was silently discarded, so polling could
+                // never self-heal. Pair the name with the URI it describes so the
+                // freshness check downstream actually passes.
+                //
+                // Note this does nothing for HLS radio, where Sonos supplies no usable
+                // title and no art at all (StationMetadataResolver rejects "hls.m3u8");
+                // those are named by reverse lookup in PlaybackContextService instead.
+                if let name = resolved.name {
+                    // Artwork belongs to the URI it arrived with. When the URI changes,
+                    // drop the old logo first: pairing a NEW name with the URI makes the
+                    // freshness check pass, and without this the previous station's
+                    // artwork rides along looking valid — which is exactly how Secret
+                    // Agent ended up displaying the Lost 80s logo.
+                    if zones[idx].stationNameURI != zones[idx].currentTrackURI {
+                        zones[idx].stationLogoURL = ""
+                    }
                     zones[idx].stationName = name
+                    zones[idx].stationNameURI = zones[idx].currentTrackURI
                 }
-                if let art = resolved.artURL, zones[idx].stationLogoURL.isEmpty {
+                if let art = resolved.artURL {
                     zones[idx].stationLogoURL = art
                 }
             }
@@ -1061,11 +1080,32 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             zones[idx].idleState = false
         }
 
+        // Declare it as well: the same content, now bound to the URI it describes.
+        // This is the one moment the app reliably knows both together — Sonos itself
+        // often returns an empty title for these streams, so waiting to infer the name
+        // from a later poll is what produced stale names in the first place.
+        PlaybackStore.shared.declare(
+            zoneID: zone.id,
+            context: PlaybackContext(track: "",
+                                     artist: "",
+                                     albumName: stationName,
+                                     duration: 0,
+                                     artAlbum: nil,
+                                     artURL: logoURL.isEmpty ? nil : logoURL,
+                                     isLocal: false),
+            uri: streamURL
+        )
+
         Task {
             do {
+                // Store the stream URL we actually played. It is the key the reverse
+                // lookup needs to answer "what station is this URI?" later — Sonos
+                // never reports a station name for these streams, so without this a
+                // station first seen by playing it has no way to be identified again.
                 try SorrivaDatabase.shared.upsertStation(
                     id: stationId, source: "iheart",
-                    name: stationName, logoURL: logoURL, streamURL: nil
+                    name: stationName, logoURL: logoURL,
+                    streamURL: streamURL.isEmpty ? nil : streamURL
                 )
                 if !zone.dbDeviceId.isEmpty {
                     try SorrivaDatabase.shared.updateZoneState(
@@ -1633,20 +1673,55 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
 
         print("SORRIVA: transferPlayback — \(sourceZone.name) → \(destZone.name)")
 
-        // Optimistic update — the content isn't changing, only which zone plays
-        // it, so the destination should immediately show the same station info
-        // the source already had, rather than waiting for a topology refresh to
-        // (possibly unreliably) pick it up from Sonos's own GetMediaInfo. Real
-        // repro: a transferred zone kept showing the DESTINATION's own previous
-        // station indefinitely, since Sonos returned an empty title for the new
-        // stream and nothing else ever corrected it.
+        // Content moves as a DECLARATION, not as a field copy.
+        //
+        // This block used to copy stationName + stationNameURI (and track/artist) from
+        // the source. That is what made the round-trip transfer bug so durable: if the
+        // source's own stationName was stale — masked at display time by the staleness
+        // check but never actually cleared — the copy carried name and URI across
+        // together, so they agreed with each other on arrival. The destination's
+        // staleness check compares exactly those two values, saw a self-consistent
+        // pair, and passed it as fresh. The check could never fire.
+        //
+        // Moving the declaration avoids that by construction: it carries the URI it was
+        // declared against, so it is still reconciled against what Sonos actually
+        // reports and cannot smuggle stale text through as its own corroboration.
+        if PlaybackStore.shared.declarations[fromZoneID] != nil {
+            PlaybackStore.shared.moveDeclaration(from: fromZoneID, to: toZoneID)
+        } else if !sourceZone.stationName.isEmpty,
+                  !sourceZone.currentTrackURI.isEmpty,
+                  sourceZone.stationNameURI == sourceZone.currentTrackURI {
+            // Nothing to move: this content predates the app launch, or was started
+            // outside Sorriva, so no declaration was ever made. Synthesize one from the
+            // source's own state — but ONLY when that state passes its own freshness
+            // check (the name was resolved against the URI Sonos currently reports).
+            // The field copy this replaced did it unconditionally, which is precisely
+            // how a stale name travelled across as its own corroboration.
+            PlaybackStore.shared.declare(
+                zoneID: toZoneID,
+                context: PlaybackContext(track: sourceZone.currentTrack,
+                                         artist: sourceZone.currentArtist,
+                                         albumName: sourceZone.stationName,
+                                         duration: 0,
+                                         artAlbum: nil,
+                                         artURL: sourceZone.stationLogoURL.isEmpty
+                                                 ? nil : sourceZone.stationLogoURL,
+                                         isLocal: false),
+                uri: sourceZone.currentTrackURI
+            )
+            PlaybackStore.shared.clearDeclaration(zoneID: fromZoneID)
+        } else {
+            // The source's state cannot be trusted, so there is nothing honest to hand
+            // over. Clear the destination rather than leave it showing its own previous
+            // content — polling will establish the truth shortly.
+            PlaybackStore.shared.clearDeclaration(zoneID: toZoneID)
+            PlaybackStore.shared.clearDeclaration(zoneID: fromZoneID)
+        }
+
+        // Transport state is Sonos's to own, and is not implicated in the staleness
+        // bug — keep the optimistic values so the destination card doesn't flicker
+        // through "idle" while the multi-step transfer settles.
         if let idx = zones.firstIndex(where: { $0.id == toZoneID }) {
-            zones[idx].stationName = sourceZone.stationName
-            zones[idx].stationNameURI = sourceZone.stationNameURI
-            zones[idx].stationLogoURL = sourceZone.stationLogoURL
-            zones[idx].currentTrackURI = sourceZone.currentTrackURI
-            zones[idx].currentTrack = sourceZone.currentTrack
-            zones[idx].currentArtist = sourceZone.currentArtist
             zones[idx].isPlaying = true
             zones[idx].idleState = false
             zones[idx].playingUntil = Date().addingTimeInterval(6)
@@ -1682,10 +1757,50 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             await ZoneDiscoveryService.becomeCoordinator(host: sourceHost)
             sLog("TRANSFER: Step 2 — \(sourceZone.name) released, \(destZone.name) is new coordinator")
 
+            // The source's station fields are deliberately NOT cleared here.
+            //
+            // An earlier version did clear them, reasoning that a zone which hands
+            // playback away should not keep a stale name. That backfired twice:
+            // emptying stationName is precisely the condition restoreZoneStateFromDB
+            // waits for, so the next topology refresh repopulated the zone from its
+            // zone_state row — whatever it last played *via Sorriva*, not what it just
+            // handed off — and stamped it fresh on the way in. The zone reverted to
+            // "last playing minus one", and the source's artwork blanked meanwhile.
+            //
+            // Clearing was also solving a problem that no longer exists. The original
+            // round-trip bug came from transfer COPYING a stale name+URI pair to the
+            // destination, where the two corroborated each other. Transfers now move a
+            // declaration instead, and the one remaining path that reads raw source
+            // fields is gated on stationNameURI == currentTrackURI. After a handoff the
+            // source's URI moves on, that gate fails, and stale data cannot propagate.
+
             // Step 4: destination needs explicit Play to resume
             try? await Task.sleep(nanoseconds: 500_000_000)
             await ZoneDiscoveryService.sendTransportAction(host: destHost, action: "Play")
             sLog("TRANSFER: Step 3 — Play sent to \(destZone.name)")
+
+            // The steps above take roughly four seconds. Restart the declaration's
+            // grace window now, so it covers the period where Sonos is settling on the
+            // new coordinator rather than having been spent on the command sequence.
+            PlaybackStore.shared.touchDeclaration(zoneID: toZoneID)
+
+            // Record what the destination is now playing, so "what this zone last
+            // played" survives an app restart. zone_state is otherwise written only by
+            // persistStationPlay, so a transferred-to zone would fall back to its last
+            // Sorriva-initiated station instead of the one it actually received.
+            // stationId stays nil: updateZoneState preserves the existing value on nil,
+            // and the display reads name and logo rather than the id.
+            if !destZone.dbDeviceId.isEmpty,
+               let moved = PlaybackStore.shared.declarations[toZoneID],
+               !moved.context.albumName.isEmpty {
+                try? SorrivaDatabase.shared.updateZoneState(
+                    deviceId: destZone.dbDeviceId,
+                    stationId: nil,
+                    stationName: moved.context.albumName,
+                    logoURL: moved.context.artURL
+                )
+                sLog("TRANSFER: persisted \(moved.context.albumName) as \(destZone.name)'s last station")
+            }
 
             // Refresh topology
             try? await Task.sleep(nanoseconds: 1_500_000_000)
@@ -1815,6 +1930,53 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             print("SORRIVA: GetVolume error \(host): \(error.localizedDescription)")
         }
         return 0
+    }
+
+    /// Read back what a zone is actually doing shortly after a play command.
+    ///
+    /// A 200 on Play only means the command was well-formed. Sonos will accept every
+    /// command in the sequence and still sit in STOPPED if it cannot read the media or
+    /// its transport is wedged — which looks identical to success in the logs. Logging
+    /// the real state turns "silent with 200s everywhere" into one obvious line.
+    nonisolated static func verifyPlaybackStarted(host: String, context: String) async {
+        try? await Task.sleep(nanoseconds: 2_500_000_000)
+        let soapBody = """
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+          <s:Body>
+            <u:GetTransportInfo xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+              <InstanceID>0</InstanceID>
+            </u:GetTransportInfo>
+          </s:Body>
+        </s:Envelope>
+        """
+        guard let url = URL(string: "http://\(host):1400/MediaRenderer/AVTransport/Control"),
+              let bodyData = soapBody.data(using: .utf8) else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("\"urn:schemas-upnp-org:service:AVTransport:1#GetTransportInfo\"",
+                         forHTTPHeaderField: "SOAPACTION")
+        request.httpBody = bodyData
+        request.timeoutInterval = 3
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request)
+            let raw = String(data: data, encoding: .utf8) ?? ""
+            var state = "UNKNOWN"
+            if let open = raw.range(of: "<CurrentTransportState>"),
+               let close = raw.range(of: "</CurrentTransportState>",
+                                     range: open.upperBound..<raw.endIndex) {
+                state = String(raw[open.upperBound..<close.lowerBound])
+            }
+            if state == "PLAYING" || state == "TRANSITIONING" {
+                sLog("LOCALPLAY: verified playing — \(context) is \(state) on \(host)")
+            } else {
+                sLog("LOCALPLAY: PLAY DID NOT START — \(context) reports \(state) on \(host). "
+                   + "Every command was accepted, so check share registration, file "
+                   + "reachability from the speaker, or a wedged transport.")
+            }
+        } catch {
+            sLog("LOCALPLAY: transport verify failed \(host): \(error.localizedDescription)")
+        }
     }
 
     private static func transportInfo(host: String) async -> Bool {

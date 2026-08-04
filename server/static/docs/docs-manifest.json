@@ -68,6 +68,12 @@
       "category": "engineering"
     },
     {
+      "file": "engineering/radio-service-integration.md",
+      "display_name": "Radio Service Integration Guide",
+      "description": "What Sonos actually returns for streaming radio, established by polling live zones: the URI is always right, dc:title is junk (a filename for iHeart, a stream slug for SomaFM), and artwork may be absent entirely. Station names come from our stations table, never from Sonos. Covers the nested URI schemes that differ by who started playback, the normalization rule that makes them comparable and cacheable, a five-point checklist for adding a provider, and the test matrix a new service must pass.",
+      "category": "engineering"
+    },
+    {
       "file": "engineering/01_Constitution.md",
       "display_name": "AI Engineering Constitution",
       "description": "Highest-authority engineering instruction set for Sorriva. Product principles, architectural invariants, scope controls, operating rules, and definition of done. Governs all AI agent behavior.",

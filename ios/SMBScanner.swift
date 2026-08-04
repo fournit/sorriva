@@ -1065,13 +1065,21 @@ actor SMBScanner {
                 let chunkSize = Int(data[offset+4]) << 24 | Int(data[offset+5]) << 16
                              | Int(data[offset+6]) << 8  | Int(data[offset+7])
                 if chunkID == "COMM" && offset + 8 + 18 <= data.count {
-                    // numSampleFrames at offset+10 (4 bytes), sampleRate at offset+14 (80-bit IEEE float)
+                    // COMM payload layout, relative to the chunk start:
+                    //   +8  numChannels     (2 bytes)
+                    //   +10 numSampleFrames (4 bytes)
+                    //   +14 sampleSize      (2 bytes)
+                    //   +16 sampleRate      (10 bytes, 80-bit IEEE 754 extended)
                     let numFrames = Int(data[offset+10]) << 24 | Int(data[offset+11]) << 16
                                   | Int(data[offset+12]) << 8  | Int(data[offset+13])
-                    // 80-bit extended: exponent at [14-15], mantissa at [16-23]
-                    let exp = Int(data[offset+14] & 0x7F) << 8 | Int(data[offset+15])
-                    let mant = UInt64(data[offset+16]) << 56 | UInt64(data[offset+17]) << 48
-                             | UInt64(data[offset+18]) << 40 | UInt64(data[offset+19]) << 32
+                    // 80-bit extended float: sign+exponent in the first two bytes,
+                    // then a full 64-bit mantissa. Reading the exponent from +14
+                    // picked up sampleSize instead, making 2^(exp-16446) underflow to
+                    // zero — so sampleRate was always 0 and every AIFF silently got no
+                    // duration. Exponent is at +16; the mantissa is all 8 bytes at +18.
+                    let exp = Int(data[offset+16] & 0x7F) << 8 | Int(data[offset+17])
+                    var mant: UInt64 = 0
+                    for i in 0..<8 { mant = (mant << 8) | UInt64(data[offset+18+i]) }
                     let sampleRate = Double(mant) * pow(2.0, Double(exp - 16383 - 63))
                     if sampleRate > 0 && numFrames > 0 {
                         meta.duration = Double(numFrames) / sampleRate

@@ -54,6 +54,7 @@
 		805A16EF300A7D3D00AF3100 /* SorrivaLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16EE300A7D3D00AF3100 /* SorrivaLogger.swift */; };
 		805A170C300BB5E100AF3100 /* ScanRetryScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A170B300BB5E100AF3100 /* ScanRetryScheduler.swift */; };
 		805A1729300D16DF00AF3100 /* PlaybackContextService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A1728300D16DF00AF3100 /* PlaybackContextService.swift */; };
+		80833C303022377F00FBA596 /* RadioServiceAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80833C2F3022377F00FBA596 /* RadioServiceAdapter.swift */; };
 		80CC35113019B87C00B1DBAA /* SMBSessionProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80CC35103019B87C00B1DBAA /* SMBSessionProbe.swift */; };
 		80CC3513301AB84500B1DBAA /* NWConnectionProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80CC3512301AB84500B1DBAA /* NWConnectionProbe.swift */; };
 		80E293E2301143DB0031E31D /* BackupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E293E1301143DB0031E31D /* BackupView.swift */; };
@@ -151,6 +152,7 @@
 		805A1710300C669600AF3100 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		805A1711300C669600AF3100 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		805A1728300D16DF00AF3100 /* PlaybackContextService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackContextService.swift; sourceTree = "<group>"; };
+		80833C2F3022377F00FBA596 /* RadioServiceAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioServiceAdapter.swift; sourceTree = "<group>"; };
 		80CC35103019B87C00B1DBAA /* SMBSessionProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMBSessionProbe.swift; sourceTree = "<group>"; };
 		80CC3512301AB84500B1DBAA /* NWConnectionProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NWConnectionProbe.swift; sourceTree = "<group>"; };
 		80E293E1301143DB0031E31D /* BackupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupView.swift; sourceTree = "<group>"; };
@@ -231,6 +233,7 @@
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
+				80833C2F3022377F00FBA596 /* RadioServiceAdapter.swift */,
 				80FB2A8A301BA6D8001AAD98 /* NetworkIdentity.swift */,
 				80CC3512301AB84500B1DBAA /* NWConnectionProbe.swift */,
 				80CC35103019B87C00B1DBAA /* SMBSessionProbe.swift */,
@@ -503,6 +506,7 @@
 				805A1729300D16DF00AF3100 /* PlaybackContextService.swift in Sources */,
 				80CC35113019B87C00B1DBAA /* SMBSessionProbe.swift in Sources */,
 				805A16CA3005AEC600AF3100 /* AlbumDetailView.swift in Sources */,
+				80833C303022377F00FBA596 /* RadioServiceAdapter.swift in Sources */,
 				805A16CB3005AEC600AF3100 /* TracksView.swift in Sources */,
 				80E293FA301281A80031E31D /* CredentialStore.swift in Sources */,
 				80E294043012EC000031E31D /* EndpointModels.swift in Sources */,

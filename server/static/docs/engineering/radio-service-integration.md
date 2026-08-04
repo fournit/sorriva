@@ -1,0 +1,131 @@
+# Integrating a Radio Service
+
+**Last updated:** 2026-08-04
+**Applies to:** adding any new streaming radio provider (iHeartRADIO and SomaFM are the first two of many)
+
+Everything here was established empirically by polling live Sonos zones and reading
+what they actually return. Do not assume any of it can be inferred from the UPnP spec
+or from how the previous service behaved — the two we have already behave differently
+from each other.
+
+---
+
+## 1. The one rule that matters
+
+**Sonos tells you the URI. It does not reliably tell you the station name, and it may
+not tell you the artwork at all. The station name comes from our own stations table,
+never from Sonos.**
+
+Every bug in this area has come from some code path trusting Sonos's `dc:title`.
+
+---
+
+## 2. What Sonos actually returns
+
+Verified 2026-08-03/04 against live zones playing iHeart and SomaFM.
+
+| Field | iHeartRADIO (HLS) | SomaFM |
+|---|---|---|
+| `CurrentURI` / `TrackURI` | ✅ always correct | ✅ always correct |
+| `dc:title` | ❌ `hls.m3u8` — the filename | ⚠️ `secretagent-128-aac` — a stream slug, not the name |
+| `upnp:albumArtURI` | ❌ **absent entirely** | ✅ present |
+| `dc:title` from `GetMediaInfo` | ❌ absent | — |
+| `r:streamContent` | ✅ `TYPE=SNG\|TITLE …\|ARTIST …` | varies |
+
+Two consequences:
+
+- **Track and artist** can come from Sonos (`r:streamContent`) and usually do.
+- **Station name and artwork** must come from our database. For iHeart there is
+  literally nothing else available — Sonos has no idea what station it is playing.
+
+`StationMetadataResolver.isValidStationName` exists to reject the junk in that column.
+It will never be complete: it rejects `.aac` but not `-aac`, which is exactly how the
+SomaFM slug reached the UI. **Do not fix such gaps by extending the reject list** —
+the next provider will invent a shape you did not anticipate. The lookup below wins
+over `dc:title` by design, which makes the validator's blind spots harmless.
+
+---
+
+## 3. URI schemes differ by who started playback
+
+The *same station* arrives under different schemes depending on origin:
+
+```
+Sorriva plays SomaFM   →  x-rincon-mp3radio://ice2.somafm.com/secretagent-128-aac
+Sonos app plays SomaFM →  aac://http://ice2.somafm.com/secretagent-128-aac
+iHeart (either)        →  hls-radio://http://stream.revma.ihrhls.com/zc8681/hls.m3u8
+                          ?rj-ttl=…&rj-tok=…&init_id=…&streamid=…&playedFrom=…
+```
+
+Note that schemes **nest** (`aac://http://`), and that iHeart appends **session tokens
+that change on every poll**.
+
+Raw string comparison therefore cannot identify a station. Use
+`PlaybackContextService.normalizedStreamKey`, which strips all nested schemes and the
+query string, leaving `host/path`:
+
+```
+ice2.somafm.com/secretagent-128-aac
+stream.revma.ihrhls.com/zc8681/hls.m3u8
+```
+
+That key is stable across origin and across polls. **It is also the cache key** — using
+the raw URI instead means iHeart's rotating tokens invalidate the cache on every poll,
+which produced ~40 redundant database lookups for one station in a single session
+(`bPlaybackContextResolveChurn`).
+
+---
+
+## 4. Checklist for a new service
+
+1. **Store `streamURL` on every station row.** This is the lookup key. A station with
+   no stored URL can never be identified when playback starts outside the app.
+2. **Store it in a form that normalizes to the same key as playback.** If browse-time
+   and play-time URLs differ (a `.pls` playlist vs the resolved stream, or a different
+   CDN mirror), the normalized keys will not match and the lookup silently fails.
+3. **Store `logoURL`.** Sonos may supply no artwork at all; ours may be the only source.
+4. **Backfill on play.** The play path should write the URL it actually used —
+   `upsertStation` preserves existing values when passed `nil`, so this only ever
+   improves the row. This is what makes an unidentifiable station self-heal after one
+   play through Sorriva.
+5. **Never scope the reverse lookup to one source.** Use
+   `SorrivaDatabase.allStationsAnySource()`. A stream started from the Sonos app could
+   be from any provider.
+
+---
+
+## 5. Test matrix
+
+A service is not integrated until all of these pass. The second row is the one that
+catches integration bugs — it exercises the path where the app had no involvement in
+starting playback and must identify the stream from the URI alone.
+
+| Scenario | Expected |
+|---|---|
+| Play from Sorriva | Name + artwork immediately (declaration path) |
+| **Start from the Sonos app** | Name + artwork within one poll cycle |
+| Transfer zone → zone | Name + artwork follow; source clears |
+| Round trip A → B → A | A shows current content, not its pre-transfer station |
+| Watch the log during steady play | `resolved station from URI` appears **once per station change**, not once per poll |
+
+Diagnosing a failure: the log prints the exact key that failed to match —
+
+```
+CONTEXT: no station matches stream key 'host/path' — leaving unnamed
+```
+
+Compare that key against the `streamURL` stored for the station. A mismatch is a data
+problem (item 1 or 2 above); an absent log line means the lookup never ran.
+
+---
+
+## 6. Related
+
+- `PlaybackContextService` — `normalizedStreamKey`, `resolveStationFromURI`, the
+  `resolvedStations` cache
+- `StationMetadataResolver` — validates/cleans Sonos DIDL fields; absolutizes Sonos's
+  relative `/getaa?…` art paths against the zone host
+- `HANDOFF-playbackstore-design.md` — the declaration model; a declaration is the fast
+  path for app-initiated playback, while the URI lookup is the safety net that makes
+  every zone converge regardless of origin
+- `sonos-upnp-reference.html` — SOAP/UPnP call reference and S2 firmware quirks

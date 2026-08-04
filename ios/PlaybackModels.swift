@@ -62,6 +62,31 @@ struct ZonePlaybackSnapshot: Identifiable, Equatable, Sendable {
     }
 }
 
+// MARK: - PlaybackDeclaration
+// An authoritative statement of what a zone is playing, made by whoever caused
+// the change. Sonos owns the URI; the app owns naming that URI (Sonos often
+// cannot — empty stream titles, no local album art). A declaration is honoured
+// only while its URI still matches the URI Sonos currently reports; on mismatch
+// it is invalidated. That binding is what prevents stale names from displaying.
+// See HANDOFF-playbackstore-design.md sections 3-5.
+
+struct PlaybackDeclaration {
+    /// Display metadata this declaration resolves — track, artist, album, artwork.
+    let context: PlaybackContext
+    /// The content URI this metadata describes. The reconciliation key.
+    let uri: String
+    /// Who declared it. `.app` is trusted over polling while its URI matches;
+    /// `.external` is a detection result and is freely replaceable.
+    let source: Source
+    /// When it was declared. Bounds the grace window in the precedence rule.
+    let declaredAt: Date
+
+    enum Source {
+        case app
+        case external
+    }
+}
+
 // MARK: - PendingPlaybackCommand
 // Optimistic command state — set when a command is issued, cleared on confirmation.
 

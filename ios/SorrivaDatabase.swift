@@ -1044,6 +1044,29 @@ final class SorrivaDatabase {
             print("SORRIVA DB: v19 ledger artwork rows added")
         }
 
+        migrator.registerMigration("v20_zone_last_playing") { db in
+            // Durable "what was this zone last playing", for every zone and whatever
+            // started it. zone_state already looks like this but is written only by
+            // persistStationPlay, so it records the last station Sorriva *sent* rather
+            // than what a zone actually ended up playing — which is why a zone that
+            // received a transfer reverted to an older station once it went idle.
+            //
+            // Keyed by RINCON zone id to match PlaybackStore's own key, so restoring
+            // needs no device-UUID mapping.
+            try db.create(table: "zone_last_playing", ifNotExists: true) { t in
+                t.column("zoneId", .text).primaryKey()
+                t.column("uri", .text).notNull()
+                t.column("track", .text).notNull().defaults(to: "")
+                t.column("artist", .text).notNull().defaults(to: "")
+                t.column("albumName", .text).notNull().defaults(to: "")
+                t.column("artURL", .text)
+                t.column("albumId", .text)
+                t.column("isLocal", .boolean).notNull().defaults(to: false)
+                t.column("updatedAt", .integer).notNull()
+            }
+            print("SORRIVA DB: v20 zone_last_playing created")
+        }
+
         try migrator.migrate(dbQueue)
         print("SORRIVA DB: Migrations complete")
     }
@@ -1190,6 +1213,27 @@ final class SorrivaDatabase {
         try dbQueue.read { db in
             try Station.filter(Station.Columns.source == source).fetchAll(db)
         }
+    }
+
+    // MARK: - Zone last-playing operations
+
+    /// Record what a zone was last known to be playing. Upsert — one row per zone.
+    func upsertZoneLastPlaying(_ entry: ZoneLastPlaying) throws {
+        try dbQueue.write { db in try entry.save(db) }
+    }
+
+    /// Every zone's last-playing record, for restoring the store at launch.
+    func allZoneLastPlaying() throws -> [ZoneLastPlaying] {
+        try dbQueue.read { db in try ZoneLastPlaying.fetchAll(db) }
+    }
+
+    /// Every station, from every source.
+    ///
+    /// Reverse-resolving "what station is this URI?" must not be scoped to one
+    /// provider — iHeart and SomaFM are only the first of many, and a stream started
+    /// outside Sorriva could be from any of them.
+    func allStationsAnySource() throws -> [Station] {
+        try dbQueue.read { db in try Station.fetchAll(db) }
     }
 
     func cachedStreamURL(stationId: Int) throws -> String? {

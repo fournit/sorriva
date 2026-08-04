@@ -97,19 +97,25 @@ final class LocalPlaybackService {
         sLog("LOCALPLAY: URI — \(uri)")
 
         if let album = try? SorrivaDatabase.shared.album(id: track.albumId) {
-            PlaybackContextService.shared.setLocalContext(zoneID: zone.id, track: track, album: album)
+            PlaybackContextService.shared.setLocalContext(zoneID: zone.id, uri: uri, track: track, album: album)
         }
 
         // Build DIDL with duration before entering detached task
         let didl = await Self.buildTrackDIDL(track: track, uri: uri, source: source)
         let host = zone.host
+        let title = track.title
         await Task.detached {
-            // Clear queue/transport state before single track playback
+            // Stop first. RemoveAllTracksFromQueue only empties the queue — it does not
+            // reset a wedged transport, and a wedged zone accepts every later command
+            // with a 200 while never actually leaving its previous state.
+            await ZoneDiscoveryService.sendTransportAction(host: host, action: "Stop")
             await ZoneDiscoveryService.removeAllTracksFromQueue(host: host)
             await ZoneDiscoveryService.setAVTransportURIWithMetadata(host: host, streamURL: uri, didl: didl)
             await ZoneDiscoveryService.sendTransportAction(host: host, action: "Play")
-            sLog("LOCALPLAY: play command sent — \(track.title)")
+            sLog("LOCALPLAY: play command sent — \(title)")
         }.value
+        // Fire-and-forget: confirm Sonos actually started rather than trusting the 200.
+        Task.detached { await ZoneDiscoveryService.verifyPlaybackStarted(host: host, context: title) }
     }
 
     // MARK: - Album queue
@@ -135,6 +141,9 @@ final class LocalPlaybackService {
         let uris = pairs.map { xFileCIFSURI(track: $0.0, source: $0.1) }
 
         await Task.detached {
+            // Stop first — see playSingleTrack: clearing the queue does not reset a
+            // wedged transport, and a wedged zone 200s every command that follows.
+            await ZoneDiscoveryService.sendTransportAction(host: host, action: "Stop")
             // Clear existing queue first
             await ZoneDiscoveryService.removeAllTracksFromQueue(host: host)
 
@@ -151,6 +160,9 @@ final class LocalPlaybackService {
             await ZoneDiscoveryService.sendTransportAction(host: host, action: "Play")
             sLog("LOCALPLAY: album queue started — \(uris.count) tracks")
         }.value
+        // Fire-and-forget: confirm Sonos actually started rather than trusting the 200.
+        let queueLabel = "album queue (\(uris.count) tracks)"
+        Task.detached { await ZoneDiscoveryService.verifyPlaybackStarted(host: host, context: queueLabel) }
     }
 
     // MARK: - NAS share registration
