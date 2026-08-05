@@ -45,9 +45,11 @@ transport from `SonosZone`.
   / `GetMediaInfo` return `CurrentURI` reliably (even when the title is empty).
   Polling **stays** and is load-bearing — every tick reports the current URI +
   transport.
-- **The app is authoritative for resolving that URI into display metadata**
-  (name/artist/album/artwork) — because Sonos frequently can't (empty stream
-  titles; never has local album/art).
+- **The app is authoritative ONLY for what Sonos cannot report** — station
+  identity (name + logo) and local album metadata/art. Everything Sonos *does*
+  report, Sonos owns, including track and artist on a stream. See §3.1: the
+  original wording of this bullet claimed the app owned all display metadata, and
+  that over-claim is what froze content on screen.
 - **INVARIANT (the guarantee against wrong info):** resolved metadata is
   displayed **only while its URI matches the URI Sonos currently reports.** On
   mismatch it is invalidated. The old code let `stationName` float free of any
@@ -55,6 +57,48 @@ transport from `SonosZone`.
   the failure mode.
 
 The app never claims a zone is playing something Sonos doesn't confirm by URI.
+
+### 3.1 CORRECTION 2026-08-04 — one URI does not mean one piece of content
+
+**The URI-binding guarantee above was specced on an assumption that holds for
+local files and fails for streams.** A local file's URI changes with every track,
+so binding content to it is safe and total. A station's URI is the *stream*
+(`…/zc7934/hls.m3u8`) and stays identical while the songs change. So the reducer's
+first branch — "Sonos confirms the declared URI, therefore the declaration is
+authoritative and polling cannot override" — is true forever on a radio zone, and
+returns the snapshot frozen at the moment the station was declared.
+
+Observed live: Master Bedroom playing iHeart Lost 80s. Sonos reported Eurythmics,
+then Prince ~80s later; the app displayed Chaka Khan throughout — a track that had
+played several songs earlier and was current when the declaration was made. The
+station name and artwork were correct, because those genuinely do come from the
+app. Polling was reporting the truth the whole time and being discarded *by
+design*.
+
+**The corrected boundary is compositional, not exclusive:**
+
+| Content | Station name / art | Track / artist |
+|---|---|---|
+| Local file | app (Sonos has neither) | app (Sonos has neither) |
+| Stream | **app** (Sonos returns a filename or slug) | **Sonos** (`r:streamContent`, live and correct) |
+
+So the reducer's confirmed-URI branch must branch on content kind: a local
+declaration returns unchanged; a stream declaration returns its station identity
+with the live track and artist layered on, holding the previous track rather than
+blanking if Sonos reports empty between songs.
+
+**BUILT 2026-08-04** as `PlaybackStore.confirmedContent(declaration:zone:previous:)`.
+Deliberately left OPEN in the roadmap: it compiles clean but is unverified in the
+field, and Tom is running it for several days to see whether the symptom returns.
+Close `bStationTrackFrozenByDeclaration` only on that evidence, not on the build.
+
+**Generalised lesson — the exception became the rule.** Declarations exist to
+cover the 1–2s gap between the app issuing a command and Sonos confirming it,
+which is the real problem they were introduced to solve (no blanking, no flicker).
+They were then given permanent authority over content, which is a much larger
+claim than that problem needs. A declaration is a *short-lived override for
+in-flight commands*, not a standing authority. Tracked as
+`bStationTrackFrozenByDeclaration`.
 
 ## 4. The declaration
 
@@ -169,9 +213,26 @@ groupMembers).
   *Verified:* round-trip transfer carries artwork, station name, track and artist;
   a station started in the Sonos app resolves in Sorriva after one poll; idle zones
   show what they last played, across an app relaunch.
-- **C. Group / ungroup declarations** (members project coordinator).
-  *Verify:* grouping a playing zone shows correct shared content; ungroup keeps
-  the coordinator's.
+- **B′. 🔍 BUILT 2026-08-04, UNDER OBSERVATION — precedence rule (§3.1).** Agreed:
+  fix this under the existing polling architecture, verify against a live radio
+  zone, *then* proceed to C/D/E. Not deferred to the GENA work (§12.1) and not
+  bundled into D. Tracked as `bStationTrackFrozenByDeclaration`. The change is
+  confined to `resolveContent` in `PlaybackStore.swift` — branch the confirmed-URI
+  case on content kind per the §3.1 table.
+  *Verify:* a playing radio zone follows the live track and artist across several
+  songs while keeping its station name and artwork.
+- **C. ❌ CLOSED 2026-08-04 — NOT NEEDED. Do not rebuild it.** The spec said
+  "members project the coordinator's declaration" and that is wrong. A grouped
+  member never receives the stream: its transport is `x-rincon:` pointing at the
+  coordinator, its own queue is untouched throughout, and Sonos restores that
+  queue on separation. Verified on the speakers — Patio coordinating Bossa Beyond,
+  Garage separated still parked on its own Lost 80s. So what an ungrouped zone
+  reports is what will actually play if you press play on it, and declaring the
+  coordinator's content onto a member describes something the speaker will not do.
+  The projection was built, produced a visible flicker, and was removed. Kept from
+  the work: `Stop` after `becomeCoordinator` on each separation path, and
+  `contentDeclaration(forZoneID:)` with `transferPlayback` collapsed onto it.
+  See `fPlaybackStoreGroupDeclarations` for the measurements.
 - **D. Demote polling to transport-only + shrink the heuristic to external-only.**
   Stop poll paths writing content; `handleZoneUpdate`'s 4-case logic handles only
   changes the app didn't cause.
@@ -199,6 +260,32 @@ persistence) for a later, separate decomposition.
 
 Push instead of poll (see roadmap + architecture handoff §7). Swaps in behind the
 same transport interface after the teardown; **not a prerequisite** for this work.
+
+### 12.1 GENA does NOT fix the ghosts — decided 2026-08-04
+
+Tom asked directly whether the recurring "what's playing" bugs would continue until
+the architecture moves from polling to subscriptions. **They would not be fixed by
+it.** GENA changes how the app *learns* about a change, not what it *does* with the
+information. The reducer that today says "declaration wins, polling cannot
+override" would say "declaration wins, events cannot override" and freeze content
+exactly the same way — only faster. Fixing precedence (§3.1) is the prerequisite;
+GENA is then a latency/battery improvement on an architecture that is already
+correct, and it shrinks the in-flight window so far that declarations may barely be
+needed at all. **Building GENA first would be a faster pipe to a broken valve.**
+
+### 12.2 Backgrounding — subscriptions do not survive it
+
+Answering the specific question, since it determines the foreground design:
+
+- **Subscriptions die when the app backgrounds.** iOS suspends the process, the
+  in-app HTTP server (`fLocalHTTPServer`) stops accepting connections, Sonos's
+  NOTIFY attempts fail, and it drops the subscriber. Subscriptions also carry a
+  timeout (Sonos typically grants ~1800s) and a suspended app cannot renew.
+- **Events have no replay or backfill.** A subscription reports only what changes
+  *while you are listening*. Anything that moved during the gap is invisible.
+- **Therefore foreground must do BOTH, in this order:** one full poll of every
+  known zone to establish current truth, then re-subscribe, then live on events.
+  Not either/or. This is exactly the design Tom proposed and it is correct.
 
 ## 13. Open decisions — ALL RESOLVED during phases A and B
 

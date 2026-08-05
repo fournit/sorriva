@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.57 - close 2026-08-04-1: PlaybackStore phases A+B (authoritative declarations, last-playing), per-service radio adapters, AIFF duration and local playback fixes",
-  "version": "0.0.57",
+  "message": "v0.0.58 - close 2026-08-04-2: frozen radio track and stopped-zone precedence fixed; phase C closed as not needed after measuring the speakers",
+  "version": "0.0.58",
   "db_migrate": false
 }

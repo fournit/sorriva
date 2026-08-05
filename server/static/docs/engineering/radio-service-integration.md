@@ -119,6 +119,31 @@ problem (item 1 or 2 above); an absent log line means the lookup never ran.
 
 ---
 
+## 5a. Known issue — the resolve cache is not holding (`bStationResolverRerunsEveryPoll`)
+
+Observed 2026-08-04: **every zone re-resolves its station on every poll**, indefinitely.
+The `CONTEXT: resolved station from URI` line repeats for the same zone/station pair
+dozens of times in a single capture. Each one is a *successful* resolve — the lookup
+works, it just runs again next cycle, reading the full stations table and re-running
+adapter matching each time.
+
+`resolvedStations` exists precisely to make this run once per URI change, and this same
+churn was reportedly fixed once before. It is not diagnosed. The cache read looks correct
+on inspection, and rotating session tokens are ruled out — the normalised key strips the
+query string, and iHeart URIs measured directly off a speaker carry none.
+
+**Why it matters beyond wasted work:** the raw `dc:title` fallback in `stationDisplay`
+only surfaces when the cache misses. A working cache would mask that whole class of
+error, so a station showing `hls.m3u8` or a bitrate slug is a *symptom of the cache
+missing*, not only of a bad lookup. Bear that in mind when integrating a new service —
+if raw names appear, check the cache before blaming the adapter.
+
+Next step is instrumentation: log the stored key beside the computed key on a miss. They
+either differ (key instability) or the entry is absent (the write is not landing), and
+those need opposite fixes.
+
+---
+
 ## 6. Related
 
 - `PlaybackContextService` — `normalizedStreamKey`, `resolveStationFromURI`, the

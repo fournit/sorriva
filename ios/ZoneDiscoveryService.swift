@@ -1503,6 +1503,77 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         }
     }
 
+    /// What a zone is playing, expressed as a declaration another zone can inherit —
+    /// or nil when nothing honest can be said about it.
+    ///
+    /// One resolution order, so that anything needing to say "what is this zone playing"
+    /// asks once and gets one answer. Transfer used to carry its own inline version of
+    /// this, which is how two implementations of a single question drifted apart.
+    ///
+    /// The order is load-bearing:
+    /// 1. A live declaration is definitive — the app set this content itself.
+    /// 2. Last-playing counts ONLY while its URI is still what the zone reports. A
+    ///    memory of *different* content would otherwise travel as though it were current,
+    ///    which is the stale-pair failure the declaration model exists to prevent.
+    /// 3. Whatever the zone is currently displaying — Sonos's URI as already enriched by
+    ///    our database. Sonos reports the URI for a stopped zone as readily as a playing
+    ///    one, so "we don't know what this is" is almost never true.
+    /// 4. Last resort only: synthesis from the zone's own RAW fields. It reads Sonos's
+    ///    `dc:title`, which is a filename or a slug, so it must never outrank step 3.
+    func contentDeclaration(forZoneID zoneID: String) -> PlaybackDeclaration? {
+        if let live = PlaybackStore.shared.declarations[zoneID] { return live }
+        guard let zone = zones.first(where: { $0.id == zoneID }),
+              !zone.currentTrackURI.isEmpty else { return nil }
+
+        if let last = PlaybackStore.shared.lastDeclarations[zoneID],
+           last.uri == zone.currentTrackURI {
+            return last
+        }
+
+        // What the zone is currently displaying: Sonos's URI enriched by our own database
+        // — a local file resolved from its `x-file-cifs://` URI, a station matched against
+        // the stations table. This is the RESOLVED answer, and it comes before the raw
+        // synthesis below.
+        //
+        // The order matters and getting it wrong is visible: with synthesis first, an
+        // ungrouped zone showed the group's correct artwork beside the name `hls.m3u8`,
+        // because synthesis reads `zone.stationName` — Sonos's raw `dc:title`, a filename
+        // for iHeart and a slug for SomaFM — while the artwork came from a field that did
+        // hold the resolved logo. Raw Sonos fields must never outrank resolved ones.
+        if let context = PlaybackContextService.shared.contexts[zoneID] {
+            return PlaybackDeclaration(context: context,
+                                       uri: zone.currentTrackURI,
+                                       source: .app,
+                                       declaredAt: Date())
+        }
+
+        // Last resort: synthesise from the zone's own raw fields, gated on the freshness
+        // check that the name was resolved against the URI Sonos currently reports. Only
+        // reached when nothing has resolved this zone yet. Skipped for local files: this
+        // shape puts a station name in `albumName` and carries no album object, so
+        // applying it to a local track would flatten the album and drop its artwork.
+        if !zone.currentTrackURI.hasPrefix("x-file-cifs://"),
+           !zone.stationName.isEmpty,
+           zone.stationNameURI == zone.currentTrackURI {
+            return PlaybackDeclaration(
+                context: PlaybackContext(track: zone.currentTrack,
+                                         artist: zone.currentArtist,
+                                         albumName: zone.stationName,
+                                         duration: 0,
+                                         artAlbum: nil,
+                                         artURL: zone.stationLogoURL.isEmpty ? nil : zone.stationLogoURL,
+                                         isLocal: false),
+                uri: zone.currentTrackURI,
+                source: .app,
+                declaredAt: Date()
+            )
+        }
+
+        // Nothing left to consult: the zone reports no URI we can describe. The group
+        // is not playing anything, so clearing the member is the honest outcome.
+        return nil
+    }
+
     func groupZone(coordinatorID: String, addZoneIDs: [String], removeZoneIDs: [String]) {
         guard let coordinator = zones.first(where: { $0.id == coordinatorID }) else { return }
         print("SORRIVA: groupZone — coordinator: \(coordinator.name) (\(coordinatorID))")
@@ -1561,11 +1632,24 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             }
         }
 
+        // Nothing is declared here on purpose. A grouped member never receives the
+        // stream — its transport is set to `x-rincon:` pointing at the coordinator, which
+        // does the streaming — so its own queue is untouched the whole time it is grouped,
+        // and Sonos restores it on separation. Declaring the coordinator's content onto a
+        // member therefore asserts something Sonos is about to contradict, and destroys
+        // the member's real last-playing on the way in. Verified on the speakers: with
+        // Patio coordinating Bossa Beyond, Garage separated still parked on its own
+        // zc7934. See fPlaybackStoreGroupDeclarations.
         Task {
             // Remove zones from this group
             for id in removeZoneIDs {
                 if let host = removeHostMap[id] {
                     await ZoneDiscoveryService.becomeCoordinator(host: host)
+                    // A departing zone stops. Standing alone, it would otherwise carry on
+                    // playing the group's content in a room the user just removed from
+                    // the group; only the coordinator and the members still in it keep
+                    // playing.
+                    await ZoneDiscoveryService.sendTransportAction(host: host, action: "Stop")
                     print("SORRIVA: Removed zone \(id) from group")
                 }
             }
@@ -1634,12 +1718,18 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         guard let zone = zones.first(where: { $0.id == zoneID }),
               !zone.groupMembers.isEmpty else { return }
 
+        // No content is declared onto the departing members — Sonos restores each one to
+        // its own pre-grouping queue, and that is what will play if the user presses play
+        // on it. Saying anything else would describe something the speaker will not do.
+        //
         // Send each member to standalone — dissolves playback group
         // Hardware bonds (stereo pairs, Arc+Sub) are not affected
         for member in zone.groupMembers {
             let host = member.host
             Task {
                 await ZoneDiscoveryService.becomeCoordinator(host: host)
+                // Departing zones stop; only the coordinator keeps playing.
+                await ZoneDiscoveryService.sendTransportAction(host: host, action: "Stop")
                 print("SORRIVA: Ungrouped \(member.name) from \(zone.name)")
             }
         }
@@ -1686,29 +1776,17 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         // Moving the declaration avoids that by construction: it carries the URI it was
         // declared against, so it is still reconciled against what Sonos actually
         // reports and cannot smuggle stale text through as its own corroboration.
-        if PlaybackStore.shared.declarations[fromZoneID] != nil {
-            PlaybackStore.shared.moveDeclaration(from: fromZoneID, to: toZoneID)
-        } else if !sourceZone.stationName.isEmpty,
-                  !sourceZone.currentTrackURI.isEmpty,
-                  sourceZone.stationNameURI == sourceZone.currentTrackURI {
-            // Nothing to move: this content predates the app launch, or was started
-            // outside Sorriva, so no declaration was ever made. Synthesize one from the
-            // source's own state — but ONLY when that state passes its own freshness
-            // check (the name was resolved against the URI Sonos currently reports).
-            // The field copy this replaced did it unconditionally, which is precisely
-            // how a stale name travelled across as its own corroboration.
-            PlaybackStore.shared.declare(
-                zoneID: toZoneID,
-                context: PlaybackContext(track: sourceZone.currentTrack,
-                                         artist: sourceZone.currentArtist,
-                                         albumName: sourceZone.stationName,
-                                         duration: 0,
-                                         artAlbum: nil,
-                                         artURL: sourceZone.stationLogoURL.isEmpty
-                                                 ? nil : sourceZone.stationLogoURL,
-                                         isLocal: false),
-                uri: sourceZone.currentTrackURI
-            )
+        // Resolved through the same `contentDeclaration` that grouping uses. This used to
+        // be three inline branches — live declaration, synthesis from the source's own
+        // fields, give up — which is the identical question grouping answers, asked a
+        // second way. Two implementations of one question is what let the idle and playing
+        // station paths drift until they disagreed on screen; one resolver, used by both,
+        // is the fix for the category rather than the instance.
+        if let content = contentDeclaration(forZoneID: fromZoneID) {
+            PlaybackStore.shared.declare(zoneID: toZoneID,
+                                         context: content.context,
+                                         uri: content.uri,
+                                         source: content.source)
             PlaybackStore.shared.clearDeclaration(zoneID: fromZoneID)
         } else {
             // The source's state cannot be trusted, so there is nothing honest to hand

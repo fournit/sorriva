@@ -2265,6 +2265,67 @@
           "createdAt": "2026-08-04",
           "completedAt": "2026-08-04",
           "requires": []
+        },
+        {
+          "id": "bStationTrackFrozenByDeclaration",
+          "name": "Radio zone stuck on the track that was playing when the station started",
+          "desc": "A playing radio zone keeps showing the track and artist that were current at the moment the station was declared, forever. Station name and artwork stay correct. Observed live 2026-08-04: Master Bedroom on iHeart Lost 80s, Sonos reporting Eurythmics and then Prince ~80s later, while the app displayed Chaka Khan -- a song that had played several tracks earlier.\n\nROOT CAUSE: the reducer's first precedence branch in PlaybackStore.resolveContent -- 'Sonos confirms what we declared, therefore authoritative; polling cannot override'. That is sound for a local file, whose URI changes with every track, so one URI really does mean one piece of content. It is false for a stream: the URI is the STATION (.../zc7934/hls.m3u8) and never changes while the songs do. So the branch matches on every poll forever and returns the snapshot frozen at declare time. Polling reports the correct track continuously and is discarded BY DESIGN.\n\nFIX (BUILT 2026-08-04, compiles clean; left open pending field verification -- Tom is running it for several days to see whether it manifests again): branch the confirmed-URI case on content kind. A local declaration returns unchanged -- the app owns all of it because Sonos has neither the track nor the art. A stream declaration returns its station identity with the LIVE track and artist layered on, since Sonos reports those correctly via r:streamContent and the app cannot know them. Hold the previous track rather than blanking if Sonos reports empty between songs. Confined to resolveContent; the URI check still gates the branch, so a declaration still cannot display a station the zone is not playing.\n\nWIDER POINT, worth keeping: declarations exist to cover the 1-2s gap between the app issuing a command and Sonos confirming it. They were then given permanent authority over content, which is a far bigger claim than that problem needs -- the exception became the rule, and every 'what's playing' ghost is a case where the app's copy went stale and that rule blocked reality from correcting it. Note this is NOT fixed by moving to GENA event subscriptions: push changes how the app learns of a change, not what it does with it, so the same rule would freeze content just as hard. See HANDOFF-playbackstore-design.md sections 3.1 and 12.1. BLOCKS phases C/D/E.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "priority_rank": 1,
+          "createdAt": "2026-08-04",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bStoredLastPlayingOutranksResolvedContent",
+          "name": "A stopped zone shows what Sorriva last knew, not what the speaker last played",
+          "desc": "For a zone that is not playing, the reducer returned the stored last-playing outright and never reached the line that returns what polling had just resolved. So every poll resolved the zone's parked URI correctly -- station against the stations table, local file against our database -- and the answer was then discarded.\n\nWHY IT MATTERS MOST FOR EXTERNAL SOURCES: Sonos keeps reporting the URI a stopped zone is parked on, so it can always tell us what a zone last played, including content started from the Sonos app that Sorriva has no record of. Start something externally and it appears correctly WHILE PLAYING (the stopped-zone rule does not fire), then stop it and the card reverts to whatever Sorriva itself last knew for that zone -- possibly hours old and from a different source. Tom's framing: the code is supposed to poll the endpoint, find out what it is, and resolve it -- and it does; the display half was overriding the result.\n\nROOT CAUSE, and it is an over-correction rather than a design choice: that rule was written to stop the card reading RAW SonosZone fields such as stationName, which polling mutates and which caused the reverting-station and blanking-artwork bugs. Sound for raw fields. But it was written broadly enough to also block the RESOLVED context, which is not raw residue -- it is the URI enriched by our own database -- so the good answer was suppressed along with the bad one.\n\nFIX: delete the early return. The existing final line already falls back to the stored copy, so a stopped zone now shows the resolved answer when there is one and the stored copy only when Sonos cannot describe the zone at all -- a speaker back from a power cut with an empty transport. That is the one job the stored copy is genuinely needed for, and it makes 'self-heals on the next poll' true for stopped zones instead of only for playing ones.\n\nTHIRD INSTANCE of one pattern: something the app stored outranking something Sonos just reported. See also bStationTrackFrozenByDeclaration and the grouping ghost fixed in fPlaybackStoreGroupDeclarations.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-08-04",
+          "completedAt": "2026-08-04",
+          "requires": []
+        },
+        {
+          "id": "fPlaybackStoreGroupDeclarations",
+          "name": "PlaybackStore phase C - grouping needs no declarations; Sonos restores the member",
+          "desc": "CLOSED WITH A NEGATIVE RESULT. The premise was wrong and the behaviour it set out to change was already correct.\n\nPREMISE (wrong): 'an ungrouped zone reports what it played before it was grouped' was recorded as a defect, on the assumption that a separating zone keeps the group's content.\n\nWHAT SONOS ACTUALLY DOES, verified by querying the speakers directly rather than by reading our code: a grouped member NEVER receives the stream. Its transport is set to x-rincon:RINCON_<coordinator>, a pointer at the coordinator, which does the streaming and distributes the audio. The member's own queue is untouched for the whole time it is grouped, and Sonos restores it on separation. Measured: Patio coordinating SomaFM Bossa Beyond (aac://.../bossa-128-aac) with Garage grouped to it; after ungrouping, Garage was STOPPED and parked on its own hls-radio://.../zc7934 (iHeart Lost 80s), not the group's stream. Sonos's own app shows no station for Garage yet pressing play starts Lost 80s -- Sonos does not consider the member to be playing anything, it simply has that URI in its transport.\n\nTHEREFORE the pre-existing behaviour was right: what an ungrouped zone reports is what will actually play if the user presses play on it. Tom's ruling: 'sonos ALWAYS is the source of truth.' Declaring the coordinator's content onto a member would make the card describe something the speaker will not do.\n\nBUILT THEN REMOVED: projectCoordinatorContent(coordinatorID:onto:) and its three call sites. It was harmful in both directions -- on joining it overwrote the member's real last-playing with the coordinator's content, destroying the zone's own history that Sonos was about to restore; on leaving, its grace window asserted the group's content for a few seconds before polling contradicted it, which is the flicker that exposed the whole mistaken premise.\n\nKEPT from this work, both worth having on their own: Stop after becomeCoordinator on each separation path, and contentDeclaration(forZoneID:) -- one resolution order (live declaration, then last-playing only while its URI still matches, then the resolved context, then raw synthesis as a last resort) with transferPlayback's three inline branches collapsed onto it. An intermediate version of that resolver put raw synthesis ahead of the resolved context and an ungrouped zone showed correct artwork beside the name 'hls.m3u8', since synthesis reads Sonos's dc:title; raw fields must never outrank resolved ones.\n\nPROCESS NOTE worth keeping: the premise was asserted from reading code and was wrong. Three rounds of fixes were built on it, each producing a new symptom, before querying the speakers settled it in one command. Check what the hardware does before recording a behaviour as a defect.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-08-04",
+          "completedAt": "2026-08-04",
+          "requires": []
+        },
+        {
+          "id": "fXcodeSynchronizedSourceFolders",
+          "name": "Move Swift sources into synchronized folders so new files are picked up automatically",
+          "desc": "67 Swift files sit at ios/ root and are listed individually in the Xcode project (74 explicit PBXFileReference entries). Only ios/Sorriva/ and ios/SorrivaTests/ are PBXFileSystemSynchronizedRootGroup folders, and nothing lives in them. Consequence: every new source file must be added to the project by hand or the build fails -- and it fails as a missing-symbol error that points at the call site rather than at the project file, so the cause is not obvious. This bit on 2026-08-04 when RadioServiceAdapter.swift was added for the per-service radio adapters; the build failed until Tom added the file manually.\n\nWORK: move the 67 files into the synchronized ios/Sorriva/ folder, strip their explicit references from project.pbxproj, and handle server/swift-config.json, which enumerates the file list and would go stale (regenerate or retire it). Mechanical, but it touches the project file, so it wants a clean tree and a verifying build.\n\nSEQUENCING: Tom deliberately tabled this on 2026-08-04 until PlaybackStore phase B was tested and working -- 'let's table the restructure until phase b is tested and working' -- which it now is. His reasoning for not deferring further: 'definitely better to do it sooner than later before the project grows larger.' Phases D and E both add files, and the UI work will add many, so the cost of waiting compounds. Do it on a clean tree at a known-good point rather than mid-feature.",
+          "priority": "Medium",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-08-04",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bStationResolverRerunsEveryPoll",
+          "name": "Station resolution re-runs on every poll for every zone instead of once per URI",
+          "desc": "Observed 2026-08-04 in a console filtered on CONTEXT: every zone re-resolves its station on every poll cycle, indefinitely. The same zone/station pairs repeat dozens of times -- 'resolved station from URI - Bossa Beyond for RINCON_804AF2A73E9901400' roughly 40 times in one capture, alongside Lost 80s and Yacht Rock Radio for other zones. Each line is a SUCCESSFUL resolve, so the lookup works; it simply runs again next poll.\n\nThis is what the resolvedStations cache in PlaybackContextService exists to prevent, and the same churn was reportedly fixed once before (bPlaybackContextResolveChurn -- 'forty re-resolutions of a single station in one log', which is precisely what is happening again). Each resolve reads the full stations table and re-runs adapter matching.\n\nNOT DIAGNOSED. The cache read looks correct on inspection: stationDisplay(for:) computes normalizedStreamKey(zone.currentTrackURI), takes the cached entry only when its stored key matches, and re-resolves only on a nil entry or an expired miss. resolveStationFromURI writes the entry immediately before emitting the log line above. For the cache to miss every poll, either the entry is not landing or the key differs between write and read -- those need opposite fixes and the log cannot distinguish them. Ruled out by inspection: the normalised key strips scheme and query, and iHeart URIs measured directly off the speaker carry no query string, so token rotation is not the explanation. There is only one call site, and observe() is guarded against double registration.\n\nIMPACT: no visible symptom today, but it is wasted network and database work every poll for every zone, and it is why a raw-name flicker was visible at all during the phase C work -- the raw dc:title fallback in stationDisplay only shows when the cache misses, so a working cache would have hidden that class of error. Next step is instrumentation: log the stored key and the computed key side by side on a cache miss.",
+          "priority": "Medium",
+          "complexity": "M",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-08-04",
+          "completedAt": null,
+          "requires": []
         }
       ]
     },

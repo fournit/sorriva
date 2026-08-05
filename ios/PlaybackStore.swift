@@ -222,6 +222,45 @@ enum PlaybackStateReducer {
     /// Sonos is authoritative for the URI; the app is authoritative for naming it.
     /// The binding rule: a declaration is honoured only while its URI still matches
     /// what Sonos reports. See HANDOFF-playbackstore-design.md section 5.
+    /// What to display when Sonos confirms the URI we declared.
+    ///
+    /// The declaration is authoritative only for what Sonos CANNOT report. One URI does
+    /// not mean one piece of content: a local file's URI changes with every track, so a
+    /// declaration describes exactly one thing and stays true for as long as the URI
+    /// does. A stream's URI is the STATION — `…/zc7934/hls.m3u8` is unchanged while the
+    /// songs change — so a declaration that claimed the whole payload matched on every
+    /// poll forever and pinned the track on screen at the moment the station started.
+    ///
+    /// Real repro (bStationTrackFrozenByDeclaration): Master Bedroom on iHeart Lost 80s,
+    /// Sonos reporting Eurythmics and then Prince ~80s later, the app showing Chaka Khan
+    /// from several songs earlier. Station name and artwork were right, because those
+    /// genuinely are the app's to supply. Polling had the correct track the whole time
+    /// and was being discarded by design.
+    ///
+    /// So the boundary is compositional rather than exclusive: the app supplies station
+    /// identity (Sonos returns a filename or a slug for `dc:title`, and no artwork at
+    /// all), and Sonos supplies now-playing (`r:streamContent`, live and correct).
+    private static func confirmedContent(declaration: PlaybackDeclaration,
+                                         zone: SonosZone,
+                                         previous: ZonePlaybackSnapshot?) -> PlaybackContext {
+        var content = declaration.context
+
+        // Local content: Sonos has neither the track nor the art, so the app owns all
+        // of it and the declaration stands exactly as before.
+        guard !content.isLocal else { return content }
+
+        if !zone.currentTrack.isEmpty {
+            content.track = zone.currentTrack
+            content.artist = zone.currentArtist
+        } else if let previous, !previous.trackTitle.isEmpty {
+            // Sonos reports an empty title between songs. Holding the previous track
+            // honours the no-blank rule rather than flashing empty at every boundary.
+            content.track = previous.trackTitle
+            content.artist = previous.artistName
+        }
+        return content
+    }
+
     private static func resolveContent(zone: SonosZone,
                                        declaration: PlaybackDeclaration?,
                                        lastDeclaration: PlaybackDeclaration?,
@@ -229,9 +268,11 @@ enum PlaybackStateReducer {
                                        previous: ZonePlaybackSnapshot?,
                                        now: Date) -> PlaybackContext? {
         if let declaration {
-            // 1. Sonos confirms what we declared — authoritative; polling cannot override.
+            // 1. Sonos confirms what we declared — authoritative for the parts Sonos
+            //    cannot report. See confirmedContent: this is NOT a blanket override.
             if !zone.currentTrackURI.isEmpty, zone.currentTrackURI == declaration.uri {
-                return declaration.context
+                return confirmedContent(declaration: declaration, zone: zone,
+                                        previous: previous)
             }
             // 2. Our own command, Sonos has not caught up yet — hold the declaration.
             if declaration.source == .app,
@@ -242,14 +283,22 @@ enum PlaybackStateReducer {
             //    Fall through to whatever detection has produced.
         }
 
-        // A zone that is not playing shows what it last played. This is the durable
-        // answer to "what was this zone playing?", owned by the store rather than
-        // inferred from residue in SonosZone's raw fields — which polling mutates, and
-        // which is where the reverting-station and blanking-artwork bugs came from.
-        if !zone.isPlaying, let lastDeclaration {
-            return lastDeclaration.context
-        }
-
+        // What polling resolved for the URI Sonos reports right now — a station matched
+        // against the stations table, a local file against our own database.
+        //
+        // This runs BEFORE the stored last-playing at the bottom, and the order is the
+        // point. A stopped zone was previously answered from the store outright and this
+        // line was never reached, so the resolved answer was computed every poll and then
+        // discarded (bStoredLastPlayingOutranksResolvedContent). Sonos keeps reporting the
+        // URI a stopped zone is parked on, so it can always tell us what a zone last
+        // played — including content started from the Sonos app, which the store has no
+        // record of at all.
+        //
+        // The rule that used to sit here was written to stop the card reading RAW
+        // SonosZone fields like `stationName`, which polling mutates and which caused the
+        // reverting-station and blanking-artwork bugs. That reasoning holds for raw
+        // fields. This context is not raw residue — it is the URI enriched by our
+        // database — and blocking it too was over-correction.
         if let context { return context }
 
         // No-blank rule: an actively-playing zone never renders empty content. Hold
@@ -266,6 +315,10 @@ enum PlaybackStateReducer {
         }
 
         // Nothing current and nothing detected — fall back to the last known playback.
+        // This is now the ONLY job the stored copy does, and the one it is genuinely
+        // needed for: a zone Sonos cannot describe, such as a speaker back from a power
+        // cut with an empty transport. Whenever Sonos can describe it, the resolved
+        // answer above wins and the card self-heals on the next poll.
         return lastDeclaration?.context
     }
 
