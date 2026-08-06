@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.60 - checkpoint: transport optimism moved into PlaybackStore (steps 1-4), togglePlayPause pause-grace fixed, both mechanisms live pending soak",
-  "version": "0.0.60",
+  "message": "v0.0.61 - phase E: station fields removed from SonosZone, zone_state code retired; store is the only source of station identity",
+  "version": "0.0.61",
   "db_migrate": false
 }

@@ -931,8 +931,6 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         // doesn't immediately override with STOPPED during Sonos startup
         if let idx = zones.firstIndex(where: { $0.id == zone.id }) {
             zones[idx].isPlaying = true
-            zones[idx].stationName = stationName
-            zones[idx].stationLogoURL = logoURL
             // Pair stationNameURI with the URL we're actually telling Sonos to
             // play, right now, at the one moment we reliably know both together.
             // This is the real fix for stale station names surviving a transfer/
@@ -944,7 +942,6 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             // too so the staleness check in PlaybackContextService is correctly
             // satisfied immediately, not left waiting for a later poll to
             // independently converge on the same URL.
-            zones[idx].stationNameURI = streamURL
             zones[idx].currentTrackURI = streamURL
             zones[idx].currentTrack = ""
             zones[idx].currentArtist = ""
@@ -985,12 +982,8 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                     streamURL: streamURL.isEmpty ? nil : streamURL
                 )
                 if !zone.dbDeviceId.isEmpty {
-                    try SorrivaDatabase.shared.updateZoneState(
-                        deviceId: zone.dbDeviceId,
-                        stationId: stationId,
-                        stationName: stationName,
-                        logoURL: logoURL
-                    )
+                    // zone_state write removed — write-only table, superseded by
+                    // PlaybackStore's zone_last_playing (bZoneStateWriteOnly).
                 }
                 sLog("ZONES: Persisted station play \(stationName) on \(zone.name)")
             } catch {
@@ -1429,27 +1422,10 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                                        declaredAt: Date())
         }
 
-        // Last resort: synthesise from the zone's own raw fields, gated on the freshness
-        // check that the name was resolved against the URI Sonos currently reports. Only
-        // reached when nothing has resolved this zone yet. Skipped for local files: this
-        // shape puts a station name in `albumName` and carries no album object, so
-        // applying it to a local track would flatten the album and drop its artwork.
-        if !zone.currentTrackURI.hasPrefix("x-file-cifs://"),
-           !zone.stationName.isEmpty,
-           zone.stationNameURI == zone.currentTrackURI {
-            return PlaybackDeclaration(
-                context: PlaybackContext(track: zone.currentTrack,
-                                         artist: zone.currentArtist,
-                                         albumName: zone.stationName,
-                                         duration: 0,
-                                         artAlbum: nil,
-                                         artURL: zone.stationLogoURL.isEmpty ? nil : zone.stationLogoURL,
-                                         isLocal: false),
-                uri: zone.currentTrackURI,
-                source: .app,
-                declaredAt: Date()
-            )
-        }
+        // The raw-field synthesis that used to sit here is gone with the fields it read.
+        // It existed only for a zone nothing had resolved yet, and it read Sonos's
+        // dc:title — a filename or a slug — so it could only ever produce a name worse
+        // than no name. The resolved context above is the last real source.
 
         // Nothing left to consult: the zone reports no URI we can describe. The group
         // is not playing anything, so clearing the member is the honest outcome.
@@ -1748,23 +1724,10 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             // new coordinator rather than having been spent on the command sequence.
             PlaybackStore.shared.touchDeclaration(zoneID: toZoneID)
 
-            // Record what the destination is now playing, so "what this zone last
-            // played" survives an app restart. zone_state is otherwise written only by
-            // persistStationPlay, so a transferred-to zone would fall back to its last
-            // Sorriva-initiated station instead of the one it actually received.
-            // stationId stays nil: updateZoneState preserves the existing value on nil,
-            // and the display reads name and logo rather than the id.
-            if !destZone.dbDeviceId.isEmpty,
-               let moved = PlaybackStore.shared.declarations[toZoneID],
-               !moved.context.albumName.isEmpty {
-                try? SorrivaDatabase.shared.updateZoneState(
-                    deviceId: destZone.dbDeviceId,
-                    stationId: nil,
-                    stationName: moved.context.albumName,
-                    logoURL: moved.context.artURL
-                )
-                sLog("TRANSFER: persisted \(moved.context.albumName) as \(destZone.name)'s last station")
-            }
+            // A zone_state write used to sit here, mirroring what the destination now
+            // plays. PlaybackStore.declare already persists that to zone_last_playing —
+            // URI-bound and richer — and nothing ever read zone_state back. See §
+            // bZoneStateWriteOnly.
 
             // Refresh topology
             try? await Task.sleep(nanoseconds: 1_500_000_000)
@@ -2185,8 +2148,6 @@ struct SonosZone: Identifiable, Equatable {
         lhs.volume == rhs.volume &&
         lhs.currentTrack == rhs.currentTrack &&
         lhs.currentArtist == rhs.currentArtist &&
-        lhs.stationName == rhs.stationName &&
-        lhs.stationLogoURL == rhs.stationLogoURL &&
         lhs.isHDMI == rhs.isHDMI &&
         lhs.currentTrackURI == rhs.currentTrackURI &&
         lhs.elapsedSeconds == rhs.elapsedSeconds &&
@@ -2201,11 +2162,14 @@ struct SonosZone: Identifiable, Equatable {
     let host: String        // IPv4 address of coordinator
     var isPlaying: Bool     // Transport state
     var volume: Int         // 0-100
-    var stationName: String = ""
-    var stationNameURI: String = ""     // URI that stationName was actually resolved for — if this
-                                         // doesn't match currentTrackURI, stationName is stale and
-                                         // must not be displayed (see bStationNameStaleAfterTransfer)
-    var stationLogoURL: String = ""
+    // stationName / stationNameURI / stationLogoURL were removed here (phase E).
+    //
+    // They held a station's identity on the zone struct, where every poll path could
+    // write to them and every consumer had to defend against staleness. stationNameURI
+    // existed solely to detect that staleness — a guard for a problem the field itself
+    // created. PlaybackStore now owns station identity, bound to the URI it was resolved
+    // for, so "no code path can leave a stale station name behind" is true by
+    // construction rather than by vigilance.
     var currentTrack: String = ""
     var currentArtist: String = ""
     var isHDMI: Bool = false        // TV/HDMI source — Arc/Beam specific

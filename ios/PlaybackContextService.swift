@@ -117,10 +117,12 @@ final class PlaybackContextService: ObservableObject {
             let uriIsRadio = !zone.currentTrackURI.isEmpty
                 && !zone.currentTrackURI.hasPrefix("x-rincon-queue:")
             if !zone.isPlaying && uriIsRadio {
+                // The URI is the only trigger now. This used to also watch stationName
+                // and stationLogoURL, which were raw poll fields on SonosZone; those are
+                // gone, and re-deriving on a URI change is the correct dependency anyway —
+                // a station's identity cannot change without its URI changing.
                 let uriChanged = zone.currentTrackURI != prev?.currentTrackURI
-                let stationChanged = zone.stationName != prev?.stationName
-                let logoChanged = zone.stationLogoURL != prev?.stationLogoURL
-                if uriChanged || stationChanged || logoChanged || contexts[zone.id] == nil {
+                if uriChanged || contexts[zone.id] == nil {
                     let display = stationDisplay(for: zone)
                     // Don't clear an existing context when nothing resolved yet —
                     // resolveStationFromURI patches it when the lookup completes, which
@@ -201,9 +203,13 @@ final class PlaybackContextService: ObservableObject {
     /// zone, the previous station's name lingers until a fresh one lands, and displaying
     /// it would be simply wrong.
     private func stationDisplay(for zone: SonosZone) -> (name: String, artURL: String) {
-        let nameIsFresh = zone.stationNameURI == zone.currentTrackURI
-        var name   = nameIsFresh ? zone.stationName : ""
-        var artURL = nameIsFresh ? zone.stationLogoURL : ""
+        // Starts empty. There is no longer any raw-field fallback: SonosZone no longer
+        // carries stationName/stationLogoURL, so the stations table is the ONLY source of
+        // a station's identity. That fallback is what put "hls.m3u8" and
+        // "groovesalad-128-aac" on zone cards whenever the resolve cache missed — it made
+        // a cache miss look like a naming bug and hid the real one.
+        var name   = ""
+        var artURL = ""
 
         // `x-rincon:` (grouping) is excluded alongside queue and local URIs: it addresses
         // a coordinator, not a stream, so it can never name a station. A transfer parks

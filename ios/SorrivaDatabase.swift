@@ -1242,34 +1242,17 @@ final class SorrivaDatabase {
 
     // MARK: - Zone state operations
 
-    func updateZoneState(deviceId: String, stationId: Int?,
-                         stationName: String?, logoURL: String?) throws {
-        let now = Int(Date().timeIntervalSince1970)
-        try dbQueue.write { db in
-            if var existing = try ZoneState.fetchOne(db, key: deviceId) {
-                existing.stationId = stationId ?? existing.stationId
-                existing.stationName = stationName ?? existing.stationName
-                existing.stationLogoURL = logoURL ?? existing.stationLogoURL
-                existing.lastUsed = now
-                existing.updatedAt = now
-                try existing.update(db)
-            } else {
-                let state = ZoneState(
-                    deviceId: deviceId,
-                    stationId: stationId,
-                    stationName: stationName,
-                    stationLogoURL: logoURL,
-                    lastUsed: now,
-                    updatedAt: now
-                )
-                try state.insert(db)
-            }
-        }
-    }
+    // updateZoneState / zoneState(deviceId:) were removed here.
+    //
+    // zone_state cached a station name and logo per zone. It became WRITE-ONLY when phase
+    // D deleted restoreZoneStateFromDB — its only reader — leaving two sites writing it on
+    // every station play and transfer for nobody. PlaybackStore's zone_last_playing (v20)
+    // supersedes it: URI-bound, and it carries track, artist, isLocal and the album id
+    // needed to restore local artwork, none of which zone_state held.
+    //
+    // The TABLE is deliberately left in place. Dropping it needs a migration against real
+    // data on device for no functional gain; it is inert. Tracked as bZoneStateWriteOnly.
 
-    func zoneState(deviceId: String) throws -> ZoneState? {
-        try dbQueue.read { db in try ZoneState.fetchOne(db, key: deviceId) }
-    }
 
     // MARK: - Genre operations
 

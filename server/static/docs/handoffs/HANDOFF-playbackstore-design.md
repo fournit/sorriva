@@ -238,8 +238,31 @@ groupMembers).
   changes the app didn't cause.
   *Verify:* change content on the physical Sonos app → app reflects it within a
   poll interval, no wrong name; confirm no content is written by any poll path.
-- **E. Retire side-channels; align `zone_state` persistence to declarations.**
-  *Verify:* no code path can leave a stale `stationName` behind.
+- **E. 🟡 MOSTLY DONE 2026-08-05 — one step deliberately deferred.**
+  - ✅ **Station identity.** `stationName`, `stationNameURI`, `stationLogoURL` removed from
+    `SonosZone`. `stationNameURI` existed only to detect staleness in `stationName` — a
+    guard against a problem the field created. Four consumers moved; two were harmful, not
+    merely redundant: `stationDisplay`'s raw fallback put `hls.m3u8` and
+    `groovesalad-128-aac` on cards *and* masked resolve-cache misses as naming bugs, and
+    `contentDeclaration`'s synthesis read `dc:title` so could only produce a name worse
+    than none. **The verify condition is now structural** — there is no field to leave
+    stale.
+  - ✅ **`zone_state`.** Write-only since phase D deleted its only reader, yet still
+    written on every station play and transfer. Code removed; `zone_last_playing`
+    supersedes it. Table left in place (inert; a migration against real data buys
+    nothing). `bZoneStateWriteOnly`.
+  - ✅ **Transport optimism, steps 1–4.** `playingUntil` duplicated
+    `PlaybackDeclaration.declaredAt` and had already drifted (5s in one call site, 6s in
+    five, against a `declarationGrace` of 5). It could **not** fold into the content
+    declaration — pause is transport-only and grouping is topology — so the store gained
+    `TransportIntent` alongside. Fixed en route: `togglePlayPause` only graced
+    idle→playing, so a pause could be reverted by the next poll; it now declares both
+    directions.
+  - ⏳ **Step 5 — delete `playingUntil`.** DEFERRED ON PURPOSE. Both mechanisms run in
+    parallel today, so a regression is structurally impossible until the field is removed.
+    Do this only after real-world use confirms the store's version behaves identically.
+    Everything needed is in place; it is a deletion plus letting the compiler find the
+    consumers.
 
 ## 10. Verification repros (keep these as the regression set)
 

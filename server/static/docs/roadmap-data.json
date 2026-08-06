@@ -2374,6 +2374,43 @@
           "createdAt": "2026-08-05",
           "completedAt": null,
           "requires": []
+        },
+        {
+          "id": "bZoneStateWriteOnly",
+          "name": "zone_state was written on every station play and transfer and read by nobody",
+          "desc": "zone_state cached a station name and logo per zone. It became WRITE-ONLY the moment phase D deleted restoreZoneStateFromDB, its only reader — after which two sites kept writing it on every station play and every transfer for no consumer at all.\n\nSUPERSEDED BY zone_last_playing (schema v20, phase B), which does the same job properly: bound to the URI it describes, and carrying track, artist, isLocal and the album id needed to restore local artwork — none of which zone_state held.\n\nREMOVED: both write sites (persistStationPlay, transferPlayback) and both accessors (updateZoneState, zoneState(deviceId:)).\n\nTABLE DELIBERATELY LEFT IN PLACE. Dropping it needs a migration against real data on device for no functional gain, and it is now inert. Worth doing as routine schema hygiene, not as a fix.",
+          "priority": "Low",
+          "complexity": "S",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-08-05",
+          "completedAt": "2026-08-05",
+          "requires": []
+        },
+        {
+          "id": "fPlaybackStoreRetireSideChannels",
+          "name": "PlaybackStore phase E - retire the side-channels",
+          "desc": "Remove the fields on SonosZone that duplicated what PlaybackStore owns, so 'no code path can leave stale state behind' is true by construction rather than by vigilance.\n\nDONE — STATION IDENTITY. stationName, stationNameURI and stationLogoURL removed from SonosZone. stationNameURI existed solely to detect staleness in stationName, a guard against a problem the field itself created. Four consumers moved: the Case 2 change-detection trigger now watches the URI alone (a station's identity cannot change without its URI changing); stationDisplay lost its raw fallback, which is what put 'hls.m3u8' and 'groovesalad-128-aac' on zone cards whenever the resolve cache missed and thereby disguised a cache bug as a naming bug; contentDeclaration lost its raw synthesis, which read dc:title and so could only produce a name worse than none; persistStationPlay stopped writing fields it already declared to the store.\n\nDONE — TRANSPORT OPTIMISM, steps 1-4 of 5. SonosZone.playingUntil recorded the same fact as PlaybackDeclaration.declaredAt in a second place, and had already drifted (5s in one call site, 6s in five others, against declarationGrace of 5). It could not fold into the content declaration because two of six setters make no content claim: pause is transport-only, grouping is topology. So the store gained TransportIntent alongside PlaybackDeclaration. Corrected on the way through: togglePlayPause only graced idle->playing, so a pause the user issued could be reverted by the next poll; it now declares both directions. Built test-first — five reducer tests written before the wiring and confirmed to fail for the right reasons.\n\nREMAINING — step 5: delete playingUntil from SonosZone and the grace logic from fetchTransportStates. Deliberately deferred so both mechanisms run in parallel through real use first; a regression is structurally impossible until the field is actually removed. Do this only after a soak.\n\nAlso done under E: bZoneStateWriteOnly.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "priority_rank": 2,
+          "createdAt": "2026-08-05",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fPlaybackStoreDemotePolling",
+          "name": "PlaybackStore phase D - demote polling to transport-only",
+          "desc": "Stop the poll paths writing CONTENT into SonosZone, so the store is the only thing that says what a zone is playing.\n\nSCOPE CORRECTED DURING SCOPING. The spec listed currentTrack/currentArtist among the fields to stop writing. That is wrong and following it would have broken the frozen-track fix: for a stream those come from r:streamContent — Sonos genuinely knows the song — and PlaybackStore.confirmedContent reads them directly. They are transport truth and keep being polled. What D actually removes is the three STATION fields, which are the poisoned ones: Sonos's dc:title is a filename for iHeart, a slug for SomaFM, and the track title for Sonos Radio.\n\nREMOVED: six write sites, and two entire functions that did nothing else. fetchAllStationMetadata issued a GetMediaInfo call per zone on every topology refresh purely to copy that dc:title in — real network traffic for data that had to be defended against downstream. restoreZoneStateFromDB read a zone's last Sorriva-played station and stamped stationNameURI with whatever URI the zone currently reported, forging the very freshness check meant to prove a name belonged to the content in hand; that is the mechanism behind zones reverting to 'last playing minus one', and it ran on every topology refresh rather than only at launch.\n\nTHREE VIEWS MIGRATED to the store's snapshots: the group picker rows, the transfer sheet subtitle, and IHeartServiceView's 'which zones are playing this station' check — the last of which compared station names against SonosZone.stationName, i.e. against dc:title, so the warning shown before removing a station could never have fired.\n\nSequenced views-first: removing the writes first would have blanked them. Verified on device, and the reducer suite confirmed PlaybackStore's behaviour was unchanged throughout.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-08-05",
+          "completedAt": "2026-08-05",
+          "requires": []
         }
       ]
     },
