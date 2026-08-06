@@ -1,0 +1,17 @@
+{
+  "_comment": "Zones the harness may START OR STOP AUDIO in. Tom's call, not Claude's.",
+  "_rules": [
+    "Anything that makes noise MUST go through sonos.testing() — it mutes, then restores.",
+    "Read-only inspection (transport, queue, shares) is allowed on ANY zone.",
+    "Subs and satellites are excluded automatically — they have no AVTransport.",
+    "Zones not listed here are treated as in-use and are never touched.",
+    "UI taps in the Simulator can start real playback and NO code intercepts that — the",
+    "allowed list governs Claude's behaviour too, not just these scripts."
+  ],
+  "allowed": ["Listening Room", "Garage", "Workout"],
+  "mute_during_test": true,
+  "quiet_hours": {
+    "_comment": "Empty by design. Tom, 2026-08-06: 'volume should be set to zero during testing. with zero volume, no hours are out of bounds.'",
+    "ranges": []
+  }
+}

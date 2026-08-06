@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.63 - phase E complete: playingUntil retired, PlaybackStore rearchitecture finished",
-  "version": "0.0.63",
+  "message": "v0.0.64 - simulator test harness (speakers + app compared without a human), zone guardrails encoded, scan confirmation dialog race fixed",
+  "version": "0.0.64",
   "db_migrate": false
 }

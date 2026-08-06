@@ -364,14 +364,26 @@ struct SMBServerDetailView: View {
             Text("This removes all \(sources.count) share\(sources.count == 1 ? "" : "s") and all scanned tracks. This cannot be undone.")
         }
         // Share action sheet
-        .sheet(item: $actionSource) { source in
+        //
+        // The scan confirmation is raised from onDismiss, not from onScan. SwiftUI will
+        // not present an alert while a sheet is still dismissing — it silently drops it,
+        // and the user's tap does nothing. This previously worked around that by waiting
+        // 0.4s and hoping the sheet had gone; when it hadn't (slower machine, simulator, a
+        // busy moment) the alert vanished and the queued scan sat unnoticed until onAppear
+        // happened to raise it on the next visit. Observed 2026-08-06 in the simulator:
+        // "kicked off a manual scan and it did not work", then it appeared on re-entry.
+        //
+        // onDismiss fires when the sheet has ACTUALLY finished dismissing, so there is
+        // nothing left to guess at.
+        .sheet(item: $actionSource, onDismiss: {
+            if ScanCoordinator.shared.pendingFullScanSource != nil {
+                showScanConfirm = true
+            }
+        }) { source in
             ShareActionSheet(
                 source: source,
                 onScan: {
                     ScanCoordinator.shared.pendingFullScanSource = source
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        showScanConfirm = true
-                    }
                 },
                 onViewReport: {
                     showScanReport = true

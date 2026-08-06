@@ -1052,6 +1052,18 @@
           "createdAt": "2026-08-06",
           "completedAt": null,
           "requires": []
+        },
+        {
+          "id": "bSMBClientByteReaderOutOfBounds",
+          "name": "SMBClient crashes reading past the end of a short response buffer",
+          "desc": "HARD CRASH, caught in the debugger 2026-08-06 during a scan in the iOS Simulator. EXC_BREAKPOINT in SMBClient/Sources/SMBClient/ByteReader.swift:24:\n\n    func read(count: Int) -> Data {\n        let value = data[offset..<(offset + count)]   // count = 64\n\nA range out of bounds: it slices 64 bytes when fewer remain, so offset + count exceeds data.count. The class even exposes `availableBytes` (data.count - offset) and does not consult it. 64 bytes is an SMB2 header, so this is the library parsing a response that arrived short or empty.\n\nCALL PATH: Connection.receive(completion:) -> Connection.receive(upTo:completion:) -> ByteReader.read() -> ByteReader.read(count:), on a utility-QoS worker thread, beneath SMBMediaSourceReader.readHeader.\n\nWE MAY BE CAUSING IT. MediaSourceReader force-cancels a hung connection on timeout via session.disconnect() -> NWConnection.cancel(), which is deliberate and documented (it is THE fix for connection exhaustion). But cancelling a connection mid-read is exactly what hands ByteReader a truncated buffer. So our timeout may be triggering the library's missing bounds check. That is a hypothesis from the stack, not a proven sequence.\n\nAFFECTS THE PHONE TOO — nothing here is simulator-specific. It has simply never been seen, because on device a crash looks like the app disappearing rather than pausing in a debugger. Worth re-reading past 'the app closed during a scan' reports in that light.\n\nWHY IT SURFACED NOW: the simulator work. A device build hands you a crash log after the fact; the simulator paused on the faulting line with the buffer state visible. This is the first defect found purely because the app was running somewhere inspectable.\n\nMISLEADING SYMPTOM, worth recording: the app appears HUNG, not crashed. kill -9 does not work and simctl shutdown never completes, because lldb holds the process. Do not chase it as a hang — check Xcode first.\n\nOPTIONS: guard the read (fork or patch SMBClient), or avoid handing it a truncated buffer by reordering our cancellation. Needs the actual sequence established before choosing. Sample and screenshot from the session are the evidence.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-08-06",
+          "completedAt": null,
+          "requires": []
         }
       ]
     },
