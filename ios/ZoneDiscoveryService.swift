@@ -329,17 +329,13 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                 // every topology fetch. Invisible for an already-idle zone with
                 // little to lose, but visibly blips an actively-playing
                 // coordinator's now-playing info to blank before the separate
-                // async steps below (fetchTransportStates, fetchAllStationMetadata,
-                // restoreZoneStateFromDB) restore it moments later.
+                // async fetchTransportStates below restores it moments later.
                 let previousByID = Dictionary(uniqueKeysWithValues: zones.map { ($0.id, $0) })
                 let merged = parsed.map { fresh -> SonosZone in
                     guard let previous = previousByID[fresh.id] else { return fresh }
                     var z = fresh
                     z.isPlaying        = previous.isPlaying
                     z.volume           = previous.volume
-                    z.stationName      = previous.stationName
-                    z.stationNameURI   = previous.stationNameURI
-                    z.stationLogoURL   = previous.stationLogoURL
                     z.currentTrack     = previous.currentTrack
                     z.currentArtist    = previous.currentArtist
                     z.currentTrackURI  = previous.currentTrackURI
@@ -372,8 +368,6 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                 // Cache zone topology for instant restore on next launch
                 saveZonesToCache(householdId: liveHouseholdId)
                 await fetchTransportStates()
-                await fetchAllStationMetadata()
-                restoreZoneStateFromDB()
                 startPolling()
             } else {
                 sLog("ZONES: Failed to parse topology from \(host) — trying next candidate")
@@ -508,40 +502,12 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             updateZoneFromPositionInfo(zoneID: id, positionData: data)
         }
 
-        // Fetch GetMediaInfo ONLY for zones that just started playing (state transition)
-        // Station name/art is static — no need to re-fetch every 5 seconds
-        if !newlyPlayingZones.isEmpty {
-            print("SORRIVA: \(newlyPlayingZones.count) zones newly playing — fetching station metadata")
-            await withTaskGroup(of: (String, String, String).self) { group in
-                for zone in newlyPlayingZones {
-                    let id = zone.id
-                    let host = zone.host
-                    group.addTask {
-                        let info = await ZoneDiscoveryService.fetchMediaInfo(host: host)
-                        return (id, info?.name ?? "", info?.artURL ?? "")
-                    }
-                }
-                for await (id, name, art) in group {
-                    if let idx = zones.firstIndex(where: { $0.id == id }) {
-                        if !name.isEmpty { zones[idx].stationName = name }
-                        if !art.isEmpty {
-                            zones[idx].stationLogoURL = art
-                            // Pre-warm image cache
-                            Task {
-                                if let url = URL(string: art) {
-                                    let req = URLRequest(url: url)
-                                    if URLCache.shared.cachedResponse(for: req) == nil,
-                                       let (data, response) = try? await URLSession.shared.data(for: req) {
-                                        URLCache.shared.storeCachedResponse(
-                                            CachedURLResponse(response: response, data: data), for: req)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // A GetMediaInfo call per newly-playing zone used to happen here, purely to copy
+        // Sonos's station name and art into the zone. Both are removed: the name is
+        // `dc:title`, which is a filename for iHeart and a slug for SomaFM, and the art is
+        // usually absent for radio. The stations table has the real values and the store
+        // resolves them from the URI, so the round trip bought nothing and its result had
+        // to be defended against downstream. Polling now reports transport only.
     }
 
     nonisolated static func parseTimeStringPublic(_ s: String) -> Int { parseTimeString(s) }
@@ -719,72 +685,23 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         return String(raw[start.upperBound..<end.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func restoreZoneStateFromDB() {
-        for (idx, zone) in zones.enumerated() {
-            guard !zone.dbDeviceId.isEmpty else { continue }
-            do {
-                if let state = try SorrivaDatabase.shared.zoneState(deviceId: zone.dbDeviceId) {
-                    if zones[idx].stationName.isEmpty, let name = state.stationName {
-                        zones[idx].stationName = name
-                        zones[idx].stationNameURI = zones[idx].currentTrackURI
-                    }
-                    if zones[idx].stationLogoURL.isEmpty, let logo = state.stationLogoURL {
-                        zones[idx].stationLogoURL = logo
-                        // Pre-warm image cache so Now Playing art is instant
-                        Task {
-                            if let url = URL(string: logo) {
-                                let req = URLRequest(url: url)
-                                if URLCache.shared.cachedResponse(for: req) == nil,
-                                   let (data, response) = try? await URLSession.shared.data(for: req) {
-                                    URLCache.shared.storeCachedResponse(
-                                        CachedURLResponse(response: response, data: data), for: req)
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch {
-                print("SORRIVA DB: Zone state restore error: \(error)")
-            }
-        }
-        print("SORRIVA DB: Zone state restored from DB")
-    }
+    // restoreZoneStateFromDB was removed here. It read each zone's last Sorriva-played
+    // station out of zone_state, wrote it into the zone, and stamped stationNameURI with
+    // whatever URI the zone currently reported — forging the very freshness check that is
+    // supposed to prove a name was resolved for the content in hand. That is how a zone
+    // reverted to "last playing minus one" after a transfer, and it ran on every topology
+    // refresh, not just at launch. PlaybackStore.restoreLastPlaying now does this job
+    // properly: URI-bound, marked .external so it cannot outrank live state.
+    //
+    // It also pre-warmed the station logo into URLCache. That is worth reinstating from
+    // the store's resolved art URLs if first-paint artwork feels slower.
 
-    private func fetchAllStationMetadata() async {
-        await withTaskGroup(of: (String, String, String).self) { group in
-            for zone in zones {
-                let id = zone.id
-                let host = zone.host
-                group.addTask {
-                    let info = await ZoneDiscoveryService.fetchMediaInfo(host: host)
-                    return (id, info?.name ?? "", info?.artURL ?? "")
-                }
-            }
-            for await (id, name, art) in group {
-                if let idx = zones.firstIndex(where: { $0.id == id }) {
-                    if !name.isEmpty {
-                        zones[idx].stationName = name
-                        zones[idx].stationNameURI = zones[idx].currentTrackURI
-                    }
-                    if !art.isEmpty {
-                        zones[idx].stationLogoURL = art
-                        // Pre-warm image cache so Now Playing art is instant
-                        Task {
-                            if let url = URL(string: art) {
-                                let req = URLRequest(url: url)
-                                if URLCache.shared.cachedResponse(for: req) == nil,
-                                   let (data, response) = try? await URLSession.shared.data(for: req) {
-                                    URLCache.shared.storeCachedResponse(
-                                        CachedURLResponse(response: response, data: data), for: req)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        sLog("ZONES: Station metadata populated for \(zones.filter { !$0.stationName.isEmpty }.count) zones")
-    }
+    // fetchAllStationMetadata was removed here. It issued a GetMediaInfo call per zone on
+    // every topology refresh solely to copy Sonos's dc:title and art into the zone — a
+    // filename for iHeart, a slug for SomaFM, and usually no art at all for radio. The
+    // stations table holds the real values and the store resolves them from the URI, so
+    // this was a SOAP round trip per zone in exchange for data that had to be defended
+    // against downstream.
 
     private func startPolling() {
         refreshTask?.cancel()
@@ -875,8 +792,6 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             zones[idx].isHDMI = true
             zones[idx].currentTrack = "TV"
             zones[idx].currentArtist = "HDMI"
-            zones[idx].stationName = ""
-            zones[idx].stationLogoURL = ""
             return
         }
 
@@ -924,56 +839,16 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             .replacingOccurrences(of: "&apos;", with: "'")
             .replacingOccurrences(of: "&amp;",  with: "&")
 
-        // Parse TrackMetaData via consolidated StationMetadataResolver — single
-        // source of truth for validating dc:title / albumArtURI across all call sites.
-        if let tmStart = decoded.range(of: "<TrackMetaData>"),
-           let tmEnd = decoded.range(of: "</TrackMetaData>") {
-            let meta = String(decoded[tmStart.upperBound..<tmEnd.lowerBound])
-
-            let rawTitle: String? = {
-                guard let s = meta.range(of: "<dc:title>"),
-                      let e = meta.range(of: "</dc:title>") else { return nil }
-                return String(meta[s.upperBound..<e.lowerBound])
-            }()
-            let rawArt: String? = {
-                guard let s = meta.range(of: "<upnp:albumArtURI>"),
-                      let e = meta.range(of: "</upnp:albumArtURI>") else { return nil }
-                return String(meta[s.upperBound..<e.lowerBound])
-            }()
-
-            let resolved = StationMetadataResolver.resolve(
-                rawTitle: rawTitle, rawArtPath: rawArt, zoneHost: zones[idx].host)
-
-            // Only write for non-local zones — local file playback has its own metadata path.
-            let isLocalZone = zones[idx].currentTrackURI.hasPrefix("x-file-cifs://")
-            if !isLocalZone {
-                // Accept what Sonos reports for the URI it is currently playing, rather
-                // than only when the field happens to be empty. The old `isEmpty` gate
-                // meant that once a zone held any value — including a stale one — every
-                // later correction from Sonos was silently discarded, so polling could
-                // never self-heal. Pair the name with the URI it describes so the
-                // freshness check downstream actually passes.
-                //
-                // Note this does nothing for HLS radio, where Sonos supplies no usable
-                // title and no art at all (StationMetadataResolver rejects "hls.m3u8");
-                // those are named by reverse lookup in PlaybackContextService instead.
-                if let name = resolved.name {
-                    // Artwork belongs to the URI it arrived with. When the URI changes,
-                    // drop the old logo first: pairing a NEW name with the URI makes the
-                    // freshness check pass, and without this the previous station's
-                    // artwork rides along looking valid — which is exactly how Secret
-                    // Agent ended up displaying the Lost 80s logo.
-                    if zones[idx].stationNameURI != zones[idx].currentTrackURI {
-                        zones[idx].stationLogoURL = ""
-                    }
-                    zones[idx].stationName = name
-                    zones[idx].stationNameURI = zones[idx].currentTrackURI
-                }
-                if let art = resolved.artURL {
-                    zones[idx].stationLogoURL = art
-                }
-            }
-        }
+        // The dc:title / upnp:albumArtURI block was removed here. It ran every poll to
+        // copy Sonos's own idea of the station name and art into the zone, which meant a
+        // filename for iHeart ("hls.m3u8"), a slug for SomaFM ("groovesalad-128-aac"), and
+        // the TRACK title for Sonos Radio — three different meanings for one field, each
+        // needing its own defence downstream. The stations table is the single source for
+        // a station's name and logo, resolved from the URI in PlaybackContextService.
+        //
+        // r:streamContent below STAYS. That is genuinely Sonos's to report: it carries the
+        // song playing right now on a stream, which the app cannot know, and the reducer
+        // reads it directly (bStationTrackFrozenByDeclaration).
 
         if let scStart = decoded.range(of: "<r:streamContent>"),
            let scEnd = decoded.range(of: "</r:streamContent>") {
@@ -1810,7 +1685,8 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             // so x-file-cifs:// URIs work immediately when dest becomes coordinator
             if let sources = try? SorrivaDatabase.shared.allLibrarySources(), !sources.isEmpty {
                 for source in sources {
-                    let nasPath = "//\(source.host)/\(source.share)"
+                    // Sonos-facing host — see SourceResolver.sonosHost.
+                    let nasPath = SourceResolver.sonosNASPath(for: source)
                     await ZoneDiscoveryService.createObject(host: destHost, nasPath: nasPath)
                     sLog("TRANSFER: createObject called for \(nasPath) on \(destZone.name) (\(destHost))")
                 }
@@ -2217,7 +2093,6 @@ extension ZoneDiscoveryService {
         // Immediately poll transport state so cached zones show real play/pause status
         Task {
             await fetchTransportStates()
-            restoreZoneStateFromDB()
         }
     }
 

@@ -58,24 +58,16 @@ Response includes `ObjectID=S://[nas-host]/[share-path]` — confirming the shar
 
 Confirmed working: UNAS Pro NAS registered as `//av-server/media/Music II`. Subsequent `x-file-cifs://` playback confirmed lossless.
 
-### Album Queue Flow
+### Queue Flow — see the playback contract
 
-```swift
-// Register share once (fXFileCIFS)
-await ZoneDiscoveryService.createObject(host: coordinatorHost, nasPath: "//av-server/media/Music II")
+The exact command sequences — queueing, transfer, grouping, radio, and every failure
+signature — live in **`engineering/sonos-playback-contract.md`**, which is the single
+authority. They are deliberately **not** duplicated here.
 
-// Queue all album tracks
-await ZoneDiscoveryService.removeAllTracksFromQueue(host: zoneHost)
-for track in tracks {
-    let uri = "x-file-cifs://av-server/media/Music II/\(track.filePath)"
-    await ZoneDiscoveryService.addURIToQueue(host: zoneHost, uri: uri)
-}
-// Point transport at queue and play
-await ZoneDiscoveryService.setAVTransportURI(host: zoneHost, uri: "x-rincon-queue:\(zone.id)#0")
-await ZoneDiscoveryService.sendTransportAction(host: zoneHost, action: "Play")
-```
-
-Note: `AddMultipleURIsToQueue` rejects `x-file-cifs://` URIs (error 402). Must use `AddURIToQueue` (single track) in a loop.
+This document explains *why* `x-file-cifs://` was chosen and what was ruled out. The
+contract says *how* to drive it. A partial copy of the sequence used to live in this
+section; on 2026-08-05 it was correct and nobody found it, which is what prompted
+consolidating all of it into one indexed document.
 
 ---
 

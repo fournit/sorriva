@@ -358,6 +358,12 @@ never identify content.
 
 ### 14.7 Verify the transport actually started
 
+**Superseded in part, 2026-08-05:** the "wedged zone" reading below was wrong for local
+files. Pointing `SetAVTransportURI` at an `x-file-cifs://` file fails on some speakers
+regardless of transport state — local content must be **queued**. See
+`engineering/sonos-playback-contract.md` §3, which is the authority. The verification
+advice still stands and matters more than ever.
+
 A wedged zone accepts `SetAVTransportURI`, reports the new track, updates artwork
 — and does not play. `Stop` before `SetAVTransportURI` clears it;
 `verifyPlaybackStarted` reads `GetTransportInfo` after `Play` and logs whether the

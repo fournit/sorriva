@@ -9,11 +9,23 @@ import SwiftUI
 struct TransferZoneSheet: View {
     let sourceZone: SonosZone
     @ObservedObject var discovery: ZoneDiscoveryService
+    // Content shown per row comes from the store rather than SonosZone's raw fields.
+    // Observed so a row updates when what a zone is playing changes while the sheet is up.
+    @ObservedObject private var store = PlaybackStore.shared
     @Environment(\.dismiss) private var dismiss
 
     // Destination zones — all zones except the source
     private var destinationZones: [SonosZone] {
         discovery.zones.filter { $0.id != sourceZone.id }
+    }
+
+    /// What a destination row says the zone is doing. The station name is the resolved
+    /// one from the store; SonosZone's own field holds Sonos's raw `dc:title`, which would
+    /// show a filename or a stream slug here.
+    private func subtitle(for zone: SonosZone) -> String {
+        guard zone.isPlaying else { return "Idle" }
+        let name = store.snapshot(for: zone.id)?.albumName ?? ""
+        return name.isEmpty ? "Playing" : name
     }
 
     var body: some View {
@@ -76,7 +88,7 @@ struct TransferZoneSheet: View {
                                         Text(zone.name)
                                             .font(.system(size: 15, weight: .medium))
                                             .foregroundColor(.sTextPrimary)
-                                        Text(zone.isPlaying ? (zone.stationName.isEmpty ? "Playing" : zone.stationName) : "Idle")
+                                        Text(subtitle(for: zone))
                                             .font(.system(size: 12))
                                             .foregroundColor(zone.isPlaying ? .sHighlight : .sTextMuted)
                                     }

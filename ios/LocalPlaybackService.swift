@@ -100,19 +100,31 @@ final class LocalPlaybackService {
             PlaybackContextService.shared.setLocalContext(zoneID: zone.id, uri: uri, track: track, album: album)
         }
 
-        // Build DIDL with duration before entering detached task
-        let didl = await Self.buildTrackDIDL(track: track, uri: uri, source: source)
         let host = zone.host
+        let zoneID = zone.id
         let title = track.title
         await Task.detached {
-            // Stop first. RemoveAllTracksFromQueue only empties the queue — it does not
-            // reset a wedged transport, and a wedged zone accepts every later command
-            // with a 200 while never actually leaving its previous state.
+            // A single track is queued exactly like an album — there is no direct path.
+            //
+            // Pointing SetAVTransportURI at an x-file-cifs:// file returns 200 and then
+            // silently fails on some speakers: the transport never leaves STOPPED and the
+            // following Play returns either 200-with-nothing or 500 errorCode=701. Whether
+            // it works varies by speaker AND over time on the same speaker, which is why it
+            // read as a wedged transport, a share problem, and a code regression before it
+            // was measured. Verified 2026-08-05 on a speaker that had refused every direct
+            // attempt for hours: a one-track queue played immediately.
+            //
+            // This is also what makes TRANSFER reliable — a destination inherits whatever
+            // the transport holds, and a bare file URI travels badly.
+            //
+            // See engineering/sonos-playback-contract.md §3 — the authority for this.
             await ZoneDiscoveryService.sendTransportAction(host: host, action: "Stop")
             await ZoneDiscoveryService.removeAllTracksFromQueue(host: host)
-            await ZoneDiscoveryService.setAVTransportURIWithMetadata(host: host, streamURL: uri, didl: didl)
+            await ZoneDiscoveryService.addURIToQueue(host: host, uri: uri)
+            let queueURI = "x-rincon-queue:\(zoneID)#0"
+            await ZoneDiscoveryService.setAVTransportURIWithMetadata(host: host, streamURL: queueURI, didl: "")
             await ZoneDiscoveryService.sendTransportAction(host: host, action: "Play")
-            sLog("LOCALPLAY: play command sent — \(title)")
+            sLog("LOCALPLAY: single-track queue started — \(title)")
         }.value
         // Fire-and-forget: confirm Sonos actually started rather than trusting the 200.
         Task.detached { await ZoneDiscoveryService.verifyPlaybackStarted(host: host, context: title) }
@@ -183,7 +195,8 @@ final class LocalPlaybackService {
                 continue
             }
             // nasPath format: //hostname/share  e.g. //av-server/media/Music II
-            let nasPath = "//\(source.host)/\(source.share)"
+            // Sonos-facing host, not the phone-facing one — see SourceResolver.sonosHost.
+            let nasPath = SourceResolver.sonosNASPath(for: source)
             sLog("LOCALPLAY: registering NAS share — \(nasPath) on \(coordinatorHost)")
             let driver = SonosEndpointDriver.shared
             do {

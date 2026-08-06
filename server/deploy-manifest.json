@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.58 - close 2026-08-04-2: frozen radio track and stopped-zone precedence fixed; phase C closed as not needed after measuring the speakers",
-  "version": "0.0.58",
+  "message": "v0.0.59 - checkpoint: local playback fixed (short host + queue single tracks), phase D complete, reducer test suite, Sonos playback contract as single authority",
+  "version": "0.0.59",
   "db_migrate": false
 }

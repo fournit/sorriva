@@ -4,13 +4,13 @@
     {
       "file": "sorriva-poc.html",
       "display_name": "POC Handoff",
-      "description": "Proof of concept session guide \u2014 Sonos zone picker, iHeart search/browse/playback, favorites. Pre-session checklist, Flask routes, SwiftUI screens, iHeart and Sonos API notes.",
+      "description": "Proof of concept session guide — Sonos zone picker, iHeart search/browse/playback, favorites. Pre-session checklist, Flask routes, SwiftUI screens, iHeart and Sonos API notes.",
       "category": "handoff"
     },
     {
       "file": "sorriva-context.html",
       "display_name": "Product Context",
-      "description": "Full product context \u2014 architecture, stack, features, brand, design principles, marketing positioning, and decision log. Source of truth for all sessions.",
+      "description": "Full product context — architecture, stack, features, brand, design principles, marketing positioning, and decision log. Source of truth for all sessions.",
       "category": "arch"
     },
     {
@@ -34,7 +34,7 @@
     {
       "file": "passione-session-protocol.html",
       "display_name": "Session Protocol",
-      "description": "Cross-product session conventions \u2014 start checklist, iteration workflow, session close, zip spec, manifest schemas, rollback, Hub workflow.",
+      "description": "Cross-product session conventions — start checklist, iteration workflow, session close, zip spec, manifest schemas, rollback, Hub workflow.",
       "category": "arch"
     },
     {
@@ -50,15 +50,9 @@
       "category": "arch"
     },
     {
-      "file": "sorriva-local-playback-arch.html",
-      "display_name": "Local Playback Architecture",
-      "description": "How Sorriva streams local FLAC to Sonos via iPad HTTP proxy. Research, ruled-out approaches, chosen architecture, Core Transfer flow, quality preservation, what was built (NWListener, 1MB chunks, UNAS Pro findings), known issues. v2.0 updated 2026-07-15.",
-      "category": "arch"
-    },
-    {
       "file": "sorriva-local-playback-arch.md",
       "display_name": "Local Playback Architecture (Markdown)",
-      "description": "Markdown version of the local playback architecture doc. Drop into a Claude session as a document upload for efficient reading. Same content as the HTML version \u2014 includes all UNAS Pro discoveries, 1MB chunk solution, known short-snippet issue, and next steps.",
+      "description": "Markdown version of the local playback architecture doc. Drop into a Claude session as a document upload for efficient reading. Same content as the HTML version — includes all UNAS Pro discoveries, 1MB chunk solution, known short-snippet issue, and next steps.",
       "category": "arch"
     },
     {
@@ -94,13 +88,13 @@
     {
       "file": "engineering/04_Decisions_and_Patterns.md",
       "display_name": "Architecture Decisions and Patterns",
-      "description": "12 accepted ADRs covering platform ownership, standalone operation, canonical identity, PlaybackStore authority, endpoint drivers, Keychain, and composition root. Approved implementation patterns A\u2013H. Prohibited patterns list.",
+      "description": "12 accepted ADRs covering platform ownership, standalone operation, canonical identity, PlaybackStore authority, endpoint drivers, Keychain, and composition root. Approved implementation patterns A–H. Prohibited patterns list.",
       "category": "engineering"
     },
     {
       "file": "engineering/05_Status_and_Roadmap.md",
       "display_name": "Status and Roadmap",
-      "description": "Current product state, confirmed defects S-001 through S-006, architecture implementation status table, milestone execution order A\u2013F, and deferred backlog. Updated at session close after each completed work package.",
+      "description": "Current product state, confirmed defects S-001 through S-006, architecture implementation status table, milestone execution order A–F, and deferred backlog. Updated at session close after each completed work package.",
       "category": "engineering"
     },
     {
@@ -118,7 +112,7 @@
     {
       "file": "handoffs/HANDOFF-playbackstore-architecture.md",
       "display_name": "PlaybackStore Architecture Handoff",
-      "description": "Full chronology of the zone station-name staleness saga and the confirmed architectural root cause: action functions (transfer/group/station-play) mutate raw zone state instead of authoritatively declaring what's playing to the store. Includes what was tried and rejected, so it isn't re-attempted. Design not yet finalized \u2014 discuss with Tom before implementing.",
+      "description": "Full chronology of the zone station-name staleness saga and the confirmed architectural root cause: action functions (transfer/group/station-play) mutate raw zone state instead of authoritatively declaring what's playing to the store. Includes what was tried and rejected, so it isn't re-attempted. Design not yet finalized — discuss with Tom before implementing.",
       "category": "handoff"
     },
     {
@@ -148,14 +142,20 @@
     {
       "file": "handoffs/HANDOFF-scanner-architecture.md",
       "display_name": "Scanner Architecture (Unified Scan Model)",
-      "description": "The replacement for the full/incremental scan split: one primitive \u2014 walk the tree, skip folders whose fingerprint still matches, scan the rest \u2014 serving manual scan, automatic foreground scan and resume. Items 1-6 built and verified; item 7 (share-overlap validation and absorb) remains. Covers modification-time change detection, deletion reconciliation, artwork pass markers, and why fully-qualified paths were rejected in favour of preventing overlap at share-add time.",
+      "description": "The replacement for the full/incremental scan split: one primitive — walk the tree, skip folders whose fingerprint still matches, scan the rest — serving manual scan, automatic foreground scan and resume. Items 1-6 built and verified; item 7 (share-overlap validation and absorb) remains. Covers modification-time change detection, deletion reconciliation, artwork pass markers, and why fully-qualified paths were rejected in favour of preventing overlap at share-add time.",
       "category": "handoff"
     },
     {
       "file": "handoffs/HANDOFF-scan-session-ledger.md",
       "display_name": "Scan Session Ledger",
-      "description": "Design for making a scan session a bounded, auditable unit of work. STEPS 1-5 ARE BUILT AND VERIFIED as of 2026-08-01 (v18/v19, four-phase device regression, 20 unit tests); steps 6-8 \u2014 share export, Library Management review tool, and the inline '12 of 15 tracks' signal \u2014 remain and need design input. Records why the DB is authoritative over the share copy, why the export matters for a user with no second machine, and why failure reason is load-bearing for retry policy.",
+      "description": "Design for making a scan session a bounded, auditable unit of work. STEPS 1-5 ARE BUILT AND VERIFIED as of 2026-08-01 (v18/v19, four-phase device regression, 20 unit tests); steps 6-8 — share export, Library Management review tool, and the inline '12 of 15 tracks' signal — remain and need design input. Records why the DB is authoritative over the share copy, why the export matters for a user with no second machine, and why failure reason is load-bearing for retry policy.",
       "category": "handoff"
+    },
+    {
+      "file": "engineering/sonos-playback-contract.md",
+      "display_name": "Sonos Playback Contract",
+      "description": "THE authority for Sonos command sequences — seeding a speaker, playing local files via the queue, radio, transfer, grouping — each with its failure signature. Measured facts only. If another doc contradicts it, this one wins.",
+      "category": "engineering"
     }
   ]
 }

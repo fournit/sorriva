@@ -92,8 +92,13 @@ struct IHeartServiceView: View {
                                                 zonePickerStation = RadioStation(from: station)
                                             },
                                             onRemove: {
-                                                let playingZones = discovery.zones
-                                                    .filter { $0.stationName == station.name && $0.isPlaying }
+                                                // Matched against the store's resolved
+                                                // name, not SonosZone.stationName — that
+                                                // field holds Sonos's dc:title ("hls.m3u8"
+                                                // for iHeart), so this comparison could
+                                                // never match and the warning never fired.
+                                                let playingZones = PlaybackStore.shared.zones
+                                                    .filter { $0.albumName == station.name && $0.isPlaying }
                                                     .map { $0.name }
                                                 if playingZones.isEmpty {
                                                     stationToRemove = station

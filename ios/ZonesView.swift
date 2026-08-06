@@ -502,6 +502,9 @@ struct ZoneCard: View, Equatable {
 struct GroupPickerSheet: View {
     let coordinatorZone: SonosZone
     @ObservedObject var discovery: ZoneDiscoveryService
+    // Row content comes from the store's resolved snapshots. Observed so rows update
+    // while the sheet is open.
+    @ObservedObject private var store = PlaybackStore.shared
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedIDs: Set<String> = []
@@ -511,28 +514,41 @@ struct GroupPickerSheet: View {
     private var allRooms: [RoomEntry] {
         var rooms: [RoomEntry] = []
         for zone in discovery.zones {
+            // Content comes from the store, not from SonosZone's raw fields. Those fields
+            // carry whatever Sonos put in dc:title — a filename for iHeart, a slug for
+            // SomaFM — whereas the store has already resolved the URI against the stations
+            // table. Reading them here is what let a picker row disagree with the zone card
+            // for the same zone.
+            let snap = store.snapshot(for: zone.id)
+            let stationName = snap?.albumName ?? ""
+            let track = snap?.trackTitle ?? ""
+            let artist = snap?.artistName ?? ""
+
             // Add the coordinator
             rooms.append(RoomEntry(
                 id: zone.id,
                 name: zone.name,
                 host: zone.host,
                 isPlaying: zone.isPlaying,
-                stationName: zone.stationName,
-                currentTrack: zone.currentTrack,
-                currentArtist: zone.currentArtist,
+                stationName: stationName,
+                currentTrack: track,
+                currentArtist: artist,
                 coordinatorName: nil,  // it IS a coordinator
                 isCoordinator: true
             ))
-            // Add its members
+            // Add its members. They project the coordinator's content, which is correct
+            // WHILE GROUPED — a member really is playing what the coordinator streams.
+            // That is a different question from what a member shows after it separates,
+            // where Sonos restores its own queue (see fPlaybackStoreGroupDeclarations).
             for member in zone.groupMembers {
                 rooms.append(RoomEntry(
                     id: member.id,
                     name: member.name,
                     host: member.host,
                     isPlaying: zone.isPlaying,       // inherits coordinator state
-                    stationName: zone.stationName,
-                    currentTrack: zone.currentTrack,
-                    currentArtist: zone.currentArtist,
+                    stationName: stationName,
+                    currentTrack: track,
+                    currentArtist: artist,
                     coordinatorName: zone.id != coordinatorZone.id ? zone.name : nil,
                     isCoordinator: false
                 ))

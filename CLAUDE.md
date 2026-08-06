@@ -8,6 +8,7 @@ Native iOS/iPadOS music app for audiophiles with NAS-based local FLAC libraries 
 
 **Read before scanner work:** `server/static/docs/handoffs/HANDOFF-scanner-hardening.md`
 **Read before playback/zone work:** `server/static/docs/handoffs/HANDOFF-playbackstore-design.md` — the live spec and current state (phases A+B built; C, D, E remain). Its §14 as-built notes are the hard-won ones. Then `HANDOFF-playbackstore-architecture.md` for problem history and *rejected* patches — do not re-propose them.
+**Read before ANY playback, transfer, or grouping work:** `server/static/docs/engineering/sonos-playback-contract.md` — the single authority for which Sonos command sequences work and how each one fails. Measured facts only. If another doc contradicts it, it wins.
 **Read before radio/streaming-service work:** `server/static/docs/engineering/radio-service-integration.md` — each service gets its own adapter; never add a global URI heuristic.
 **Engineering corpus:** `server/static/docs/engineering/` — constitution, target architecture, ADRs, UI spec.
 
@@ -19,11 +20,7 @@ Note the earlier "UNAS Pro drops sessions after ~2 reads" finding is suspect: a 
 
 *Connection discipline.* The directory walk holds one connection across the whole tree (`listDirectory` only), reconnecting transparently on a stall. Header reads open a fresh connection per file, force-cancelled on timeout. 1MB chunk size is empirically stable.
 
-*Sonos.*
-- `AddURIToQueue` (single track, looped) for `x-file-cifs://` — `AddMultipleURIsToQueue` returns error 402.
-- URIs need file extensions or UPnP returns error 714.
-- DIDL duration metadata must be included; zero-duration triggers prefetch issues.
-- `x-rincon:` (single colon) via `SetAVTransportURI` for S2 grouping; `x-rincon://` fails with 501.
+*Sonos.* **All Sonos command sequences live in one place: `server/static/docs/engineering/sonos-playback-contract.md`.** Do not duplicate them here — a partial copy in this file is what made a documented answer un-findable and cost a full session on 2026-08-05. Two rules worth knowing before you open it: **a 200 from Sonos does not mean success** (it validates lazily and will accept commands it silently ignores), and **local files play via the queue, never by pointing `SetAVTransportURI` at the file**.
 
 *Artwork.* Folder, embedded, and online passes stay separate to avoid NAS connection pressure. Best-wins selection compares stored outcomes across passes rather than collapsing them.
 

@@ -115,9 +115,44 @@ final class SourceResolver {
     // Confined to SourceResolver — SMB path construction must not appear in views
     // or application services. Architecture doc WP-13 acceptance criteria.
 
+    /// The host form Sonos needs — for `x-file-cifs://` URIs and for share registration.
+    ///
+    /// `LibrarySource.host` is what Bonjour discovery produced: the service name plus its
+    /// domain, e.g. `AV-Server.local` (see `AddSMBSourceView`, where the hostname is
+    /// assembled). That is the right address for the **iPhone's own** SMB connection —
+    /// the scanner resolves it over mDNS and it works — so it stays exactly as it is.
+    ///
+    /// **Sonos needs the name the share is registered under in the household**, which is
+    /// the short name. One field was serving two clients with different addressing
+    /// requirements, and Sonos silently inherited an address meant for the phone.
+    ///
+    /// Measured 2026-08-05, same file and same minute across four speakers:
+    ///
+    ///     host              Master Bath   Office    Workout   Master Bedroom
+    ///     AV-Server         PLAYING       PLAYING   PLAYING   PLAYING
+    ///     AV-Server.local   PLAYING       PLAYING   STOPPED   STOPPED (UPnP 701)
+    ///
+    /// The failure mode is what made this so hard to see: `SetAVTransportURI` returns 200
+    /// and Sonos validates lazily, so a bad host is accepted and the transport simply
+    /// never leaves STOPPED. `Play` then returns either 200 (and nothing happens) or 500
+    /// with `errorCode=701`, depending on the speaker. Because `.local` resolves on some
+    /// speakers and not others, it presented as intermittent and zone-specific, and was
+    /// twice mistaken for a wedged transport, a share-registration failure, and a
+    /// regression in unrelated work.
+    static func sonosHost(_ host: String) -> String {
+        guard let range = host.range(of: ".local", options: [.caseInsensitive, .backwards]),
+              range.upperBound == host.endIndex else { return host }
+        return String(host[..<range.lowerBound])
+    }
+
+    /// The `//host/share` path used to register a NAS share with a speaker.
+    static func sonosNASPath(for source: LibrarySource) -> String {
+        "//\(sonosHost(source.host))/\(source.share)"
+    }
+
     static func xFileCIFSLocator(track: Track, source: LibrarySource) -> String {
         let path = track.filePath.hasPrefix("/") ? track.filePath : "/\(track.filePath)"
-        return "x-file-cifs://\(source.host)/\(source.share)\(path)"
+        return "x-file-cifs://\(sonosHost(source.host))/\(source.share)\(path)"
     }
 
     // MARK: - Private

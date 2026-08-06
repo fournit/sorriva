@@ -484,6 +484,7 @@ let didl = "&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; 
   <p>When embedded in a SOAP body, the DIDL-Lite must be XML-entity-encoded (<code>&amp;lt;</code>, <code>&amp;gt;</code>, <code>&amp;quot;</code>).</p>
 
   <h3>SetAVTransportURI SOAP call for local files</h3>
+  <p style="border-left:4px solid #c00;padding:8px 12px;background:#fff4f4"><strong>Do not use this for <code>x-file-cifs://</code> NAS files.</strong> Pointing <code>SetAVTransportURI</code> at a NAS file returns HTTP 200 and then silently fails on some speakers — the transport never leaves STOPPED, and the following <code>Play</code> returns either 200-with-nothing or 500 <code>errorCode=701</code>. Whether it works varies by speaker and over time on the same speaker. NAS files must be queued: see <code>engineering/sonos-playback-contract.md</code> §3, which is the authority for command sequences. The example below is valid for the HTTP-server path only.</p>
   <div class="code">POST http://{host}:1400/MediaRenderer/AVTransport/Control
 Content-Type: text/xml; charset=utf-8
 SOAPACTION: "urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI"

@@ -56,6 +56,24 @@ final class PlaybackContextService: ObservableObject {
     /// How long a failed station lookup is trusted before it is worth asking again.
     private static let missRetryInterval: TimeInterval = 30
 
+    /// Lookups currently in flight, keyed `zoneID|streamKey`.
+    ///
+    /// `resolvedStations` cannot prevent duplicate work by itself, because it is only
+    /// written when a lookup RETURNS. `ZoneDiscoveryService.zones` is `@Published` and the
+    /// poll assigns fields one at a time — 33 assignments per zone across the two hot
+    /// paths — so a single poll broadcasts dozens of times, every broadcast re-runs the
+    /// zone pass, and every pass still sees the station as unresolved because nothing has
+    /// come back yet. Each one then starts its own identical lookup.
+    ///
+    /// Measured in a live capture: the same zone and station resolving roughly forty
+    /// times, across every zone at once. Claiming the lookup synchronously — before the
+    /// first await — means the first caller wins and the rest return immediately.
+    ///
+    /// This is the correct fix even once the broadcast storm is dealt with in phase D:
+    /// fewer broadcasts would cut the duplicates sharply but not eliminate them, since
+    /// two zones can still race.
+    private var resolvingStations: Set<String> = []
+
     private var cancellables = Set<AnyCancellable>()
     private var observing = false
     private var previousZones: [String: SonosZone] = [:]
@@ -255,7 +273,15 @@ final class PlaybackContextService: ObservableObject {
         let key = normalizedStreamKey(uri)
         guard !key.isEmpty else { return }
 
+        // Claim the lookup synchronously, before any await, so duplicates issued in the
+        // same broadcast storm see the claim and stop. Released on every exit path below,
+        // including the no-match case, so a zone is never left permanently unresolvable.
+        let claim = "\(zoneID)|\(key)"
+        guard !resolvingStations.contains(claim) else { return }
+        resolvingStations.insert(claim)
+
         Task { @MainActor in
+            defer { self.resolvingStations.remove(claim) }
             let stations = (try? SorrivaDatabase.shared.allStationsAnySource()) ?? []
             // Ask the owning service to identify the station exactly. Each adapter knows
             // its provider's URI shape — iHeart's station code, SomaFM's channel slug —

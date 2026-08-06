@@ -1,0 +1,257 @@
+# Sonos Playback Contract — the single authority
+
+**Status:** authoritative. **Last verified:** 2026-08-05.
+
+This is the definitive record of **which command sequences actually work against Sonos**,
+and how each one fails when it doesn't. If another document contradicts this one, this one
+wins and the other should be corrected or pointed here.
+
+**Read this before touching any playback, transfer, or grouping code.**
+
+## Rules for this document
+
+1. **Measured facts only.** Every claim states how and when it was verified. No intended
+   behaviour, no plans, no "should". Those belong in the handoffs.
+2. **Failure signatures are as important as the happy path.** Most Sonos failures are
+   silent, so knowing what a broken thing *looks like* is what saves the hours.
+3. **Anything learned about Sonos behaviour gets added here**, not to a code comment and
+   not to a session note. This document existing but not being read is exactly how
+   2026-08-05 went; scattering the knowledge again defeats it.
+
+---
+
+## 0. The rule that underpins everything
+
+> **A 200 from Sonos does not mean success.**
+
+Sonos validates lazily. It will accept a command, return HTTP 200, and then do nothing.
+Verified repeatedly on 2026-08-05:
+
+- `SetAVTransportURI` returns **200 for a URI it cannot play**. The transport simply never
+  leaves `STOPPED`.
+- `CreateObject` returns **200 while registering no share at all** — confirmed by browsing
+  the speaker's share list afterwards and finding it unchanged (§2).
+- `Play` returns **200 and playback does not start**, or returns **500 with
+  `errorCode=701`**, for the same underlying cause on different speakers.
+
+**Therefore: never infer success from a status code. Read the transport state back.**
+`verifyPlaybackStarted` exists for this. Anything that reports "every command was accepted"
+without checking the outcome is lying.
+
+---
+
+## 1. Addressing — how to name a file
+
+```
+x-file-cifs://AV-Server/Media/Music II/Artist/Album/01 - Track.flac
+              ^^^^^^^^^
+              short host — NOT AV-Server.local, NOT an IP
+```
+
+**Use the server's short name.** `LibrarySource.host` holds the Bonjour form
+(`AV-Server.local`) because that is what the **iPhone's own** SMB connection needs — the
+scanner resolves it over mDNS and it works. Sonos needs the short name. One field, two
+clients, different requirements: use `SourceResolver.sonosHost` for anything Sonos-facing.
+
+Measured 2026-08-05, same file, same minute, four speakers:
+
+| URI host | Master Bath | Office | Workout | Master Bedroom |
+|---|---|---|---|---|
+| `AV-Server` | plays | plays | plays | plays |
+| `AV-Server.local` | plays | plays | **STOPPED** | **STOPPED (701)** |
+| `192.168.1.102` | — | — | — | **STOPPED (701)** |
+
+`.local` works on *some* speakers, which is why this presented as intermittent and
+zone-specific and was mistaken for a wedged transport, a share-registration failure, NAS
+trouble, and a code regression before being measured.
+
+**Case and percent-encoding do not matter.** `av-server/media/...%20...` and
+`AV-Server/Media/... ...` behave identically (measured 2026-08-05). Sonos's own URIs use
+lowercase host and `%20`, but neither is required.
+
+---
+
+## 2. Seeding a speaker — share registration
+
+```
+CreateObject → ContainerID "S:", Elements = DIDL with //host/share
+```
+
+**Registration is NOT a precondition for playback.** Confirmed by Tom from earlier testing
+and consistent with 2026-08-05 measurements: files outside any registered share play fine
+when the queue path is used.
+
+**`CreateObject` currently registers nothing.** On 2026-08-05 the app called it repeatedly
+with `//AV-Server/Media`, got 200 every time, and the household's share list still contained
+only `//av-server/media/Test Scan` — added long ago through the Sonos app. Tracked as
+`bSonosShareRegistrationSilentlyNoOps`.
+
+**To see what a speaker actually knows**, browse its ContentDirectory:
+
+```
+Browse  ObjectID="S:"  BrowseFlag="BrowseDirectChildren"
+→ <container id="S://av-server/media/Test%20Scan">
+```
+
+This is the only reliable way to know the truth, and it is how the no-op above was found.
+
+---
+
+## 3. Playing local files — ALWAYS via the queue
+
+**This is the single most important sequence in the app.**
+
+```swift
+sendTransportAction(host, "Stop")
+removeAllTracksFromQueue(host)                      // clear first — always
+for track in tracks {
+    addURIToQueue(host, uri: "x-file-cifs://…")     // ONE AT A TIME
+}
+setAVTransportURI(host, uri: "x-rincon-queue:\(zoneUUID)#0")
+sendTransportAction(host, "Play")
+verifyPlaybackStarted(host)                          // read the state back
+```
+
+**Never point `SetAVTransportURI` directly at an `x-file-cifs://` file.** It returns 200 and
+then either sits at `STOPPED` or rejects the following `Play` with `errorCode=701`, and
+whether it works varies by speaker and over time on the same speaker.
+
+Measured 2026-08-05 on Workout, which had refused every direct attempt for hours:
+
+| Approach | Result |
+|---|---|
+| `SetAVTransportURI` → file directly | `Play` 500 / `errorCode=701`, STOPPED |
+| Same file, Sonos's own lowercase+`%20` spelling, direct | 500 / 701, STOPPED |
+| Sonos's *verbatim* working URI from a registered share, direct | `Play` 200, still STOPPED |
+| **Queue path, 1 track** | **PLAYING, duration read** |
+| **Queue path, 3 tracks** | **PLAYING, 3 tracks, duration read** |
+
+A single track is not a special case — **queue it too**. A one-track queue works; a direct
+URI does not. This also matters for transfers (§5), because a destination inherits whatever
+the transport holds, and a bare file URI travels badly.
+
+`AddMultipleURIsToQueue` rejects `x-file-cifs://` with error 402 — loop `AddURIToQueue`.
+URIs need file extensions or UPnP returns 714.
+
+**Reading a real `TrackDuration` is the proof it worked.** A speaker that cannot open the
+file reports `0:00:00`, because it never read the header.
+
+---
+
+## 4. Playing radio
+
+Radio is the opposite of §3: point the transport straight at the stream.
+
+```swift
+setAVTransportURI(host, uri: streamURL)   // hls-radio://…, aac://…, x-rincon-mp3radio://…
+sendTransportAction(host, "Play")
+```
+
+DIDL duration metadata must be included; zero-duration triggers prefetch issues.
+
+**Sonos cannot name a station.** `dc:title` means something different per service — a
+filename for iHeart (`hls.m3u8`), a slug for SomaFM (`groovesalad-128-aac`), the *track*
+title for Sonos Radio. Never display it as a station name. Station identity comes from the
+stations table via the per-service adapters; see `radio-service-integration.md`.
+
+`r:streamContent` **is** trustworthy — it carries the song playing now, and the reducer
+reads it directly.
+
+---
+
+## 5. Transferring playback between zones
+
+```swift
+createObject(destHost, …)                       // register shares on destination
+removeAllTracksFromQueue(destHost)
+addMember(coordinatorHost: sourceHost, memberHost: destHost, memberUUID: sourceUUID)
+sleep 2s                                        // let audio sync
+becomeCoordinator(sourceHost)                   // source leaves; destination inherits
+sleep 0.5s
+sendTransportAction(destHost, "Play")
+```
+
+The destination inherits whatever the transport holds — so if the source was on a bare
+`x-file-cifs://` URI rather than a queue, the destination inherits that and will fail on any
+speaker that cannot play direct URIs. **§3 is what makes transfer reliable.**
+
+**The source goes silent on its own.** No explicit `Stop` is needed or sent (confirmed by
+Tom, 2026-08-04).
+
+---
+
+## 6. Grouping and ungrouping
+
+`x-rincon:` with a **single colon** via `SetAVTransportURI` for S2 grouping. `x-rincon://`
+fails with 501.
+
+**A grouped member never receives the content.** Its transport is set to
+`x-rincon:RINCON_<coordinator>` — a pointer at the coordinator, which does all the fetching
+and distributes audio. The member's own queue is untouched the entire time it is grouped.
+
+**On separation, Sonos restores the member's own previous queue.** Measured 2026-08-04:
+Patio coordinating SomaFM Bossa Beyond, Garage separated and was parked on its own iHeart
+station. So what an ungrouped zone reports is **what will actually play if the user presses
+play on it** — do not overwrite it with the group's content. This is why PlaybackStore
+phase C was closed as unnecessary (`fPlaybackStoreGroupDeclarations`).
+
+Departing zones are stopped explicitly (`groupZone` removals, `ungroupZone`); the
+coordinator and remaining members keep playing.
+
+For ~2s mid-transfer a destination reports `x-rincon:` as its URI. **Anything that
+pattern-matches URIs must exclude it** alongside `x-rincon-queue:` and `x-file-cifs://` —
+it addresses a speaker, not content.
+
+---
+
+## 7. Failure signatures — what a broken thing looks like
+
+| Symptom | Cause | §|
+|---|---|---|
+| Everything returns 200, transport stays `STOPPED`, `TrackDuration 0:00:00` | Speaker cannot open the file — bad host, or direct URI instead of queue | 1, 3 |
+| `Play` → 500 `errorCode=701` | No playable content loaded; the URI was already rejected silently | 3 |
+| Works on some zones, not others, changing over time | Almost always §1 or §3 — not hardware, not the NAS | 1, 3 |
+| Card shows playing then goes quiet after ~6s | Optimistic grace expiring over a play that never started | 0 |
+| Station shows `hls.m3u8` or a bitrate slug | `dc:title` treated as a station name, or the resolve cache missed | 4 |
+| Zone reverts to older content after a transfer | Something writing content from raw poll fields | — |
+
+---
+
+## 8. Diagnostics
+
+Raw SOAP probes against the speakers settle in seconds what inference argues about for
+hours. Working scripts from the 2026-08-05 session pattern:
+
+- **discover** — SSDP `M-SEARCH` for `urn:schemas-upnp-org:device:ZonePlayer:1`, then
+  `http://<ip>:1400/xml/device_description.xml` for `roomName`, `UDN` (the `RINCON_…` seen
+  in logs), model and firmware.
+- **state** — `GetTransportInfo`, `GetMediaInfo`, `GetPositionInfo` on
+  `/MediaRenderer/AVTransport/Control`.
+- **shares** — `Browse` `S:` on `/MediaServer/ContentDirectory/Control`.
+- **fault detail** — capture the SOAP body on non-200 and read `<errorCode>`. The app
+  currently discards this (`fSurfaceSonosErrorCodes`).
+
+**Compare against what Sonos itself does.** Play from the Sonos app, then read the
+transport back — its URI and queue shape are the reference implementation. That single
+comparison is what identified the queue requirement on 2026-08-05.
+
+---
+
+## 9. Known-unproven
+
+- Why direct `x-file-cifs://` URIs work on some speakers and not others. Identical models
+  and firmware behave differently, and the same speaker changes over time. **Not needed** —
+  §3 avoids the path entirely — but it is unexplained.
+- Whether `CreateObject` can be made to register a share (§2), and what it needs. Possibly
+  credentials.
+- Whether `RefreshShareIndex` affects per-speaker state. Never run.
+
+---
+
+## 10. Related
+
+- `sonos-upnp-reference.html` — protocol reference: which calls exist, their parameters,
+  S1/S2 differences. **This document says which *sequences* are proven.**
+- `sorriva-local-playback-arch.md` — why `x-file-cifs://` was chosen and what was ruled out.
+- `radio-service-integration.md` — per-service station identity.
+- `HANDOFF-playbackstore-design.md` — how resolved content is displayed once playing.
