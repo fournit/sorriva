@@ -655,58 +655,6 @@ struct ShareActionSheet: View {
                     }
                 }
 
-                #if DEBUG
-                Divider().background(Color.sSeparator).padding(.horizontal, 20)
-
-                Button {
-                    dismiss()
-                    Task { await SMBSessionProbe.run(source: source) }
-                } label: {
-                    HStack {
-                        Image(systemName: "stethoscope")
-                        Text("Run SMB Session Probe")
-                            .font(.system(size: 15, weight: .medium))
-                        Spacer()
-                    }
-                    .foregroundColor(.sBrass)
-                    .padding(.vertical, 14)
-                    .padding(.horizontal, 20)
-                }
-
-                Divider().background(Color.sSeparator).padding(.horizontal, 20)
-
-                Button {
-                    dismiss()
-                    Task { await SMBSessionProbe.runChurn(source: source) }
-                } label: {
-                    HStack {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                        Text("Run Connection Churn Test")
-                            .font(.system(size: 15, weight: .medium))
-                        Spacer()
-                    }
-                    .foregroundColor(.sBrass)
-                    .padding(.vertical, 14)
-                    .padding(.horizontal, 20)
-                }
-
-                Divider().background(Color.sSeparator).padding(.horizontal, 20)
-
-                Button {
-                    dismiss()
-                    Task { await NWConnectionProbe.run(host: source.host) }
-                } label: {
-                    HStack {
-                        Image(systemName: "network")
-                        Text("Run Raw NWConnection Churn")
-                            .font(.system(size: 15, weight: .medium))
-                        Spacer()
-                    }
-                    .foregroundColor(.sBrass)
-                    .padding(.vertical, 14)
-                    .padding(.horizontal, 20)
-                }
-                #endif
 
                 Divider().background(Color.sSeparator).padding(.horizontal, 20)
 

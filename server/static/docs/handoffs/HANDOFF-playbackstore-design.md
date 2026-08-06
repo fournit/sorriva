@@ -1,17 +1,33 @@
 # Sorriva — Authoritative PlaybackStore Design (Implementation Spec)
 
-**Date:** 2026-08-03 · **Updated:** 2026-08-04
-**Status:** **phases A and B built and device-tested; C, D, E remain**
+**Date:** 2026-08-03 · **Updated:** 2026-08-06
+**Status:** **COMPLETE — phases A, B, D and E built and device-tested. Phase C
+closed as a negative result: no code was needed.**
 **Companion to:** `HANDOFF-playbackstore-architecture.md` — read that first for the
 problem history and the list of *rejected* patches (do not re-propose them).
 
-This document is the spec the PlaybackStore work is built against. The model held
-up in implementation and is no longer design-gated — every open item in §13 was
-resolved during phases A and B. **Start at §9 for what is built and §14 for what
-implementation actually taught us**, then pick up at phase C. Working discipline
-from the architecture handoff carries forward: diagnose → propose exact change →
-explicit confirmation → code; one file at a time; verify against a real repro,
-not reasoning.
+This document is the spec the PlaybackStore work was built against. The model held
+up in implementation start to finish and was never design-gated after phase B —
+every open item in §13 was resolved during phases A and B. **Start at §9 for what
+is built and §14 for what implementation actually taught us.**
+
+The rearchitecture finished on 2026-08-06. The store now holds authoritative
+content declarations and transport intent; polling was demoted to transport-only
+in phase D, and the station side-channels, `zone_state` and `playingUntil` were
+retired in phase E. There is one source of truth for what a zone is playing.
+
+**Phase C was closed without code, and that matters more than it sounds.** It was
+specified in full and half-built on the premise that an ungrouped zone wrongly
+reports the group's content. Measuring the speakers showed the opposite: a grouped
+member never receives the stream, so Sonos restores its own queue on separation
+and the existing behaviour was already correct. The premise came from reading code
+instead of querying hardware. If a future phase looks obviously necessary, measure
+before building — see `engineering/sonos-playback-contract.md`, which is the single
+authority for what the speakers actually do.
+
+Working discipline from the architecture handoff carries forward: diagnose →
+propose exact change → explicit confirmation → code; one file at a time; verify
+against a real repro, not reasoning.
 
 ---
 

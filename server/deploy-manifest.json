@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.64 - simulator test harness (speakers + app compared without a human), zone guardrails encoded, scan confirmation dialog race fixed",
-  "version": "0.0.64",
+  "message": "v0.0.65 — PlaybackStore rearchitecture complete; simulator test harness, and the scan-dialog bug it found",
+  "version": "0.0.65",
   "db_migrate": false
 }

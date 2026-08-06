@@ -7,10 +7,12 @@ Native iOS/iPadOS music app for audiophiles with NAS-based local FLAC libraries 
 **Key architecture:** Sonos pulls audio directly from the NAS via `x-file-cifs://` — the iPhone is never in the audio path for local files. Pure App Store product, no backend required for core functionality. `server/` holds docs and roadmap only; there is no Flask app to deploy.
 
 **Read before scanner work:** `server/static/docs/handoffs/HANDOFF-scanner-hardening.md`
-**Read before playback/zone work:** `server/static/docs/handoffs/HANDOFF-playbackstore-design.md` — the live spec and current state (phases A+B built; C, D, E remain). Its §14 as-built notes are the hard-won ones. Then `HANDOFF-playbackstore-architecture.md` for problem history and *rejected* patches — do not re-propose them.
+**Read before playback/zone work:** `server/static/docs/handoffs/HANDOFF-playbackstore-design.md` — the as-built spec. The rearchitecture is COMPLETE (A, B, D, E built; C closed as a negative result after measuring the speakers). Its §14 as-built notes are the hard-won ones. Then `HANDOFF-playbackstore-architecture.md` for problem history and *rejected* patches — do not re-propose them.
 **Read before ANY playback, transfer, or grouping work:** `server/static/docs/engineering/sonos-playback-contract.md` — the single authority for which Sonos command sequences work and how each one fails. Measured facts only. If another doc contradicts it, it wins.
 **Read before radio/streaming-service work:** `server/static/docs/engineering/radio-service-integration.md` — each service gets its own adapter; never add a global URI heuristic.
 **Engineering corpus:** `server/static/docs/engineering/` — constitution, target architecture, ADRs, UI spec.
+
+**Test harness:** `tools/` — `sonos.py` (query and drive the speakers over SOAP), `sim.py` (read the app's database, log and container from the iOS Simulator), `check.py` (compare the two). Use it instead of asking Tom to look at his phone. `tools/test-zones.json` names the only zones automated runs may touch and is enforced in code, not remembered — volume is held at zero, which is what makes the hour irrelevant. Reading the simulator DB is read-only by construction; never write to a running app's database.
 
 **Known constraints — verify against source before acting on these:**
 

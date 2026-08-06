@@ -114,13 +114,16 @@ struct SettingsView: View {
                             .buttonStyle(.plain)
 
                             #if DEBUG
-                            // Debug Log
-                            NavigationLink(destination: DebugLogView()) {
+                            // Diagnostics — developer tools only, never in a release build.
+                            // The SMB probes used to hang off the share action sheet, which
+                            // put three developer-only rows in front of a two-choice user
+                            // menu. They belong next to the log they write to.
+                            NavigationLink(destination: DiagnosticsView()) {
                                 SettingsMenuRow(
-                                    icon: "doc.text.magnifyingglass",
+                                    icon: "wrench.and.screwdriver",
                                     iconColor: Color(hex: "#E07B39"),
-                                    title: "Debug Log",
-                                    subtitle: "Playback diagnostics"
+                                    title: "Diagnostics",
+                                    subtitle: "Debug log and SMB probes"
                                 )
                             }
                             .buttonStyle(.plain)
@@ -129,7 +132,13 @@ struct SettingsView: View {
                         }
                         .padding(.horizontal, 16)
                     }
-                    .padding(.bottom, 48)
+                    // Clearance for the floating tab bar and mini player, which overlay
+                    // the scroll view rather than taking up layout space. At 48 the last
+                    // row sat underneath them: visible as a sliver and untappable, and
+                    // the list would not scroll to reveal it because SwiftUI considered
+                    // the content to already fit. Interim measure — the redesign may make
+                    // this moot, but the row is unreachable until then.
+                    .padding(.bottom, 180)
                 }
             }
         .alert("Clear Local Library?", isPresented: $showClearLibraryConfirm) {
@@ -685,6 +694,142 @@ struct AboutView: View {
         .navigationBarTitleDisplayMode(.large)
     }
 }
+
+// MARK: - DiagnosticsView
+//
+// DEBUG-only home for developer tooling. Everything here writes to the debug log
+// rather than showing results inline, so the log sits at the top of the screen —
+// run a probe, then read what it said one row up.
+//
+// The SMB probes target the FIRST configured share. They were written when the
+// action sheet handed them a specific share for free; from here that would need a
+// picker, and with one NAS a picker is a control that only ever has one option.
+// If a second share ever matters for a probe, add the picker then.
+//
+// Why these still exist: the connection-flow leak they were built to chase is
+// fixed and proven at 11,670 files — but bSMBClientByteReaderOutOfBounds is open,
+// and our own timeout-driven NWConnection.cancel() is its leading suspect. The
+// churn tests are the most likely way to reproduce it on demand.
+
+#if DEBUG
+struct DiagnosticsView: View {
+    @State private var sources: [LibrarySource] = []
+    @State private var lastAction: String?
+    @Environment(\.dismiss) private var dismiss
+
+    private var target: LibrarySource? { sources.first }
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color.sGradientTop, Color.sGradientMid, Color.sGradientBottom],
+                startPoint: .top, endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack {
+                        Button(action: { dismiss() }) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(.sTextPrimary)
+                        }
+                        .buttonStyle(.plain)
+                        Spacer()
+                        Text("Diagnostics")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.sTextPrimary)
+                        Spacer()
+                        Image(systemName: "chevron.left").opacity(0)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 56)
+                    .padding(.bottom, 24)
+
+                    VStack(spacing: 10) {
+                        NavigationLink(destination: DebugLogView()) {
+                            SettingsMenuRow(
+                                icon: "doc.text.magnifyingglass",
+                                iconColor: Color(hex: "#E07B39"),
+                                title: "Debug Log",
+                                subtitle: "Playback, scan, and probe output"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 28)
+
+                    SettingsSectionLabel(title: "SMB Probes")
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 8)
+
+                    if let target {
+                        Text("Target: \(target.host) — \(target.share)\(target.rootPath)")
+                            .font(.system(size: 12))
+                            .foregroundColor(.sTextMuted)
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 10)
+
+                        VStack(spacing: 0) {
+                            probeRow(icon: "stethoscope", title: "Run SMB Session Probe") {
+                                Task { await SMBSessionProbe.run(source: target) }
+                            }
+                            Divider().background(Color.sSeparator).padding(.horizontal, 16)
+                            probeRow(icon: "arrow.triangle.2.circlepath", title: "Run Connection Churn Test") {
+                                Task { await SMBSessionProbe.runChurn(source: target) }
+                            }
+                            Divider().background(Color.sSeparator).padding(.horizontal, 16)
+                            probeRow(icon: "network", title: "Run Raw NWConnection Churn") {
+                                Task { await NWConnectionProbe.run(host: target.host) }
+                            }
+                        }
+                        .background(Color.sSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .padding(.horizontal, 16)
+
+                        if let lastAction {
+                            Text("Started \(lastAction). Results go to the debug log.")
+                                .font(.system(size: 12))
+                                .foregroundColor(.sBrass)
+                                .padding(.horizontal, 20)
+                                .padding(.top, 10)
+                        }
+                    } else {
+                        Text("No shares configured. Add a network share before running a probe.")
+                            .font(.system(size: 13))
+                            .foregroundColor(.sTextMuted)
+                            .padding(.horizontal, 20)
+                    }
+                }
+                .padding(.bottom, 48)
+            }
+        }
+        .navigationBarHidden(true)
+        .onAppear { sources = (try? SorrivaDatabase.shared.allLibrarySources()) ?? [] }
+    }
+
+    private func probeRow(icon: String, title: String, action: @escaping () -> Void) -> some View {
+        Button {
+            lastAction = title
+            action()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                Text(title)
+                    .font(.system(size: 15, weight: .medium))
+                Spacer()
+            }
+            .foregroundColor(.sBrass)
+            .padding(.vertical, 14)
+            .padding(.horizontal, 16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+#endif
 
 // MARK: - DebugLogView
 

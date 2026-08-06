@@ -1064,6 +1064,90 @@
           "createdAt": "2026-08-06",
           "completedAt": null,
           "requires": []
+        },
+        {
+          "id": "bKeychainOrphanedOnShareDelete",
+          "name": "Removing a share leaves its credentials orphaned in the keychain",
+          "desc": "deleteLibrarySource / deleteLibrarySourcesByHost are a bare DELETE FROM library_sources and never touch KeychainCredentialStore. The credential entry survives, keyed to a sourceId that no longer exists — unreachable by any code path, and one more accumulates per removed share.\n\nOBSERVED 2026-08-06 in the simulator: the test share was removed, and the NAS password remained in the simulator keychain afterwards.\n\nWHY IT MATTERS BEYOND TIDINESS: it is a credential the user believes they removed. 'Remove Share' says it deletes the share and all scanned tracks; a reasonable person reads that as removing what the app stored about that server. Leaving the password behind is a privacy expectation broken quietly, and it is the kind of thing that reads badly in an App Store review of a music app that asks for NAS credentials.\n\nFIX: delete the keychain entry alongside the row. Note deleteLibrarySourcesByHost removes several sources at once, so it needs the ids before the DELETE, not after.\n\nPairs with bNoCredentialReuseOnReAddingServer — together they mean the password is both kept when it should not be, and unusable when it would help.",
+          "priority": "Medium",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-08-06",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bNoCredentialReuseOnReAddingServer",
+          "name": "Re-adding a server always asks for credentials again, even though they were saved",
+          "desc": "AddSMBSourceView only ever WRITES credentials — the single KeychainCredentialStore reference in the file is a set(). Nothing looks up an existing credential for a host, so adding a share on a server already authenticated to always prompts for username and password.\n\nTOM'S OBSERVATION, 2026-08-06, and the diagnosis follows it: 'why isn't this pulling credentials from keychain. i asked for them to be saved. in the app on my phone, the credentials are preloaded. not 100% sure if that is the case if all shares are removed though.' Exactly right. On the phone they appear preloaded because a source ROW still exists and the UI populates from it. Remove every share for that server and the link is gone — there is no lookup by host to fall back on. Not a simulator difference; the phone behaves identically once the last share is removed.\n\nUSER IMPACT: re-adding a share means retyping a NAS password the app was explicitly asked to save. Also relevant to mounting a SECOND share on the same server — that flow has the credentials already and should not ask twice.\n\nFIX: look up an existing credential by host and pre-fill, with the user able to override. Depends on keychain entries being addressable by host rather than only by sourceId, which is worth checking — and on bKeychainOrphanedOnShareDelete, since stale entries must not be offered for a server whose shares were deliberately removed.",
+          "priority": "Medium",
+          "complexity": "M",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-08-06",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bArtistsOrphanedOnShareDelete",
+          "name": "Remove Share cleans up less than Clear Local Library — two paths, one more thorough",
+          "desc": "Measured 2026-08-06 before and after removing the test share: tracks 95 -> 0, albums 8 -> 0, sources 1 -> 0, artists 41 -> 41.\n\nTHE POINT IS THE COMPARISON, not the orphaned rows on their own. SorrivaDatabase.clearLocalLibrary() — behind Settings > Clear Local Library — deletes track_artists, artist_albums, tracks, albums, ARTISTS, folder_stats and scan_skips, AND removes cached artwork files, AND resets the sources' scan state while keeping the sources themselves. Remove Share deletes the source row and its tracks and albums, and stops there.\n\nTwo paths expressing the same intent — forget this indexed media — with one materially more thorough. That is drift rather than a decision, and the fix is to have Remove Share go through the same cleanup scoped to one source rather than maintain a second, weaker implementation.\n\nAlso leaves cached artwork files behind, which clearLocalLibrary explicitly deletes with the comment 'prevents orphaned files accumulating after each clear'. Same reasoning applies here and was not applied.\n\nSEPARATE DESIGN QUESTION, ANSWERED: Tom asked whether stations should be dropped too — 'shouldn't you go back to a zero media saved?' Concluded no, and no change made. Both operations are about the LOCAL library; stations are a different service and survive correctly. A true factory reset including stations would be a distinct action and does not exist today.",
+          "priority": "Low",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-08-06",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bTrackCountIgnoresRetryResolved",
+          "name": "Share track count under-reports by the number of tracks retry recovered",
+          "desc": "The UI showed '93 tracks' while the database held 95 rows. The difference is exactly the 2 tracks the retry pass resolved: library_sources.trackCount is stamped at the end of the main pass and never updated when retry succeeds. Ledger for the same scan: written 101, resolved 2.\n\nSo the count is wrong by precisely the number of files the retry machinery rescued — the one number that most directly demonstrates the retry working. On an 11.6k library where retry recovered 419 files, the shortfall would be substantial and would look like the scan having silently lost tracks.\n\nFIX: recompute trackCount after the retry pass completes, or derive it rather than caching it. Found 2026-08-06 by comparing the app's displayed count with its own database.",
+          "priority": "Medium",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-08-06",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fAutoScanOnShareAdd",
+          "name": "Scan automatically when a share is added, with somewhere to watch and pause it",
+          "desc": "Adding a share has exactly one purpose — getting its music into the library — so the confirmation dialog asks a question with only one sensible answer. Roon calls this Storage and never makes you kick off a scan of a source you just added; the only actions are disable, edit and delete. Do the same: the scan starts on save, with no prompt.\n\nThe blocker is that this is not just deleting the dialog. The dialog carries real information — a large library takes hours, the app must stay in the foreground, and auto-lock is suppressed while it runs. That warning has to move somewhere the user can actually see it, which means a place to watch the scan and pause it. That UI does not exist yet, which is why this is logged rather than built.\n\nA modal shown once and dismissed in five seconds is a worse home for that warning than a progress view that is true the whole time the scan runs. The scan ledger already survives interruption — it resumed cleanly through a hard crash on 2026-08-06 — so pausing and resuming is safe.\n\nThis supersedes bScanConfirmDialogLostDuringAddNavigation: with no dialog there is nothing to lose. Manual rescan should survive as a recovery action, demoted rather than primary.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-08-06",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fSourceAvailability",
+          "name": "Mark a share's albums and tracks unavailable when the app can see the share is offline",
+          "desc": "A manual disable switch is only worth having if it makes the tracks unavailable in the library, rather than letting the user tap play and get an error on a path that is temporarily gone. And the user should not have to set it — the app can tell that a share is unreachable and mark its albums and tracks unavailable itself. Derived state, not a flag someone has to remember to flip.\n\nThe catch that must not be rediscovered: the phone is not in the audio path. Sonos pulls local files straight from the NAS over x-file-cifs, so 'my phone cannot reach the NAS' and 'this music cannot play' are different facts. On cellular away from home the phone can reach nothing, while the speakers at home play that library perfectly. Deriving availability from what the phone can reach would grey out the entire local library every time the user leaves the house, and break remote control of home playback.\n\nSo the rule is conditional. On the home network: probe the share, and if it is unreachable mark its albums and tracks unavailable. Off the home network: mark nothing — there is no evidence, and the speakers most likely do have access; let a failed play be the rare fallback.\n\nTwo details that decide whether it is pleasant or irritating. Hysteresis: several consecutive failures to go unavailable, one success to come back, so a two-second Wi-Fi hiccup does not grey out eleven thousand tracks. And dim rather than hide — a library that vanishes reads as data loss. The play control should be disabled rather than tappable-then-failing, since stopping the error is the entire point.\n\nThis removes the need for a manual disable action altogether, leaving edit and delete. Mostly presentation work, so it belongs with the Storage/Library restructure rather than ahead of it.",
+          "priority": "Normal",
+          "complexity": "L",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-08-06",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bScanConfirmDialogLostDuringAddNavigation",
+          "name": "Scan confirmation dialog is destroyed by the add-share navigation, so a new share is never scanned",
+          "desc": "Adding a share queues a scan and raises a confirmation alert, but the alert appears for under a second and dies untouched — so the share is added and never scanned. Manual rescan from the share menu works, which is the only reason the condition is survivable.\n\nMeasured on 2026-08-06 in the simulator. The add flow pops the add screen and pushes the share detail screen 0.1s later, and the detail view is created twice 43ms apart during that transition. The alert was bound to a @State flag on that view, so it went down with the instance that owned it.\n\nBinding the alert to the coordinator instead was tried and did not fix it, for a reason worth recording: SwiftUI does not merely drop the presentation when the host view churns, it writes false back into whatever the alert is bound to. The setter read that as a user dismissal and cleared the queued scan — the same failure with a different victim, and slightly worse, because it also removed the accidental recovery where the pending scan re-raised the alert on a later visit to the screen.\n\nAny real fix needs two things: a setter that ignores false, since a SwiftUI alert cannot be dismissed except by a button, and a host view that is not being rebuilt mid-presentation. Superseded by fAutoScanOnShareAdd — with the scan starting automatically there is no dialog to lose, which is a better outcome than making this one survive a navigation transition.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-08-06",
+          "completedAt": null,
+          "requires": []
         }
       ]
     },
@@ -2450,13 +2534,13 @@
         {
           "id": "fSimulatorUITestHarness",
           "name": "Seeded iOS Simulator so UI behaviour can be verified without Tom's eyes",
-          "desc": "SPIKE PASSED 2026-08-06 — Tom confirmed the app running in the iOS Simulator SEES THE SONOS TOPOLOGY AND CONTROLS PLAYBACK. Media metadata is wrong, as expected, because that install has no library. Discovery was the one assumption worth doubting (multicast SSDP from a simulator); it works, so the approach is viable and only seeding remains.\n\nSEEDING — REVISED APPROACH, simpler than bundling. The simulator has its own persistent container, so set it up ONCE inside the simulator: add the NAS source, scan a small purpose-built test library. That produces a real database and a real artwork cache by the normal code path, with no export from Tom's phone and no library metadata committed to git. Snapshot the container afterwards so it can be restored if the simulator is erased. This also removes the 'must never ship to the App Store' problem by construction — nothing is added to the app target.\n\nTHIS IS THE ONE THAT TESTS THE APP, and where the effort belongs. Tom's framing on 2026-08-05: the Sonos scripts do not exercise Sorriva, so if only one of the two gets built, it is this.\n\nWHAT A TEST LOOKS LIKE: query the speaker for ground truth (transport, URI, queue, r:streamContent), read the simulator's screen for what the app claims (station name, track, artwork, playing state), assert they agree. Works in both directions — drive from the app and check the speaker received the right URI and queue shape, or start something via SOAP and check the app picks it up, which is the external-change path currently only tested when Tom happens to use the Sonos app.\n\nARTWORK IS A REQUIREMENT — it has TWO INDEPENDENT PATHS repeatedly confused for each other. Local album art comes from files on disk (artPathThumb/artPathFull); station art is a remote logo URL on the stations row. A harness blind to artwork misses exactly what happened this week: station art going nil after a transfer, and a station rendering the previous local album's cover because artAlbum stayed set while only albumName and artURL were patched (the mini player prefers artAlbum). Seeding via a real scan gives the local path for free; the stations rows must carry valid logo URLs to exercise the other.\n\nLIMITS: screen is read as a screenshot, so assertions are visual rather than string-exact — fine for 'Groove Salad' versus 'groovesalad-128-aac', not for exact-string checks unless accessibility identifiers are added. Audio quality, backgrounding and lock-screen behaviour stay out of reach. The simulator is a separate install whose state can diverge from the phone. Automated runs drive real speakers, so the nominated-zones guardrail applies.",
+          "desc": "SPIKE PASSED 2026-08-06 — Tom confirmed the app running in the iOS Simulator SEES THE SONOS TOPOLOGY AND CONTROLS PLAYBACK. Media metadata is wrong, as expected, because that install has no library. Discovery was the one assumption worth doubting (multicast SSDP from a simulator); it works, so the approach is viable and only seeding remains.\n\nSEEDING — REVISED APPROACH, simpler than bundling. The simulator has its own persistent container, so set it up ONCE inside the simulator: add the NAS source, scan a small purpose-built test library. That produces a real database and a real artwork cache by the normal code path, with no export from Tom's phone and no library metadata committed to git. Snapshot the container afterwards so it can be restored if the simulator is erased. This also removes the 'must never ship to the App Store' problem by construction — nothing is added to the app target.\n\nTHIS IS THE ONE THAT TESTS THE APP, and where the effort belongs. Tom's framing on 2026-08-05: the Sonos scripts do not exercise Sorriva, so if only one of the two gets built, it is this.\n\nWHAT A TEST LOOKS LIKE: query the speaker for ground truth (transport, URI, queue, r:streamContent), read the simulator's screen for what the app claims (station name, track, artwork, playing state), assert they agree. Works in both directions — drive from the app and check the speaker received the right URI and queue shape, or start something via SOAP and check the app picks it up, which is the external-change path currently only tested when Tom happens to use the Sonos app.\n\nARTWORK IS A REQUIREMENT — it has TWO INDEPENDENT PATHS repeatedly confused for each other. Local album art comes from files on disk (artPathThumb/artPathFull); station art is a remote logo URL on the stations row. A harness blind to artwork misses exactly what happened this week: station art going nil after a transfer, and a station rendering the previous local album's cover because artAlbum stayed set while only albumName and artURL were patched (the mini player prefers artAlbum). Seeding via a real scan gives the local path for free; the stations rows must carry valid logo URLs to exercise the other.\n\nLIMITS: screen is read as a screenshot, so assertions are visual rather than string-exact — fine for 'Groove Salad' versus 'groovesalad-128-aac', not for exact-string checks unless accessibility identifiers are added. Audio quality, backgrounding and lock-screen behaviour stay out of reach. The simulator is a separate install whose state can diverge from the phone. Automated runs drive real speakers, so the nominated-zones guardrail applies.\n\nBUILT AND VERIFIED 2026-08-06. tools/sonos.py (discovery, transport, queue, registered shares, volume, and a testing() context that enforces the nominated zone list, mutes, and restores prior state even if the body throws), tools/sim.py (locates the app container by metadata rather than a remembered UUID, reads the database READ-ONLY so a running app cannot be corrupted, reads the log, snapshots container and device keychain — the keychain is device-level, so a container-only copy silently loses the NAS credentials), tools/check.py (speakers and app side by side, snapshot/restore). Guardrails live in tools/test-zones.json rather than in memory. Test library seeded in the simulator by a real scan: 95 tracks, 8 albums, artwork on all 8.\n\nProved itself immediately by catching a UI defect no unit test could see — the scan confirmation dialog being destroyed by the add-share navigation (bScanConfirmDialogLostDuringAddNavigation). The regression suites that run ON this harness are fHarnessRegressionScripts; the instrument is done, the tests that use it are not.",
           "priority": "High",
           "complexity": "M",
           "tag": "feature",
-          "done": false,
+          "done": true,
           "createdAt": "2026-08-05",
-          "completedAt": null,
+          "completedAt": "2026-08-06",
           "requires": []
         },
         {
@@ -2506,6 +2590,20 @@
           "createdAt": "2026-08-06",
           "completedAt": "2026-08-06",
           "requires": []
+        },
+        {
+          "id": "fHarnessRegressionScripts",
+          "name": "Regression suites that actually run on the simulator harness",
+          "desc": "The harness shipped without anything to run on it. It is an instrument with no tests, which means the code it was built to protect is still protected by Tom looking at his phone.\n\nFIRST SUITE — the playback matrix, in Tom's own words from the 2026-08-04 close: station to station, station to localplay, localplay to station, localplay to localplay, plus last-played restored after ungrouping. He ran that by hand. It is the regression surface for the entire PlaybackStore rearchitecture (phases A through E, v0.0.57 to v0.0.61) and nothing automated covers any of it. Each case follows the harness pattern: drive the app, query the speaker for ground truth, assert they agree.\n\nSECOND SUITE — the scan flows. Add a share, scan, verify track and album counts against the database, and verify the resume path across an interrupted scan. This is the path that produced bScanConfirmDialogLostDuringAddNavigation, and the one where a silent regression is least visible.\n\nWhat this buys is the ability to re-verify a week of playback work in minutes instead of an evening of manual checking. Runs drive real speakers, so the nominated-zones guardrail in tools/test-zones.json applies; volume is held at zero, which is what makes the hour irrelevant.\n\nNote for velocity accounting: writing these earns their size, but EXECUTING them does not — test-running hours land in owner_hrs with no counterpart on the other side of the equation. Worth settling once whether the traditional-hours baseline (XS=3 through XL=80) is build-only or build-plus-QA, since that is what decides whether both sides are captured in aggregate.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-08-06",
+          "completedAt": null,
+          "requires": [
+            "fSimulatorUITestHarness"
+          ]
         }
       ]
     },
