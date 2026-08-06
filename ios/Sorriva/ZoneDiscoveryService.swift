@@ -342,7 +342,6 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                     z.elapsedSeconds   = previous.elapsedSeconds
                     z.durationSeconds  = previous.durationSeconds
                     z.dbDeviceId       = previous.dbDeviceId
-                    z.playingUntil     = previous.playingUntil
                     // fresh.idleState, fresh.groupMembers, fresh.name, fresh.host
                     // are authoritative from THIS topology read — kept as-is.
                     return z
@@ -432,9 +431,12 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             if let idx = zones.firstIndex(where: { $0.id == id }) {
                 let effectivePlaying = playing && !zones[idx].idleState
 
-                // Honor grace period — if we just started playing, don't override with STOPPED
-                let inGracePeriod = zones[idx].playingUntil.map { Date() < $0 } ?? false
-                let finalPlaying = inGracePeriod ? (effectivePlaying || zones[idx].isPlaying) : effectivePlaying
+                // Transport optimism is no longer applied here. PlaybackStore owns it:
+                // it holds the intent and the reducer decides what a zone DISPLAYS, so
+                // this field can simply report what Sonos said. Keeping a second copy of
+                // that judgement in the poll path is what let the two drift — the windows
+                // had already diverged to 5s in one call site and 6s in five others.
+                let finalPlaying = effectivePlaying
 
                 let wasPlaying = zones[idx].isPlaying
 
@@ -456,12 +458,14 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                     sLog("ZONES: volume debounce active for \(zones[idx].name) — skipping poll update (cmd age: \(String(format: "%.1f", volumeCommandTimes[zid].map { Date().timeIntervalSince($0) } ?? -1))s)")
                 }
 
-                // Clear stale track info when zone stops (only outside grace period)
-                if !finalPlaying && !inGracePeriod {
+                // Clear stale track info when a zone stops — but not while one of our own
+                // commands is still settling, or a transient STOPPED mid-command would wipe
+                // the track the zone is about to resume. Same question as before, now asked
+                // of the store rather than of a duplicate field on the zone.
+                if !finalPlaying && !PlaybackStore.shared.hasFreshTransportIntent(zoneID: id) {
                     zones[idx].currentTrack = ""
                     zones[idx].currentArtist = ""
                     zones[idx].isHDMI = false
-                    zones[idx].playingUntil = nil
                 }
             }
         }
@@ -912,7 +916,6 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         if let idx = zones.firstIndex(where: { $0.id == zone.id }) {
             zones[idx].idleState = false
             PlaybackStore.shared.declareTransport(zoneID: zone.id, playing: true)
-            zones[idx].playingUntil = Date().addingTimeInterval(6)
         }
         Task {
             print("SORRIVA: Fetching stream URL for station \(streamID)")
@@ -927,7 +930,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
 
     func persistStationPlay(zone: SonosZone, stationId: Int, stationName: String, logoURL: String, streamURL: String) {
         // Optimistic update — set zone state immediately in memory
-        // playingUntil gives a 5-second grace period so fetchTransportStates
+        // The transport intent above gives a grace period so fetchTransportStates
         // doesn't immediately override with STOPPED during Sonos startup
         if let idx = zones.firstIndex(where: { $0.id == zone.id }) {
             zones[idx].isPlaying = true
@@ -947,7 +950,6 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             zones[idx].currentArtist = ""
             zones[idx].isHDMI = false
             PlaybackStore.shared.declareTransport(zoneID: zone.id, playing: true)
-            zones[idx].playingUntil = Date().addingTimeInterval(5)
             // Force idleState false immediately — stale topology IdleState for a zone's
             // first playback this session would otherwise cause a false "stopped" report
             // once the grace period above expires, until the next periodic topology refresh.
@@ -1246,9 +1248,9 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         guard let zone = zones.first(where: { $0.id == zoneID }) else { return }
         let isPlaying = zone.isPlaying
         // Optimistic UI
-        // Declared in BOTH directions, unlike playingUntil below, which is only set on
-        // idle -> playing. A pause the user just issued deserves the same protection from
-        // a stale poll as a play does; without it the button appears to bounce back.
+        // Declared in BOTH directions. The playingUntil field this replaced was only set
+        // on idle -> playing, so a pause the user issued had no protection from a stale
+        // poll and the button appeared to bounce back.
         PlaybackStore.shared.declareTransport(zoneID: zoneID, playing: !isPlaying)
         if let idx = zones.firstIndex(where: { $0.id == zoneID }) {
             zones[idx].isPlaying = !isPlaying
@@ -1258,7 +1260,6 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                 // would otherwise cause a false "stopped" report once raw transport
                 // catches up, until the next periodic topology refresh corrects it.
                 zones[idx].idleState = false
-                zones[idx].playingUntil = Date().addingTimeInterval(6)
             }
         }
         Task {
@@ -1321,7 +1322,6 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
     func setPlaybackGrace(zoneID: String, duration: TimeInterval = 6.0) {
         if let idx = zones.firstIndex(where: { $0.id == zoneID }) {
             PlaybackStore.shared.declareTransport(zoneID: zoneID, playing: true)
-            zones[idx].playingUntil = Date().addingTimeInterval(duration)
             // Same rationale as persistStationPlay — clear any stale idle flag now
             // rather than waiting for the next periodic topology refresh to catch up.
             zones[idx].idleState = false
@@ -1472,23 +1472,24 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         print("SORRIVA: groupZone — host map: \(addHostMap)")
 
         // Same protection as persistStationPlay/setPlaybackGrace/togglePlayPause —
-        // clear stale idleState and start a grace period on the coordinator and every
-        // zone being added, BEFORE the SOAP calls fire. Without this, the regular
-        // periodic poll loop (running independently the whole time) can catch Sonos's
-        // own brief internal transition mid-handshake and correctly-but-visibly render
-        // it as idle for a moment, even though the group action is succeeding —
-        // exactly the "everything flashes idle then bounces back" blip.
-        let graceUntil = Date().addingTimeInterval(6)
+        // clear stale idleState and declare transport on the coordinator and every zone
+        // being added, BEFORE the SOAP calls fire. Without this, the regular periodic poll
+        // loop (running independently the whole time) can catch Sonos's own brief internal
+        // transition mid-handshake and correctly-but-visibly render it as idle for a
+        // moment, even though the group action is succeeding — exactly the "everything
+        // flashes idle then bounces back" blip.
+        //
+        // Grouping runs ~2s, comfortably inside the grace window, so unlike transfer and
+        // local playback these declarations do not need refreshing after the fact. That
+        // was measured, not assumed (see bTransportOptimismScalesWithQueueLength).
         if let idx = zones.firstIndex(where: { $0.id == coordinatorID }) {
             zones[idx].idleState = false
             PlaybackStore.shared.declareTransport(zoneID: coordinatorID, playing: true)
-            zones[idx].playingUntil = graceUntil
         }
         for id in addZoneIDs {
             if let idx = zones.firstIndex(where: { $0.id == id }) {
                 zones[idx].idleState = false
                 PlaybackStore.shared.declareTransport(zoneID: id, playing: true)
-                zones[idx].playingUntil = graceUntil
             }
         }
 
@@ -1663,7 +1664,6 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             zones[idx].isPlaying = true
             zones[idx].idleState = false
             PlaybackStore.shared.declareTransport(zoneID: toZoneID, playing: true)
-            zones[idx].playingUntil = Date().addingTimeInterval(6)
         }
 
         Task {
@@ -2168,7 +2168,6 @@ struct SonosZone: Identifiable, Equatable {
         lhs.idleState == rhs.idleState &&
         lhs.capabilities == rhs.capabilities &&
         lhs.groupMembers == rhs.groupMembers
-        // playingUntil intentionally excluded — internal timing state, not display state
     }
     let id: String          // RINCON UUID of coordinator
     let name: String        // Zone name e.g. "Living Room"
@@ -2192,7 +2191,6 @@ struct SonosZone: Identifiable, Equatable {
     var idleState: Bool = false     // IdleState from topology — true = idle even if transport says PLAYING
     var capabilities: [String] = ["eq", "volume", "mute"]  // Loaded from DB devices table
     var dbDeviceId: String = ""     // Sorriva UUID from devices table
-    var playingUntil: Date? = nil   // Grace period — ignore transport STOPPED within 5s of station play
     var groupMembers: [SonosGroupMember] = [] // Non-coordinator zones in this playback group
 
     // Shim adapters for ZonesView compatibility

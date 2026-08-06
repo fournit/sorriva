@@ -113,9 +113,20 @@ final class PlaybackStore: ObservableObject {
     /// The app's optimistic transport claims, by zone. Written when a command is issued,
     /// honoured by the reducer only while inside `declarationGrace`.
     ///
-    /// Step 2 of replacing `SonosZone.playingUntil`: this is populated and published but
-    /// the reducer does not read it yet, so behaviour is unchanged until step 3.
+    /// This fully replaced `SonosZone.playingUntil`, which is now gone.
     @Published private(set) var transportIntents: [String: TransportIntent] = [:]
+
+    /// Is there a transport command in flight for this zone — i.e. issued within the
+    /// grace window and not yet confirmed by a poll?
+    ///
+    /// Exists so `ZoneDiscoveryService` can stop clearing a zone's raw track fields while
+    /// one of our own commands is still settling. That guard used to read
+    /// `SonosZone.playingUntil`; this is the same question asked of the store, which now
+    /// owns it.
+    func hasFreshTransportIntent(zoneID: String) -> Bool {
+        guard let intent = transportIntents[zoneID] else { return false }
+        return Date().timeIntervalSince(intent.declaredAt) < PlaybackStateReducer.declarationGrace
+    }
 
     /// Record that the app has just told a zone to start or stop.
     ///

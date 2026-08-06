@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.62 - Xcode synchronized folders (67 files, no more manual project edits); phantom pause after transfer fixed and every other optimism window audited",
-  "version": "0.0.62",
+  "message": "v0.0.63 - phase E complete: playingUntil retired, PlaybackStore rearchitecture finished",
+  "version": "0.0.63",
   "db_migrate": false
 }
