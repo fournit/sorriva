@@ -49,18 +49,24 @@ final class PlaybackStore: ObservableObject {
 
         // Reduce whenever any source updates — raw zone state, detected context, a
         // current declaration, or the last-playing record.
+        // Nested rather than CombineLatest5 — the operator stops at four. Transport
+        // intents are folded in so a command alone re-reduces, without waiting for the
+        // next poll to publish zones.
         Publishers.CombineLatest4(
             discovery.$zones,
             playbackContext.$contexts,
             $declarations,
             $lastDeclarations
         )
+        .combineLatest($transportIntents)
         .receive(on: DispatchQueue.main)
-        .sink { [weak self] sonosZones, contexts, declarations, lastDeclarations in
+        .sink { [weak self] content, intents in
+            let (sonosZones, contexts, declarations, lastDeclarations) = content
             self?.reduce(sonosZones: sonosZones,
                          contexts: contexts,
                          declarations: declarations,
-                         lastDeclarations: lastDeclarations)
+                         lastDeclarations: lastDeclarations,
+                         transportIntents: intents)
         }
         .store(in: &cancellables)
     }
@@ -102,6 +108,21 @@ final class PlaybackStore: ObservableObject {
         // behind rather than losing it, which is what a stopped zone renders.
         lastDeclarations[zoneID] = declaration
         persistLastPlaying(declaration, zoneID: zoneID)
+    }
+
+    /// The app's optimistic transport claims, by zone. Written when a command is issued,
+    /// honoured by the reducer only while inside `declarationGrace`.
+    ///
+    /// Step 2 of replacing `SonosZone.playingUntil`: this is populated and published but
+    /// the reducer does not read it yet, so behaviour is unchanged until step 3.
+    @Published private(set) var transportIntents: [String: TransportIntent] = [:]
+
+    /// Record that the app has just told a zone to start or stop.
+    ///
+    /// Use this for anything that changes transport — play, pause, station start, local
+    /// play, transfer, grouping — including the cases that make no claim about content.
+    func declareTransport(zoneID: String, playing: Bool) {
+        transportIntents[zoneID] = TransportIntent(isPlaying: playing, declaredAt: Date())
     }
 
     /// Rebuild `lastDeclarations` from disk. Called once at launch so every zone shows
@@ -198,11 +219,13 @@ final class PlaybackStore: ObservableObject {
     private func reduce(sonosZones: [SonosZone],
                         contexts: [String: PlaybackContext],
                         declarations: [String: PlaybackDeclaration],
-                        lastDeclarations: [String: PlaybackDeclaration]) {
+                        lastDeclarations: [String: PlaybackDeclaration],
+                        transportIntents: [String: TransportIntent]) {
         zones = PlaybackStateReducer.reduce(sonosZones: sonosZones,
                                             contexts: contexts,
                                             declarations: declarations,
                                             lastDeclarations: lastDeclarations,
+                                            transportIntents: transportIntents,
                                             previous: zones)
     }
 }
@@ -326,6 +349,7 @@ enum PlaybackStateReducer {
                        contexts: [String: PlaybackContext],
                        declarations: [String: PlaybackDeclaration] = [:],
                        lastDeclarations: [String: PlaybackDeclaration] = [:],
+                       transportIntents: [String: TransportIntent] = [:],
                        previous: [ZonePlaybackSnapshot] = [],
                        now: Date = Date()) -> [ZonePlaybackSnapshot] {
         sonosZones.map { zone in
@@ -336,6 +360,20 @@ enum PlaybackStateReducer {
                                      previous: previous.first(where: { $0.id == zone.id }),
                                      now: now)
             let isLocal = ctx?.isLocal == true
+
+            // Transport optimism. For a short window after the app issues a command, its
+            // claim outranks polling — otherwise a zone reads as idle between the command
+            // and Sonos confirming it, and the card flickers.
+            //
+            // Bounded deliberately: past the window Sonos wins, so a command that silently
+            // failed cannot leave a zone permanently claiming to play. Applied ONLY to
+            // transport here; content optimism is the declaration's job and already
+            // handled in resolveContent.
+            let intent = transportIntents[zone.id]
+            let intentIsFresh = intent.map {
+                now.timeIntervalSince($0.declaredAt) < declarationGrace
+            } ?? false
+            let isPlaying = intentIsFresh ? (intent?.isPlaying ?? zone.isPlaying) : zone.isPlaying
 
             // Display state — always from PlaybackContextService.
             // PlaybackStore is the single authority: one path for all sources.
@@ -357,7 +395,7 @@ enum PlaybackStateReducer {
                 id:              zone.id,
                 name:            zone.name,
                 host:            zone.host,
-                isPlaying:       zone.isPlaying,
+                isPlaying:       isPlaying,
                 volume:          zone.volume,
                 isHDMI:          zone.isHDMI,
                 idleState:       zone.idleState,
@@ -372,7 +410,7 @@ enum PlaybackStateReducer {
                 artURL:          artURL,
                 groupMembers:    zone.groupMembers,
                 coordinatorID:   nil,
-                isAvailable:     !zone.idleState || zone.isPlaying
+                isAvailable:     !zone.idleState || isPlaying
             )
         }
     }

@@ -87,6 +87,25 @@ struct PlaybackDeclaration {
     }
 }
 
+// MARK: - TransportIntent
+// The app's optimistic claim about a zone's TRANSPORT — playing or not — for the short
+// window between issuing a command and Sonos confirming it.
+//
+// Distinct from PlaybackDeclaration, which claims CONTENT. The two are not co-extensive:
+// pausing a zone changes transport while making no claim about what is loaded, and
+// grouping changes topology without changing content. That is why this cannot simply be
+// folded into the declaration.
+//
+// Replaces `SonosZone.playingUntil`, which recorded the same fact in the zone struct —
+// one truth in two places, with the drift that always follows: the grace was 5s in one
+// call site and 6s in the others, against a declarationGrace of 5, and nobody chose that.
+struct TransportIntent {
+    /// What the app asked the zone to do.
+    let isPlaying: Bool
+    /// When it was asked. Bounds the optimism window, using `declarationGrace`.
+    let declaredAt: Date
+}
+
 // MARK: - PendingPlaybackCommand
 // Optimistic command state — set when a command is issued, cleared on confirmation.
 

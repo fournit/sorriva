@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.59 - checkpoint: local playback fixed (short host + queue single tracks), phase D complete, reducer test suite, Sonos playback contract as single authority",
-  "version": "0.0.59",
+  "message": "v0.0.60 - checkpoint: transport optimism moved into PlaybackStore (steps 1-4), togglePlayPause pause-grace fixed, both mechanisms live pending soak",
+  "version": "0.0.60",
   "db_migrate": false
 }

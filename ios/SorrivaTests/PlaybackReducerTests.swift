@@ -305,6 +305,83 @@ final class PlaybackReducerTests: XCTestCase {
         XCTAssertEqual(snap.durationSeconds, 320)
     }
 
+    // MARK: - Transport optimism
+    // Replaces SonosZone.playingUntil. The app claims a zone's transport for a short
+    // window after issuing a command, so the card does not flash idle while Sonos catches
+    // up. Distinct from a content declaration: pausing changes transport and claims
+    // nothing about content.
+
+    private func intent(_ playing: Bool, ageSeconds: TimeInterval = 0) -> TransportIntent {
+        TransportIntent(isPlaying: playing, declaredAt: now.addingTimeInterval(-ageSeconds))
+    }
+
+    private func reduceT(_ zones: [SonosZone],
+                         intents: [String: TransportIntent],
+                         contexts: [String: PlaybackContext] = [:],
+                         previous: [ZonePlaybackSnapshot] = []) -> ZonePlaybackSnapshot {
+        PlaybackStateReducer.reduce(sonosZones: zones, contexts: contexts,
+                                    transportIntents: intents, previous: previous, now: now)[0]
+    }
+
+    /// The window exists so a zone doesn't read as idle between our command and Sonos
+    /// confirming it — the transport equivalent of the declaration grace.
+    func testFreshPlayIntentHoldsZonePlayingWhileSonosStillSaysStopped() {
+        let z = zone(playing: false, uri: iHeart)
+
+        let snap = reduceT([z], intents: ["Z1": intent(true, ageSeconds: 1)],
+                           contexts: ["Z1": context(album: "Lost 80s")])
+
+        XCTAssertTrue(snap.isPlaying, "our own command holds until Sonos catches up")
+    }
+
+    /// Optimism is bounded. Past the window Sonos wins, or a command that silently failed
+    /// would leave a zone permanently claiming to play.
+    func testExpiredPlayIntentYieldsToSonos() {
+        let z = zone(playing: false, uri: iHeart)
+
+        let snap = reduceT([z], intents: ["Z1": intent(true, ageSeconds: 30)],
+                           contexts: ["Z1": context(album: "Lost 80s")])
+
+        XCTAssertFalse(snap.isPlaying, "expired optimism must not outlive the truth")
+    }
+
+    /// Pause is the case that cannot be folded into a content declaration — it changes
+    /// transport and says nothing about what is loaded.
+    func testFreshPauseIntentHoldsZoneStoppedWhileSonosStillSaysPlaying() {
+        let z = zone(playing: true, uri: iHeart)
+
+        let snap = reduceT([z], intents: ["Z1": intent(false, ageSeconds: 1)],
+                           contexts: ["Z1": context(album: "Lost 80s")])
+
+        XCTAssertFalse(snap.isPlaying, "a pause we issued holds too, not just a play")
+    }
+
+    /// No claim means no interference: Sonos's value passes through untouched.
+    func testNoIntentLeavesSonosTransportUntouched() {
+        let playing = reduceT([zone(playing: true, uri: iHeart)], intents: [:],
+                              contexts: ["Z1": context(album: "Lost 80s")])
+        let stopped = reduceT([zone(playing: false, uri: iHeart)], intents: [:],
+                              contexts: ["Z1": context(album: "Lost 80s")])
+
+        XCTAssertTrue(playing.isPlaying)
+        XCTAssertFalse(stopped.isPlaying)
+    }
+
+    /// Intents are per zone — one zone's command must not move another.
+    func testTransportIntentDoesNotLeakBetweenZones() {
+        let a = zone("A", name: "Patio", playing: false, uri: somaFM)
+        let b = zone("B", name: "Master Bedroom", playing: false, uri: iHeart)
+
+        let out = PlaybackStateReducer.reduce(
+            sonosZones: [a, b],
+            contexts: ["A": context(album: "Bossa Beyond"), "B": context(album: "Lost 80s")],
+            transportIntents: ["A": intent(true, ageSeconds: 1)],
+            now: now)
+
+        XCTAssertTrue(out.first(where: { $0.id == "A" })!.isPlaying)
+        XCTAssertFalse(out.first(where: { $0.id == "B" })!.isPlaying, "B made no claim")
+    }
+
     // MARK: - Isolation
 
     /// Zones must not borrow each other's content. Two zones on the same station with

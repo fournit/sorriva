@@ -911,6 +911,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         // report a false "stopped" while topology catches up on this zone's first play.
         if let idx = zones.firstIndex(where: { $0.id == zone.id }) {
             zones[idx].idleState = false
+            PlaybackStore.shared.declareTransport(zoneID: zone.id, playing: true)
             zones[idx].playingUntil = Date().addingTimeInterval(6)
         }
         Task {
@@ -948,6 +949,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             zones[idx].currentTrack = ""
             zones[idx].currentArtist = ""
             zones[idx].isHDMI = false
+            PlaybackStore.shared.declareTransport(zoneID: zone.id, playing: true)
             zones[idx].playingUntil = Date().addingTimeInterval(5)
             // Force idleState false immediately — stale topology IdleState for a zone's
             // first playback this session would otherwise cause a false "stopped" report
@@ -1251,6 +1253,10 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         guard let zone = zones.first(where: { $0.id == zoneID }) else { return }
         let isPlaying = zone.isPlaying
         // Optimistic UI
+        // Declared in BOTH directions, unlike playingUntil below, which is only set on
+        // idle -> playing. A pause the user just issued deserves the same protection from
+        // a stale poll as a play does; without it the button appears to bounce back.
+        PlaybackStore.shared.declareTransport(zoneID: zoneID, playing: !isPlaying)
         if let idx = zones.firstIndex(where: { $0.id == zoneID }) {
             zones[idx].isPlaying = !isPlaying
             if !isPlaying {
@@ -1321,6 +1327,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
     /// from showing the zone as inactive. Call before initiating playback.
     func setPlaybackGrace(zoneID: String, duration: TimeInterval = 6.0) {
         if let idx = zones.firstIndex(where: { $0.id == zoneID }) {
+            PlaybackStore.shared.declareTransport(zoneID: zoneID, playing: true)
             zones[idx].playingUntil = Date().addingTimeInterval(duration)
             // Same rationale as persistStationPlay — clear any stale idle flag now
             // rather than waiting for the next periodic topology refresh to catch up.
@@ -1498,11 +1505,13 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         let graceUntil = Date().addingTimeInterval(6)
         if let idx = zones.firstIndex(where: { $0.id == coordinatorID }) {
             zones[idx].idleState = false
+            PlaybackStore.shared.declareTransport(zoneID: coordinatorID, playing: true)
             zones[idx].playingUntil = graceUntil
         }
         for id in addZoneIDs {
             if let idx = zones.firstIndex(where: { $0.id == id }) {
                 zones[idx].idleState = false
+                PlaybackStore.shared.declareTransport(zoneID: id, playing: true)
                 zones[idx].playingUntil = graceUntil
             }
         }
@@ -1677,6 +1686,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         if let idx = zones.firstIndex(where: { $0.id == toZoneID }) {
             zones[idx].isPlaying = true
             zones[idx].idleState = false
+            PlaybackStore.shared.declareTransport(zoneID: toZoneID, playing: true)
             zones[idx].playingUntil = Date().addingTimeInterval(6)
         }
 
