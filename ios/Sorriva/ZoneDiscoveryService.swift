@@ -1719,10 +1719,23 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             await ZoneDiscoveryService.sendTransportAction(host: destHost, action: "Play")
             sLog("TRANSFER: Step 3 — Play sent to \(destZone.name)")
 
-            // The steps above take roughly four seconds. Restart the declaration's
-            // grace window now, so it covers the period where Sonos is settling on the
-            // new coordinator rather than having been spent on the command sequence.
+            // The steps above take roughly four seconds. Restart BOTH optimism windows
+            // now, so they cover the period where Sonos is settling on the new coordinator
+            // rather than having been spent on the command sequence.
+            //
+            // Content and transport must both be refreshed. Refreshing only the content
+            // declaration — which is what this did when transport optimism first moved
+            // into the store — produced a phantom pause after every transfer: the
+            // transport intent was declared before the SOAP sequence began, and a measured
+            // transfer takes ~5.2s against a 5s declarationGrace, so the intent had already
+            // expired a quarter-second BEFORE Play was sent. The zone then read whatever
+            // Sonos reported mid-handover, which is briefly not-playing.
+            //
+            // It went unnoticed until now because SonosZone.playingUntil used +6s and
+            // covered the gap by ~0.7s. That field is being retired (phase E step 5), so
+            // this must stand on its own.
             PlaybackStore.shared.touchDeclaration(zoneID: toZoneID)
+            PlaybackStore.shared.declareTransport(zoneID: toZoneID, playing: true)
 
             // A zone_state write used to sit here, mirroring what the destination now
             // plays. PlaybackStore.declare already persists that to zone_last_playing —

@@ -1040,6 +1040,18 @@
           "createdAt": "2026-08-01",
           "completedAt": null,
           "requires": []
+        },
+        {
+          "id": "fLibraryDataQualityAudit",
+          "name": "Catalogue the library data-quality issues seen in the full scan - currently anecdotal",
+          "desc": "PLACEHOLDER, deliberately. Tom observed several data-quality problems during the 11,670-file full-library scan. None were catalogued, none were investigated, and the library has since been dropped — so they cannot be re-derived by looking. This entry exists so the BACKLOG is recorded even though its contents are not.\n\nOBSERVED, ANECDOTALLY — Tom's words: 'albums broken out over multiple entries, missing art, etc. never cataloged and never investigated so they are anecdotal at the moment.' Also unknown: how MULTI-DISC albums are handled, which needs the raw folder structure examined before anything can be said about it. Albums splitting into multiple entries and multi-disc handling may well be the same problem — a disc-per-folder layout producing one album row per folder — but that is a hypothesis, not a finding.\n\nTREAT AS UNVERIFIED. None of the above has been reproduced or measured. Acting on any of it before reproducing it would repeat the mistake that closed PlaybackStore phase C, where a behaviour was recorded as a defect from reading code rather than measuring, and three rounds of fixes were built on a wrong premise. Each item needs a repro against real files before it becomes a bug.\n\nFIRST STEP is not a fix. Rescan a library, then catalogue what is actually wrong with evidence — specific albums, specific tags, specific folder layouts — and split THAT into real defects. The scan-session ledger already accounts for every file, so the raw material for an audit exists; what is missing is a pass over the RESULT rather than the process.\n\nRelated existing items, which may turn out to be facets of this: bDuplicateAlbumDetection, bArtworkArtistQuery, fArtworkManualSearchUtility, fMusicBrainzCoverArt.",
+          "priority": "Medium",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-08-06",
+          "completedAt": null,
+          "requires": []
         }
       ]
     },
@@ -2306,13 +2318,13 @@
         {
           "id": "fXcodeSynchronizedSourceFolders",
           "name": "Move Swift sources into synchronized folders so new files are picked up automatically",
-          "desc": "67 Swift files sit at ios/ root and are listed individually in the Xcode project (74 explicit PBXFileReference entries). Only ios/Sorriva/ and ios/SorrivaTests/ are PBXFileSystemSynchronizedRootGroup folders, and nothing lives in them. Consequence: every new source file must be added to the project by hand or the build fails -- and it fails as a missing-symbol error that points at the call site rather than at the project file, so the cause is not obvious. This bit on 2026-08-04 when RadioServiceAdapter.swift was added for the per-service radio adapters; the build failed until Tom added the file manually.\n\nWORK: move the 67 files into the synchronized ios/Sorriva/ folder, strip their explicit references from project.pbxproj, and handle server/swift-config.json, which enumerates the file list and would go stale (regenerate or retire it). Mechanical, but it touches the project file, so it wants a clean tree and a verifying build.\n\nSEQUENCING: Tom deliberately tabled this on 2026-08-04 until PlaybackStore phase B was tested and working -- 'let's table the restructure until phase b is tested and working' -- which it now is. His reasoning for not deferring further: 'definitely better to do it sooner than later before the project grows larger.' Phases D and E both add files, and the UI work will add many, so the cost of waiting compounds. Do it on a clean tree at a known-good point rather than mid-feature.",
+          "desc": "67 Swift files sit at ios/ root and are listed individually in the Xcode project (74 explicit PBXFileReference entries). Only ios/Sorriva/ and ios/SorrivaTests/ are PBXFileSystemSynchronizedRootGroup folders, and nothing lives in them. Consequence: every new source file must be added to the project by hand or the build fails -- and it fails as a missing-symbol error that points at the call site rather than at the project file, so the cause is not obvious. This bit on 2026-08-04 when RadioServiceAdapter.swift was added for the per-service radio adapters; the build failed until Tom added the file manually.\n\nWORK: move the 67 files into the synchronized ios/Sorriva/ folder, strip their explicit references from project.pbxproj, and handle server/swift-config.json, which enumerates the file list and would go stale (regenerate or retire it). Mechanical, but it touches the project file, so it wants a clean tree and a verifying build.\n\nSEQUENCING: Tom deliberately tabled this on 2026-08-04 until PlaybackStore phase B was tested and working -- 'let's table the restructure until phase b is tested and working' -- which it now is. His reasoning for not deferring further: 'definitely better to do it sooner than later before the project grows larger.' Phases D and E both add files, and the UI work will add many, so the cost of waiting compounds. Do it on a clean tree at a known-good point rather than mid-feature.\n\nDONE 2026-08-06. All 67 files moved into ios/Sorriva/; 268 lines removed from project.pbxproj — exactly the predicted 67 x 4 (file reference, build file, group child, sources entry). Explicit references fell from 72 to 5, the remainder being the app product and packages. Verified that each file compiles EXACTLY ONCE: had the old references survived alongside the synchronized folder, every file would have built twice and the link would have failed on duplicate symbols. Git recorded all 67 as renames, so history is preserved. Tom confirmed the build succeeds in Xcode and on device — the check headless xcodebuild cannot make, since Xcode maintains its own index. server/swift-config.json, the retired packaging file list, is dead and its contents now wrong; removal pending Tom's word.",
           "priority": "Medium",
           "complexity": "M",
           "tag": "feature",
-          "done": false,
+          "done": true,
           "createdAt": "2026-08-04",
-          "completedAt": null,
+          "completedAt": "2026-08-06",
           "requires": []
         },
         {
@@ -2410,6 +2422,78 @@
           "done": true,
           "createdAt": "2026-08-05",
           "completedAt": "2026-08-05",
+          "requires": []
+        },
+        {
+          "id": "fSonosContractTestHarness",
+          "name": "Commit the Sonos diagnostic helpers so the technique is not rewritten each time",
+          "desc": "SCOPE DELIBERATELY REDUCED 2026-08-05 after Tom pushed back: 'sounds like live testing won't use the app? if that's the case then why bother.' He is right, and the original framing oversold this. These scripts do not test Sorriva at all — they test our ASSUMPTIONS about Sonos. Detection was never the problem; Tom notices broken playback in seconds.\n\nTHE REAL VALUE IS TRIAGE. What cost hours on 2026-08-05 was not noticing the fault but locating it: our code, the speakers, the NAS, or the network. Claude proposed and had disproved speaker model, share registration, NAS reachability, command timing, encoding, case, iOS flow limits and session exhaustion before measuring. A committed probe answers 'is the contract still true?' in about ten seconds — if yes the fault is ours, if no Sonos changed underneath us.\n\nSCOPE: commit the helper module already written during that session — SSDP discovery, SOAP call, Browse 'S:' for registered shares, read transport state, read a queue. Boilerplate written once instead of six times in one evening. NOT a scenario suite; build scenarios only if something actually asks for one.\n\nIf a scenario ever is built, capture-and-restore is mandatory: a probe track left playing on Workout for an hour was read as an album transfer landing there and corrupted a test result.\n\nNew top-level directory — needs Tom's approval on placement before anything lands.",
+          "priority": "Low",
+          "complexity": "S",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-08-05",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fSimulatorUITestHarness",
+          "name": "Seeded iOS Simulator so UI behaviour can be verified without Tom's eyes",
+          "desc": "SPIKE PASSED 2026-08-06 — Tom confirmed the app running in the iOS Simulator SEES THE SONOS TOPOLOGY AND CONTROLS PLAYBACK. Media metadata is wrong, as expected, because that install has no library. Discovery was the one assumption worth doubting (multicast SSDP from a simulator); it works, so the approach is viable and only seeding remains.\n\nSEEDING — REVISED APPROACH, simpler than bundling. The simulator has its own persistent container, so set it up ONCE inside the simulator: add the NAS source, scan a small purpose-built test library. That produces a real database and a real artwork cache by the normal code path, with no export from Tom's phone and no library metadata committed to git. Snapshot the container afterwards so it can be restored if the simulator is erased. This also removes the 'must never ship to the App Store' problem by construction — nothing is added to the app target.\n\nTHIS IS THE ONE THAT TESTS THE APP, and where the effort belongs. Tom's framing on 2026-08-05: the Sonos scripts do not exercise Sorriva, so if only one of the two gets built, it is this.\n\nWHAT A TEST LOOKS LIKE: query the speaker for ground truth (transport, URI, queue, r:streamContent), read the simulator's screen for what the app claims (station name, track, artwork, playing state), assert they agree. Works in both directions — drive from the app and check the speaker received the right URI and queue shape, or start something via SOAP and check the app picks it up, which is the external-change path currently only tested when Tom happens to use the Sonos app.\n\nARTWORK IS A REQUIREMENT — it has TWO INDEPENDENT PATHS repeatedly confused for each other. Local album art comes from files on disk (artPathThumb/artPathFull); station art is a remote logo URL on the stations row. A harness blind to artwork misses exactly what happened this week: station art going nil after a transfer, and a station rendering the previous local album's cover because artAlbum stayed set while only albumName and artURL were patched (the mini player prefers artAlbum). Seeding via a real scan gives the local path for free; the stations rows must carry valid logo URLs to exercise the other.\n\nLIMITS: screen is read as a screenshot, so assertions are visual rather than string-exact — fine for 'Groove Salad' versus 'groovesalad-128-aac', not for exact-string checks unless accessibility identifiers are added. Audio quality, backgrounding and lock-screen behaviour stay out of reach. The simulator is a separate install whose state can diverge from the phone. Automated runs drive real speakers, so the nominated-zones guardrail applies.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-08-05",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bSingleTrackPlaybackNotQueued",
+          "name": "Single-track local playback pointed SetAVTransportURI at the file instead of queueing it",
+          "desc": "Playing one local track loaded the track, showed playing, then stopped. It varied by speaker AND over time on the same speaker, so it read as flaky hardware, a wedged transport, a NAS problem and a regression in unrelated work before it was measured.\n\nROOT CAUSE: playSingleTrack pointed SetAVTransportURI straight at the x-file-cifs:// file. Local content must be QUEUED. Sonos validates lazily, so the direct URI returned 200 and the transport simply never left STOPPED; the following Play then returned either 200-with-nothing or 500 errorCode=701 depending on the speaker.\n\nPROOF: on Workout, which had refused every direct attempt for hours — including Sonos's own verbatim URI from its registered share — a one-track queue played immediately, with a real TrackDuration showing it had read the file header. A three-track queue likewise.\n\nEXPLAINS THE WHOLE PATTERN. Albums always worked because playQueue already queued. Single tracks failed. And transfers failed *depending on what was playing*: a destination inherits whatever the transport holds, so a bare file URI travelled badly while a queue did not.\n\nTHE RULE WAS ALREADY WRITTEN DOWN — CLAUDE.md: 'AddURIToQueue (single track, looped) for x-file-cifs://', and the queue flow was spelled out in sorriva-local-playback-arch.md. Claude edited that exact bullet list mid-session without reading the line above it. Tom: 'why aren't you reading our own notes instead of wasting two hours of my time.' That is what prompted consolidating everything into engineering/sonos-playback-contract.md as the single indexed authority.\n\nFIX: playSingleTrack queues the track and plays the queue, exactly as playQueue does. There is no longer any direct-to-file path for local content anywhere in the app.\n\nVERIFIED 2026-08-05: single track direct to a previously-failing zone, then transferred to two other zones. VERIFIED 2026-08-06: albums transfer intact — the last untested combination.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-08-05",
+          "completedAt": "2026-08-06",
+          "requires": []
+        },
+        {
+          "id": "bPhantomPauseAfterTransfer",
+          "name": "Phantom pause after a transfer - transport optimism expired before Play was sent",
+          "desc": "CONFIRMED AND FIXED 2026-08-06, from Tom's device log. The hypothesis held and the measurement is unambiguous: the transfer at 11:42:34.488 sent Play at 11:42:39.737 — 5.25 SECONDS — against a declarationGrace of 5. The transport intent, declared at the START of transferPlayback, had already expired a quarter-second BEFORE Play was issued. The zone then rendered whatever Sonos reported mid-handover, which is briefly not-playing.\n\nWHY IT ONLY APPEARED NOW: SonosZone.playingUntil uses +6s and covered the gap by ~0.7s. The symptom surfaced the moment transport optimism moved into the store on a 5s window (0.0.60). This is precisely why steps 1-4 were shipped with BOTH mechanisms live — the old one masking the defect is what made it a subtle glitch instead of a visible break, and having both allowed the comparison.\n\nROOT CAUSE, and it was already solved once for the other half: transferPlayback calls touchDeclaration after Play, with a comment reading 'The steps above take roughly four seconds. Restart the declaration's grace window now, so it covers the period where Sonos is settling on the new coordinator rather than having been spent on the command sequence.' Somebody hit this exact problem for the CONTENT declaration and fixed it. When declareTransport was added at the start of the same function, no equivalent refresh was added — so content was refreshed and transport was not.\n\nFIX: declare the transport intent again alongside touchDeclaration, after Play. The window then starts from the moment the command is actually issued, which is the correct reference point — rather than widening the constant, which would only have hidden the timing error.\n\nSAME LATENT SHAPE ELSEWHERE: groupZone also sets its window before its SOAP sequence, but that sequence runs ~2s and stays inside the window. No symptom today; worth remembering if its timing ever grows.\n\nUNBLOCKS step 5 of fPlaybackStoreRetireSideChannels — but only once Tom confirms transfers are clean, since playingUntil is currently still covering for anything else of this shape.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-08-06",
+          "completedAt": "2026-08-06",
+          "requires": []
+        },
+        {
+          "id": "fRemoveHubSwiftPanel",
+          "name": "Remove the retired Swift panel from the Passione hub",
+          "desc": "The hub still carries a Swift panel that read server/swift-config.json — a file list used only to extract a Swift repo out of the project. That workflow is retired (passione-architecture.md records the hub Swift panel, swift-config.json, deploy zips, iosdeploy and gitops as retired together), and swift-config.json was DELETED on 2026-08-06 as part of the Xcode restructure (fXcodeSynchronizedSourceFolders). Its contents were doubly wrong by then: a stale count, and paths that no longer existed once all 67 files moved into ios/Sorriva/.\n\nSo the panel now reads a file that does not exist. Remove it.\n\nNOTE ON LOCATION: this change is in the PASSIONE-HUB repo, not sorriva-app — logged here because this is where it was noticed and where the deletion that stranded it happened. Check whether sorriva-context.html's '32 Swift Files (swift-config.json)' section needs the same treatment.",
+          "priority": "Low",
+          "complexity": "S",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-08-06",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bTransportOptimismScalesWithQueueLength",
+          "name": "Local playback's optimism window was consumed by queueing, so it depended on queue size",
+          "desc": "FOUND BY AUDIT, NOT BY SYMPTOM — never observed in use. After fixing the phantom pause on transfers (bPhantomPauseAfterTransfer), the same shape was checked in every other place that declares transport optimism, by MEASURING the gap between the declaration and the command actually going out.\n\nMEASURED across 80 real local-playback starts in Tom's device logs:\n    10 tracks   1.29s\n    15 tracks   2.99s\n   100 tracks   4.70s   (window is 5.00s)\nQueueing is one AddURIToQueue call per track — roughly 47ms each — so the time consumed SCALES WITH QUEUE LENGTH. The window was opened when playback was requested, before the queue was built, so past about 100 tracks it expires before Play is even sent and the zone renders whatever Sonos reports mid-start.\n\nTOM'S CORRECTION on urgency, and it was right: no album in his library approaches 100 tracks, so nothing was at risk today — the 100-track figure came from a queue, not an album. But 'a queue could possibly grow that long and longer once we implement queue management and playback', which is exactly the feature that makes queue length user-controlled and unbounded.\n\nFIX: re-declare the transport intent after Play in playQueue and playSingleTrack, as transferPlayback now does. This removes the dependency on queue size rather than buying headroom — the window starts when the command is issued, identically for 3 tracks or 300. No constant to tune and no threshold to creep past when queue management lands.\n\nMETHOD NOTE: a soak would probably NOT have caught this — it needs a large queue at an unlucky moment. Measuring found it in fifteen minutes. Second defect the audit surfaced the same day.",
+          "priority": "Medium",
+          "complexity": "S",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-08-06",
+          "completedAt": "2026-08-06",
           "requires": []
         }
       ]

@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.61 - phase E: station fields removed from SonosZone, zone_state code retired; store is the only source of station identity",
-  "version": "0.0.61",
+  "message": "v0.0.62 - Xcode synchronized folders (67 files, no more manual project edits); phantom pause after transfer fixed and every other optimism window audited",
+  "version": "0.0.62",
   "db_migrate": false
 }

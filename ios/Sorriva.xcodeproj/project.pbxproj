@@ -7,79 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		80304054300EA74E0058B020 /* TransferZoneSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80304053300EA74E0058B020 /* TransferZoneSheet.swift */; };
-		80325AB62FFEE5DC00308486 /* DiscoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AB02FFEE5DC00308486 /* DiscoverView.swift */; };
-		80325AB72FFEE5DC00308486 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AB12FFEE5DC00308486 /* LibraryView.swift */; };
-		80325AB82FFEE5DC00308486 /* MiniPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AB22FFEE5DC00308486 /* MiniPlayerView.swift */; };
-		80325AB92FFEE5DC00308486 /* Color+Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AAE2FFEE5DC00308486 /* Color+Theme.swift */; };
-		80325ABA2FFEE5DC00308486 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AB32FFEE5DC00308486 /* SettingsView.swift */; };
-		80325ABB2FFEE5DC00308486 /* SorrivaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AB42FFEE5DC00308486 /* SorrivaApp.swift */; };
-		80325ABC2FFEE5DC00308486 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AAF2FFEE5DC00308486 /* ContentView.swift */; };
-		80325ABD2FFEE5DC00308486 /* ZonesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AB52FFEE5DC00308486 /* ZonesView.swift */; };
-		80325AC62FFF38A500308486 /* SonosDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AC42FFF38A500308486 /* SonosDevice.swift */; };
-		80325AC72FFF38A500308486 /* ZoneDiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AC52FFF38A500308486 /* ZoneDiscoveryService.swift */; };
-		80325ACB3000860000308486 /* NowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325ACA3000860000308486 /* NowPlayingView.swift */; };
-		80325ACD3000948400308486 /* VolumeControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325ACC3000948400308486 /* VolumeControlView.swift */; };
-		80325ACF3000A29D00308486 /* RadioStationBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325ACE3000A29D00308486 /* RadioStationBrowser.swift */; };
-		80325AD13000AC1800308486 /* EQSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AD03000AC1800308486 /* EQSheet.swift */; };
-		80325AD33000B02B00308486 /* SorrivaWordmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AD23000B02B00308486 /* SorrivaWordmark.swift */; };
-		80325AD53000B03500308486 /* SplashView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AD43000B03500308486 /* SplashView.swift */; };
 		80325AD83001436B00308486 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 80325AD73001436B00308486 /* GRDB */; };
-		80325AE2300147C200308486 /* DatabaseModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AE0300147C200308486 /* DatabaseModels.swift */; };
-		80325AE3300147C200308486 /* SorrivaDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AE1300147C200308486 /* SorrivaDatabase.swift */; };
-		80325AFE3003C8F200308486 /* IHeartServiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AFB3003C8F200308486 /* IHeartServiceView.swift */; };
-		80325AFF3003C8F200308486 /* IHeartStationBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AFC3003C8F200308486 /* IHeartStationBrowserView.swift */; };
-		80325B003003C8F200308486 /* SomaFMServiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325AFD3003C8F200308486 /* SomaFMServiceView.swift */; };
-		80325B023003D51000308486 /* LocalLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325B013003D51000308486 /* LocalLibraryView.swift */; };
-		80325B1930043EE300308486 /* AddSMBSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80325B1830043EE300308486 /* AddSMBSourceView.swift */; };
-		805A16BD3004886100AF3100 /* LocalFilesPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16BC3004886100AF3100 /* LocalFilesPickerView.swift */; };
-		805A16BF3005292E00AF3100 /* SMBScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16BE3005292E00AF3100 /* SMBScanner.swift */; };
-		805A16C130052B0B00AF3100 /* ScanCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16C030052B0B00AF3100 /* ScanCoordinator.swift */; };
-		805A16C33005AD5600AF3100 /* ArtworkCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16C23005AD5600AF3100 /* ArtworkCache.swift */; };
-		805A16C83005AEC600AF3100 /* ArtistsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16C63005AEC600AF3100 /* ArtistsView.swift */; };
-		805A16C93005AEC600AF3100 /* AlbumsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16C53005AEC600AF3100 /* AlbumsView.swift */; };
-		805A16CA3005AEC600AF3100 /* AlbumDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16C43005AEC600AF3100 /* AlbumDetailView.swift */; };
-		805A16CB3005AEC600AF3100 /* TracksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16C73005AEC600AF3100 /* TracksView.swift */; };
-		805A16CD3005DC1600AF3100 /* SorrivaContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16CC3005DC1600AF3100 /* SorrivaContextMenu.swift */; };
 		805A16D03006B1BA00AF3100 /* SMBClient in Frameworks */ = {isa = PBXBuildFile; productRef = 805A16CF3006B1BA00AF3100 /* SMBClient */; };
 		805A16D63006BAE200AF3100 /* SMBClient in Frameworks */ = {isa = PBXBuildFile; productRef = 805A16D53006BAE200AF3100 /* SMBClient */; };
 		805A16D93006BD4D00AF3100 /* SMBClient in Frameworks */ = {isa = PBXBuildFile; productRef = 805A16D83006BD4D00AF3100 /* SMBClient */; };
-		805A16DD30073D9200AF3100 /* SorrivaDatabase+HTTPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16DB30073D9200AF3100 /* SorrivaDatabase+HTTPServer.swift */; };
-		805A16DE30073D9200AF3100 /* SorrivaHTTPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16DC30073D9200AF3100 /* SorrivaHTTPServer.swift */; };
 		805A16E53007403E00AF3100 /* Telegraph in Frameworks */ = {isa = PBXBuildFile; productRef = 805A16E43007403E00AF3100 /* Telegraph */; };
-		805A16E73007B30400AF3100 /* ZonePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16E63007B30400AF3100 /* ZonePickerSheet.swift */; };
-		805A16E93007B35300AF3100 /* LocalPlaybackService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16E83007B35300AF3100 /* LocalPlaybackService.swift */; };
-		805A16EB300840D800AF3100 /* SorrivaTabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16EA300840D800AF3100 /* SorrivaTabBar.swift */; };
-		805A16ED30085C4000AF3100 /* CachedAsyncImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16EC30085C4000AF3100 /* CachedAsyncImage.swift */; };
-		805A16EF300A7D3D00AF3100 /* SorrivaLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A16EE300A7D3D00AF3100 /* SorrivaLogger.swift */; };
-		805A170C300BB5E100AF3100 /* ScanRetryScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A170B300BB5E100AF3100 /* ScanRetryScheduler.swift */; };
-		805A1729300D16DF00AF3100 /* PlaybackContextService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805A1728300D16DF00AF3100 /* PlaybackContextService.swift */; };
-		80833C303022377F00FBA596 /* RadioServiceAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80833C2F3022377F00FBA596 /* RadioServiceAdapter.swift */; };
-		80CC35113019B87C00B1DBAA /* SMBSessionProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80CC35103019B87C00B1DBAA /* SMBSessionProbe.swift */; };
-		80CC3513301AB84500B1DBAA /* NWConnectionProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80CC3512301AB84500B1DBAA /* NWConnectionProbe.swift */; };
-		80E293E2301143DB0031E31D /* BackupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E293E1301143DB0031E31D /* BackupView.swift */; };
 		80E293E530114DAA0031E31D /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 80E293E430114DAA0031E31D /* ZIPFoundation */; };
-		80E293F830127B0E0031E31D /* MigrationAlert.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E293F730127B0E0031E31D /* MigrationAlert.swift */; };
-		80E293FA301281A80031E31D /* CredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E293F9301281A80031E31D /* CredentialStore.swift */; };
-		80E293FC30128E0E0031E31D /* SorrivaAppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E293FB30128E0E0031E31D /* SorrivaAppEnvironment.swift */; };
-		80E293FF3012926C0031E31D /* PlaybackStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E293FE3012926C0031E31D /* PlaybackStore.swift */; };
-		80E294003012926C0031E31D /* PlaybackModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E293FD3012926C0031E31D /* PlaybackModels.swift */; };
-		80E294043012EC000031E31D /* EndpointModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294023012EC000031E31D /* EndpointModels.swift */; };
-		80E294053012EC000031E31D /* AudioEndpointDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294013012EC000031E31D /* AudioEndpointDriver.swift */; };
-		80E294063012EC000031E31D /* SonosEndpointDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294033012EC000031E31D /* SonosEndpointDriver.swift */; };
-		80E294093012EE5D0031E31D /* PlaybackCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294073012EE5D0031E31D /* PlaybackCoordinator.swift */; };
-		80E2940A3012EE5D0031E31D /* PlaybackIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294083012EE5D0031E31D /* PlaybackIntent.swift */; };
-		80E2940E3012F0210031E31D /* GRDBLibraryRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E2940B3012F0210031E31D /* GRDBLibraryRepository.swift */; };
-		80E2940F3012F0210031E31D /* LibraryRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E2940C3012F0210031E31D /* LibraryRepository.swift */; };
-		80E294103012F0210031E31D /* LibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E2940D3012F0210031E31D /* LibraryService.swift */; };
-		80E294133012F36D0031E31D /* MusicDomain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294123012F36D0031E31D /* MusicDomain.swift */; };
-		80E294143012F36D0031E31D /* LegacyMusicMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294113012F36D0031E31D /* LegacyMusicMapper.swift */; };
-		80E294163012F60E0031E31D /* SourceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294153012F60E0031E31D /* SourceResolver.swift */; };
-		80E294B130165BD70031E31D /* StationMetadataResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294B030165BD70031E31D /* StationMetadataResolver.swift */; };
-		80E294B3301669450031E31D /* MediaSourceReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E294B2301669450031E31D /* MediaSourceReader.swift */; };
-		80E295023017D8E20031E31D /* ImageDimensionReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E295013017D8E20031E31D /* ImageDimensionReader.swift */; };
-		80E295033017D8E20031E31D /* ArtworkBestWins.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E295003017D8E20031E31D /* ArtworkBestWins.swift */; };
-		80FB2A8B301BA6D8001AAD98 /* NetworkIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80FB2A8A301BA6D8001AAD98 /* NetworkIdentity.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -106,78 +39,11 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		80304053300EA74E0058B020 /* TransferZoneSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferZoneSheet.swift; sourceTree = "<group>"; };
 		80325AA02FFED8DE00308486 /* Sorriva.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Sorriva.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		80325AAE2FFEE5DC00308486 /* Color+Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Color+Theme.swift"; sourceTree = "<group>"; };
-		80325AAF2FFEE5DC00308486 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		80325AB02FFEE5DC00308486 /* DiscoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverView.swift; sourceTree = "<group>"; };
-		80325AB12FFEE5DC00308486 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
-		80325AB22FFEE5DC00308486 /* MiniPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniPlayerView.swift; sourceTree = "<group>"; };
-		80325AB32FFEE5DC00308486 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
-		80325AB42FFEE5DC00308486 /* SorrivaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SorrivaApp.swift; sourceTree = "<group>"; };
-		80325AB52FFEE5DC00308486 /* ZonesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZonesView.swift; sourceTree = "<group>"; };
-		80325AC42FFF38A500308486 /* SonosDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SonosDevice.swift; sourceTree = "<group>"; };
-		80325AC52FFF38A500308486 /* ZoneDiscoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoneDiscoveryService.swift; sourceTree = "<group>"; };
-		80325ACA3000860000308486 /* NowPlayingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingView.swift; sourceTree = "<group>"; };
-		80325ACC3000948400308486 /* VolumeControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeControlView.swift; sourceTree = "<group>"; };
-		80325ACE3000A29D00308486 /* RadioStationBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioStationBrowser.swift; sourceTree = "<group>"; };
-		80325AD03000AC1800308486 /* EQSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EQSheet.swift; sourceTree = "<group>"; };
-		80325AD23000B02B00308486 /* SorrivaWordmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SorrivaWordmark.swift; sourceTree = "<group>"; };
-		80325AD43000B03500308486 /* SplashView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashView.swift; sourceTree = "<group>"; };
-		80325AE0300147C200308486 /* DatabaseModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseModels.swift; sourceTree = "<group>"; };
-		80325AE1300147C200308486 /* SorrivaDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SorrivaDatabase.swift; sourceTree = "<group>"; };
-		80325AFB3003C8F200308486 /* IHeartServiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IHeartServiceView.swift; sourceTree = "<group>"; };
-		80325AFC3003C8F200308486 /* IHeartStationBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IHeartStationBrowserView.swift; sourceTree = "<group>"; };
-		80325AFD3003C8F200308486 /* SomaFMServiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SomaFMServiceView.swift; sourceTree = "<group>"; };
-		80325B013003D51000308486 /* LocalLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalLibraryView.swift; sourceTree = "<group>"; };
-		80325B1830043EE300308486 /* AddSMBSourceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddSMBSourceView.swift; sourceTree = "<group>"; };
-		805A16BC3004886100AF3100 /* LocalFilesPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalFilesPickerView.swift; sourceTree = "<group>"; };
-		805A16BE3005292E00AF3100 /* SMBScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMBScanner.swift; sourceTree = "<group>"; };
-		805A16C030052B0B00AF3100 /* ScanCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanCoordinator.swift; sourceTree = "<group>"; };
-		805A16C23005AD5600AF3100 /* ArtworkCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkCache.swift; sourceTree = "<group>"; };
-		805A16C43005AEC600AF3100 /* AlbumDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumDetailView.swift; sourceTree = "<group>"; };
-		805A16C53005AEC600AF3100 /* AlbumsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumsView.swift; sourceTree = "<group>"; };
-		805A16C63005AEC600AF3100 /* ArtistsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtistsView.swift; sourceTree = "<group>"; };
-		805A16C73005AEC600AF3100 /* TracksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TracksView.swift; sourceTree = "<group>"; };
-		805A16CC3005DC1600AF3100 /* SorrivaContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SorrivaContextMenu.swift; sourceTree = "<group>"; };
-		805A16DB30073D9200AF3100 /* SorrivaDatabase+HTTPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SorrivaDatabase+HTTPServer.swift"; sourceTree = "<group>"; };
-		805A16DC30073D9200AF3100 /* SorrivaHTTPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SorrivaHTTPServer.swift; sourceTree = "<group>"; };
-		805A16E63007B30400AF3100 /* ZonePickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZonePickerSheet.swift; sourceTree = "<group>"; };
-		805A16E83007B35300AF3100 /* LocalPlaybackService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalPlaybackService.swift; sourceTree = "<group>"; };
-		805A16EA300840D800AF3100 /* SorrivaTabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SorrivaTabBar.swift; sourceTree = "<group>"; };
-		805A16EC30085C4000AF3100 /* CachedAsyncImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedAsyncImage.swift; sourceTree = "<group>"; };
-		805A16EE300A7D3D00AF3100 /* SorrivaLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SorrivaLogger.swift; sourceTree = "<group>"; };
-		805A170B300BB5E100AF3100 /* ScanRetryScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanRetryScheduler.swift; sourceTree = "<group>"; };
 		805A170F300C669600AF3100 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		805A1710300C669600AF3100 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		805A1711300C669600AF3100 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		805A1728300D16DF00AF3100 /* PlaybackContextService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackContextService.swift; sourceTree = "<group>"; };
-		80833C2F3022377F00FBA596 /* RadioServiceAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioServiceAdapter.swift; sourceTree = "<group>"; };
-		80CC35103019B87C00B1DBAA /* SMBSessionProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMBSessionProbe.swift; sourceTree = "<group>"; };
-		80CC3512301AB84500B1DBAA /* NWConnectionProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NWConnectionProbe.swift; sourceTree = "<group>"; };
-		80E293E1301143DB0031E31D /* BackupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupView.swift; sourceTree = "<group>"; };
 		80E293EA301272B80031E31D /* SorrivaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SorrivaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		80E293F730127B0E0031E31D /* MigrationAlert.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MigrationAlert.swift; sourceTree = "<group>"; };
-		80E293F9301281A80031E31D /* CredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialStore.swift; sourceTree = "<group>"; };
-		80E293FB30128E0E0031E31D /* SorrivaAppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SorrivaAppEnvironment.swift; sourceTree = "<group>"; };
-		80E293FD3012926C0031E31D /* PlaybackModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackModels.swift; sourceTree = "<group>"; };
-		80E293FE3012926C0031E31D /* PlaybackStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackStore.swift; sourceTree = "<group>"; };
-		80E294013012EC000031E31D /* AudioEndpointDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEndpointDriver.swift; sourceTree = "<group>"; };
-		80E294023012EC000031E31D /* EndpointModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EndpointModels.swift; sourceTree = "<group>"; };
-		80E294033012EC000031E31D /* SonosEndpointDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SonosEndpointDriver.swift; sourceTree = "<group>"; };
-		80E294073012EE5D0031E31D /* PlaybackCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackCoordinator.swift; sourceTree = "<group>"; };
-		80E294083012EE5D0031E31D /* PlaybackIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackIntent.swift; sourceTree = "<group>"; };
-		80E2940B3012F0210031E31D /* GRDBLibraryRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GRDBLibraryRepository.swift; sourceTree = "<group>"; };
-		80E2940C3012F0210031E31D /* LibraryRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryRepository.swift; sourceTree = "<group>"; };
-		80E2940D3012F0210031E31D /* LibraryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryService.swift; sourceTree = "<group>"; };
-		80E294113012F36D0031E31D /* LegacyMusicMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyMusicMapper.swift; sourceTree = "<group>"; };
-		80E294123012F36D0031E31D /* MusicDomain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicDomain.swift; sourceTree = "<group>"; };
-		80E294153012F60E0031E31D /* SourceResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceResolver.swift; sourceTree = "<group>"; };
-		80E294B030165BD70031E31D /* StationMetadataResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StationMetadataResolver.swift; sourceTree = "<group>"; };
-		80E294B2301669450031E31D /* MediaSourceReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaSourceReader.swift; sourceTree = "<group>"; };
-		80E295003017D8E20031E31D /* ArtworkBestWins.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkBestWins.swift; sourceTree = "<group>"; };
-		80E295013017D8E20031E31D /* ImageDimensionReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageDimensionReader.swift; sourceTree = "<group>"; };
-		80FB2A8A301BA6D8001AAD98 /* NetworkIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkIdentity.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -233,74 +99,7 @@
 		80325A972FFED8DE00308486 = {
 			isa = PBXGroup;
 			children = (
-				80833C2F3022377F00FBA596 /* RadioServiceAdapter.swift */,
-				80FB2A8A301BA6D8001AAD98 /* NetworkIdentity.swift */,
-				80CC3512301AB84500B1DBAA /* NWConnectionProbe.swift */,
-				80CC35103019B87C00B1DBAA /* SMBSessionProbe.swift */,
-				80E295003017D8E20031E31D /* ArtworkBestWins.swift */,
-				80E295013017D8E20031E31D /* ImageDimensionReader.swift */,
-				80E294B2301669450031E31D /* MediaSourceReader.swift */,
-				80E294B030165BD70031E31D /* StationMetadataResolver.swift */,
-				80E294153012F60E0031E31D /* SourceResolver.swift */,
-				80E294113012F36D0031E31D /* LegacyMusicMapper.swift */,
-				80E294123012F36D0031E31D /* MusicDomain.swift */,
-				80E2940B3012F0210031E31D /* GRDBLibraryRepository.swift */,
-				80E2940C3012F0210031E31D /* LibraryRepository.swift */,
-				80E2940D3012F0210031E31D /* LibraryService.swift */,
-				80E294073012EE5D0031E31D /* PlaybackCoordinator.swift */,
-				80E294083012EE5D0031E31D /* PlaybackIntent.swift */,
-				80E294013012EC000031E31D /* AudioEndpointDriver.swift */,
-				80E294023012EC000031E31D /* EndpointModels.swift */,
-				80E294033012EC000031E31D /* SonosEndpointDriver.swift */,
-				80E293FD3012926C0031E31D /* PlaybackModels.swift */,
-				80E293FE3012926C0031E31D /* PlaybackStore.swift */,
-				80E293FB30128E0E0031E31D /* SorrivaAppEnvironment.swift */,
-				80E293F9301281A80031E31D /* CredentialStore.swift */,
-				80E293F730127B0E0031E31D /* MigrationAlert.swift */,
-				80E293E1301143DB0031E31D /* BackupView.swift */,
-				80304053300EA74E0058B020 /* TransferZoneSheet.swift */,
-				805A1728300D16DF00AF3100 /* PlaybackContextService.swift */,
 				805A1712300C669600AF3100 /* Sorriva */,
-				805A170B300BB5E100AF3100 /* ScanRetryScheduler.swift */,
-				805A16EE300A7D3D00AF3100 /* SorrivaLogger.swift */,
-				805A16EC30085C4000AF3100 /* CachedAsyncImage.swift */,
-				805A16EA300840D800AF3100 /* SorrivaTabBar.swift */,
-				805A16E83007B35300AF3100 /* LocalPlaybackService.swift */,
-				805A16E63007B30400AF3100 /* ZonePickerSheet.swift */,
-				805A16DB30073D9200AF3100 /* SorrivaDatabase+HTTPServer.swift */,
-				805A16DC30073D9200AF3100 /* SorrivaHTTPServer.swift */,
-				805A16CC3005DC1600AF3100 /* SorrivaContextMenu.swift */,
-				805A16C23005AD5600AF3100 /* ArtworkCache.swift */,
-				805A16BE3005292E00AF3100 /* SMBScanner.swift */,
-				805A16C030052B0B00AF3100 /* ScanCoordinator.swift */,
-				805A16BC3004886100AF3100 /* LocalFilesPickerView.swift */,
-				80325B1830043EE300308486 /* AddSMBSourceView.swift */,
-				80325B013003D51000308486 /* LocalLibraryView.swift */,
-				80325AFB3003C8F200308486 /* IHeartServiceView.swift */,
-				80325AFC3003C8F200308486 /* IHeartStationBrowserView.swift */,
-				80325AFD3003C8F200308486 /* SomaFMServiceView.swift */,
-				80325AE0300147C200308486 /* DatabaseModels.swift */,
-				80325AE1300147C200308486 /* SorrivaDatabase.swift */,
-				80325AD43000B03500308486 /* SplashView.swift */,
-				80325AD23000B02B00308486 /* SorrivaWordmark.swift */,
-				80325AD03000AC1800308486 /* EQSheet.swift */,
-				80325ACE3000A29D00308486 /* RadioStationBrowser.swift */,
-				805A16C43005AEC600AF3100 /* AlbumDetailView.swift */,
-				805A16C53005AEC600AF3100 /* AlbumsView.swift */,
-				805A16C63005AEC600AF3100 /* ArtistsView.swift */,
-				805A16C73005AEC600AF3100 /* TracksView.swift */,
-				80325ACC3000948400308486 /* VolumeControlView.swift */,
-				80325ACA3000860000308486 /* NowPlayingView.swift */,
-				80325AC42FFF38A500308486 /* SonosDevice.swift */,
-				80325AC52FFF38A500308486 /* ZoneDiscoveryService.swift */,
-				80325AAE2FFEE5DC00308486 /* Color+Theme.swift */,
-				80325AAF2FFEE5DC00308486 /* ContentView.swift */,
-				80325AB02FFEE5DC00308486 /* DiscoverView.swift */,
-				80325AB12FFEE5DC00308486 /* LibraryView.swift */,
-				80325AB22FFEE5DC00308486 /* MiniPlayerView.swift */,
-				80325AB32FFEE5DC00308486 /* SettingsView.swift */,
-				80325AB42FFEE5DC00308486 /* SorrivaApp.swift */,
-				80325AB52FFEE5DC00308486 /* ZonesView.swift */,
 				80325AA22FFED8DE00308486 /* Sorriva */,
 				80E293EB301272B80031E31D /* SorrivaTests */,
 				80325ADB3001461600308486 /* Frameworks */,
@@ -456,73 +255,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				80325ACF3000A29D00308486 /* RadioStationBrowser.swift in Sources */,
-				80325AD53000B03500308486 /* SplashView.swift in Sources */,
-				80325AE2300147C200308486 /* DatabaseModels.swift in Sources */,
-				80325AE3300147C200308486 /* SorrivaDatabase.swift in Sources */,
-				80E295023017D8E20031E31D /* ImageDimensionReader.swift in Sources */,
-				80E295033017D8E20031E31D /* ArtworkBestWins.swift in Sources */,
-				80E2940E3012F0210031E31D /* GRDBLibraryRepository.swift in Sources */,
-				80E294B130165BD70031E31D /* StationMetadataResolver.swift in Sources */,
-				80E2940F3012F0210031E31D /* LibraryRepository.swift in Sources */,
-				80E294103012F0210031E31D /* LibraryService.swift in Sources */,
-				80304054300EA74E0058B020 /* TransferZoneSheet.swift in Sources */,
-				805A16BD3004886100AF3100 /* LocalFilesPickerView.swift in Sources */,
-				80325AD13000AC1800308486 /* EQSheet.swift in Sources */,
-				80325AB62FFEE5DC00308486 /* DiscoverView.swift in Sources */,
-				80325AB72FFEE5DC00308486 /* LibraryView.swift in Sources */,
-				805A16ED30085C4000AF3100 /* CachedAsyncImage.swift in Sources */,
-				80325AB82FFEE5DC00308486 /* MiniPlayerView.swift in Sources */,
-				80E294133012F36D0031E31D /* MusicDomain.swift in Sources */,
-				80E294143012F36D0031E31D /* LegacyMusicMapper.swift in Sources */,
-				805A16E73007B30400AF3100 /* ZonePickerSheet.swift in Sources */,
-				805A16DD30073D9200AF3100 /* SorrivaDatabase+HTTPServer.swift in Sources */,
-				805A16DE30073D9200AF3100 /* SorrivaHTTPServer.swift in Sources */,
-				80325AB92FFEE5DC00308486 /* Color+Theme.swift in Sources */,
-				80325AD33000B02B00308486 /* SorrivaWordmark.swift in Sources */,
-				80325AFE3003C8F200308486 /* IHeartServiceView.swift in Sources */,
-				80325AFF3003C8F200308486 /* IHeartStationBrowserView.swift in Sources */,
-				805A16EF300A7D3D00AF3100 /* SorrivaLogger.swift in Sources */,
-				805A16E93007B35300AF3100 /* LocalPlaybackService.swift in Sources */,
-				80325B1930043EE300308486 /* AddSMBSourceView.swift in Sources */,
-				80325B003003C8F200308486 /* SomaFMServiceView.swift in Sources */,
-				805A16BF3005292E00AF3100 /* SMBScanner.swift in Sources */,
-				80E294B3301669450031E31D /* MediaSourceReader.swift in Sources */,
-				80325ACB3000860000308486 /* NowPlayingView.swift in Sources */,
-				80E293FC30128E0E0031E31D /* SorrivaAppEnvironment.swift in Sources */,
-				80325ABA2FFEE5DC00308486 /* SettingsView.swift in Sources */,
-				80E293F830127B0E0031E31D /* MigrationAlert.swift in Sources */,
-				80325ACD3000948400308486 /* VolumeControlView.swift in Sources */,
-				80E293E2301143DB0031E31D /* BackupView.swift in Sources */,
-				80FB2A8B301BA6D8001AAD98 /* NetworkIdentity.swift in Sources */,
-				805A16CD3005DC1600AF3100 /* SorrivaContextMenu.swift in Sources */,
-				80325B023003D51000308486 /* LocalLibraryView.swift in Sources */,
-				805A16C83005AEC600AF3100 /* ArtistsView.swift in Sources */,
-				80E293FF3012926C0031E31D /* PlaybackStore.swift in Sources */,
-				80E294003012926C0031E31D /* PlaybackModels.swift in Sources */,
-				80CC3513301AB84500B1DBAA /* NWConnectionProbe.swift in Sources */,
-				805A16C93005AEC600AF3100 /* AlbumsView.swift in Sources */,
-				805A170C300BB5E100AF3100 /* ScanRetryScheduler.swift in Sources */,
-				805A1729300D16DF00AF3100 /* PlaybackContextService.swift in Sources */,
-				80CC35113019B87C00B1DBAA /* SMBSessionProbe.swift in Sources */,
-				805A16CA3005AEC600AF3100 /* AlbumDetailView.swift in Sources */,
-				80833C303022377F00FBA596 /* RadioServiceAdapter.swift in Sources */,
-				805A16CB3005AEC600AF3100 /* TracksView.swift in Sources */,
-				80E293FA301281A80031E31D /* CredentialStore.swift in Sources */,
-				80E294043012EC000031E31D /* EndpointModels.swift in Sources */,
-				80E294053012EC000031E31D /* AudioEndpointDriver.swift in Sources */,
-				80E294063012EC000031E31D /* SonosEndpointDriver.swift in Sources */,
-				805A16EB300840D800AF3100 /* SorrivaTabBar.swift in Sources */,
-				80325ABB2FFEE5DC00308486 /* SorrivaApp.swift in Sources */,
-				805A16C130052B0B00AF3100 /* ScanCoordinator.swift in Sources */,
-				805A16C33005AD5600AF3100 /* ArtworkCache.swift in Sources */,
-				80325ABC2FFEE5DC00308486 /* ContentView.swift in Sources */,
-				80325AC62FFF38A500308486 /* SonosDevice.swift in Sources */,
-				80325AC72FFF38A500308486 /* ZoneDiscoveryService.swift in Sources */,
-				80325ABD2FFEE5DC00308486 /* ZonesView.swift in Sources */,
-				80E294093012EE5D0031E31D /* PlaybackCoordinator.swift in Sources */,
-				80E2940A3012EE5D0031E31D /* PlaybackIntent.swift in Sources */,
-				80E294163012F60E0031E31D /* SourceResolver.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

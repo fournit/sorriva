@@ -126,6 +126,20 @@ final class LocalPlaybackService {
             await ZoneDiscoveryService.sendTransportAction(host: host, action: "Play")
             sLog("LOCALPLAY: single-track queue started — \(title)")
         }.value
+        // Re-declare transport optimism now that the command has actually gone out.
+        //
+        // The window opened when playback was requested, before the queue was built — and
+        // queueing is one AddURIToQueue call per track, so the time consumed scales with
+        // queue length. Measured across 80 real playback starts: 10 tracks took 1.3s, 15
+        // took 3.0s, 100 took 4.70s against a 5s window. At ~47ms per track the window is
+        // exhausted somewhere past 100 tracks, after which the zone renders whatever Sonos
+        // reports mid-start — a phantom pause, the same defect fixed in transferPlayback.
+        //
+        // Re-declaring here makes the window independent of queue size rather than merely
+        // buying headroom: it starts when the command is issued, whether the queue held 3
+        // tracks or 300. That matters before queue management lands and makes queue length
+        // user-controlled and unbounded.
+        PlaybackStore.shared.declareTransport(zoneID: zoneID, playing: true)
         // Fire-and-forget: confirm Sonos actually started rather than trusting the 200.
         Task.detached { await ZoneDiscoveryService.verifyPlaybackStarted(host: host, context: title) }
     }
@@ -172,6 +186,20 @@ final class LocalPlaybackService {
             await ZoneDiscoveryService.sendTransportAction(host: host, action: "Play")
             sLog("LOCALPLAY: album queue started — \(uris.count) tracks")
         }.value
+        // Re-declare transport optimism now that the command has actually gone out.
+        //
+        // The window opened when playback was requested, before the queue was built — and
+        // queueing is one AddURIToQueue call per track, so the time consumed scales with
+        // queue length. Measured across 80 real playback starts: 10 tracks took 1.3s, 15
+        // took 3.0s, 100 took 4.70s against a 5s window. At ~47ms per track the window is
+        // exhausted somewhere past 100 tracks, after which the zone renders whatever Sonos
+        // reports mid-start — a phantom pause, the same defect fixed in transferPlayback.
+        //
+        // Re-declaring here makes the window independent of queue size rather than merely
+        // buying headroom: it starts when the command is issued, whether the queue held 3
+        // tracks or 300. That matters before queue management lands and makes queue length
+        // user-controlled and unbounded.
+        PlaybackStore.shared.declareTransport(zoneID: zoneID, playing: true)
         // Fire-and-forget: confirm Sonos actually started rather than trusting the 200.
         let queueLabel = "album queue (\(uris.count) tracks)"
         Task.detached { await ZoneDiscoveryService.verifyPlaybackStarted(host: host, context: queueLabel) }
