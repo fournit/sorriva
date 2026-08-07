@@ -734,11 +734,12 @@ final class SorrivaDatabase {
             let sources = try Row.fetchAll(db, sql: "SELECT id, username, password FROM library_sources")
             for row in sources {
                 let sourceId: String = row["id"]
+                let host: String = row["host"] ?? ""
                 let username: String? = row["username"]
                 let password: String? = row["password"]
                 guard let u = username, !u.isEmpty else { continue }
                 let ref = KeychainCredentialStore.shared.migrateFromPlaintext(
-                    sourceId: sourceId, username: u, password: password
+                    host: host, username: u, password: password
                 )
                 if ref != nil {
                     try db.execute(
@@ -1065,6 +1066,66 @@ final class SorrivaDatabase {
                 t.column("updatedAt", .integer).notNull()
             }
             print("SORRIVA DB: v20 zone_last_playing created")
+        }
+
+        migrator.registerMigration("v21_credentials_keyed_by_host") { db in
+            // Re-file SMB credentials from the share's sourceId to a per-server key.
+            //
+            // ADDITIVE ON PURPOSE. The old entries are left in place rather than
+            // moved. Keychain writes can fail for reasons this migration cannot see
+            // or fix, and the cost of a half-completed move is a user locked out of
+            // their own NAS with no way to recover the password. Leaving the old
+            // entry means resolvedCredentials' second tier still answers, so the
+            // worst case is the bug we already had rather than a new, worse one.
+            // Stale entries are inert; cleanup can happen later, or never.
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT id, host, credentialRef FROM library_sources
+                WHERE credentialRef IS NOT NULL
+            """)
+            var refiled = 0
+            for row in rows {
+                let id: String = row["id"]
+                let host: String = row["host"] ?? ""
+                let ref: String = row["credentialRef"] ?? ""
+                guard !host.isEmpty, !ref.isEmpty else { continue }
+                let key = CredentialKey.forHost(host)
+                if ref == key { continue }                       // already migrated
+                guard let creds = KeychainCredentialStore.shared.get(key: ref) else {
+                    // Nothing under the old key. Either already cleaned up or never
+                    // written; either way there is nothing to carry forward.
+                    continue
+                }
+                do {
+                    try KeychainCredentialStore.shared.set(
+                        key: key, username: creds.username, password: creds.password)
+                    try db.execute(
+                        sql: "UPDATE library_sources SET credentialRef = ? WHERE id = ?",
+                        arguments: [key, id])
+                    refiled += 1
+                } catch {
+                    // Leave credentialRef pointing at the old entry. Still resolvable.
+                    print("SORRIVA DB: v21 could not re-file credentials for \(host): \(error)")
+                }
+            }
+            print("SORRIVA DB: v21 credentials keyed by host — \(refiled) re-filed")
+        }
+
+        migrator.registerMigration("v22_artwork_match_provenance") { db in
+            // Record WHAT an online artwork match actually was, not just that one
+            // happened. Until now a wrong cover was undiagnosable without opening
+            // the JPEG and looking at it — which is literally how Creed's greatest
+            // hits was found on Johnny Cash's "18 Greatest Hits" on 2026-08-07.
+            //
+            // Three columns, all nullable, all only ever set by the online pass:
+            // folder and embedded art come from the user's own files and need no
+            // provenance. Also gives fLibraryDataQualityAudit something to report
+            // on, and makes a bad match findable by query instead of by eye.
+            try db.alter(table: "albums") { t in
+                t.add(column: "artMatchedName", .text)      // collectionName iTunes returned
+                t.add(column: "artMatchedArtist", .text)    // artistName iTunes returned
+                t.add(column: "artMatchScore", .double)     // 0...1, why it was accepted
+            }
+            print("SORRIVA DB: v22 artwork match provenance columns added")
         }
 
         try migrator.migrate(dbQueue)
@@ -1512,27 +1573,42 @@ final class SorrivaDatabase {
         }
     }
 
+    /// Remove one share. Credentials are deliberately KEPT.
+    ///
+    /// Removing a share is not saying "forget this server" — the user may well add
+    /// another share on the same machine a minute later, and being asked again for a
+    /// password they already gave is the complaint behind
+    /// bNoCredentialReuseOnReAddingServer. Forgetting happens at the server
+    /// boundary, in deleteLibrarySourcesByHost, where the user said so explicitly.
     func deleteLibrarySource(id: String) throws {
         try dbQueue.write { db in
             try db.execute(sql: "DELETE FROM library_sources WHERE id = ?", arguments: [id])
         }
     }
 
+    /// Remove a server and every share on it — and forget its credentials.
+    ///
+    /// This is the only path that discards them. "Remove Server & All Shares" is an
+    /// unambiguous statement of intent, unlike removing one share, so it is the right
+    /// place to clean up rather than leaving a secret behind for a machine the user
+    /// has said they are done with (bKeychainOrphanedOnShareDelete).
     func deleteLibrarySourcesByHost(host: String) throws {
         try dbQueue.write { db in
             try db.execute(sql: "DELETE FROM library_sources WHERE host = ?", arguments: [host])
         }
+        KeychainCredentialStore.shared.delete(key: CredentialKey.forHost(host))
+        sLog("CREDENTIALS: forgot \(CredentialKey.forHost(host)) — server removed")
     }
 
     func updateServerCredentials(host: String, displayName: String, username: String?, password: String?) throws {
         let now = Int(Date().timeIntervalSince1970)
-        let sourceIds = try dbQueue.read { db in
-            try String.fetchAll(db, sql: "SELECT id FROM library_sources WHERE host = ?", arguments: [host])
-        }
-        for sourceId in sourceIds {
-            if let u = username, !u.isEmpty {
-                try KeychainCredentialStore.shared.set(sourceId: sourceId, username: u, password: password ?? "")
-            }
+        // One credential per server, so this is one write rather than one per share.
+        // It previously looped every source on the host and wrote the same secret
+        // under each share's id — N copies of one password, and none of them findable
+        // once that particular share was removed.
+        if let u = username, !u.isEmpty {
+            try KeychainCredentialStore.shared.set(
+                key: CredentialKey.forHost(host), username: u, password: password ?? "")
         }
         try dbQueue.write { db in
             try db.execute(sql: """
@@ -1931,6 +2007,20 @@ final class SorrivaDatabase {
                 SET artPathThumb = ?, artPathFull = ?, artworkWidth = ?, artworkHeight = ?, updatedAt = ?
                 WHERE id = ?
             """, arguments: [thumbPath, fullPath, width, height, now, albumId])
+        }
+    }
+
+    /// Record what an ONLINE match actually was, alongside the image it produced.
+    /// Only the online pass calls this — folder and embedded art come from the
+    /// user's own files and have nothing to attest to.
+    func recordArtworkMatch(albumId: String, matchedName: String, matchedArtist: String,
+                            score: Double) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                UPDATE albums
+                SET artMatchedName = ?, artMatchedArtist = ?, artMatchScore = ?
+                WHERE id = ?
+            """, arguments: [matchedName, matchedArtist, score, albumId])
         }
     }
 

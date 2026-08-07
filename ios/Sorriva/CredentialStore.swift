@@ -5,9 +5,36 @@ import Security
 // Abstraction over credential storage — allows test doubles without Keychain.
 
 protocol CredentialStore {
-    func set(sourceId: String, username: String, password: String) throws
-    func get(sourceId: String) -> (username: String, password: String)?
-    func delete(sourceId: String)
+    func set(key: String, username: String, password: String) throws
+    func get(key: String) -> (username: String, password: String)?
+    func delete(key: String)
+}
+
+// MARK: - CredentialKey
+//
+// Credentials belong to a SERVER, not to a share. They used to be filed under the
+// share's sourceId, which meant dropping the last share for a server orphaned its
+// credentials under a key nothing could ever look up again: re-adding the server
+// minted a fresh UUID, missed, and asked for a password the app already had
+// (bNoCredentialReuseOnReAddingServer). Adding a SECOND share to a surviving
+// server worked, because a live source row was there to read from — which is why
+// the bug looked intermittent.
+//
+// One credential per server. The UI already models it that way: the server card
+// shows a single username. Two accounts on one NAS is not supported, and is not
+// worth the complexity until somebody asks for it.
+
+enum CredentialKey {
+
+    /// Stable key for a server. Hosts arrive in several spellings for the same
+    /// machine — "AV-Server", "av-server.local", trailing whitespace from a
+    /// hand-typed field — and all of them must resolve to one credential.
+    static func forHost(_ host: String) -> String {
+        var h = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if h.hasSuffix(".local") { h = String(h.dropLast(6)) }
+        if h.hasSuffix(".") { h = String(h.dropLast()) }
+        return "host:" + h
+    }
 }
 
 // MARK: - SMBCredential
@@ -29,19 +56,19 @@ final class KeychainCredentialStore: CredentialStore {
 
     // MARK: - Public API
 
-    func set(sourceId: String, username: String, password: String) throws {
+    func set(key: String, username: String, password: String) throws {
         // Encode as "username\0password" — null separator, never valid in either field
         guard let data = "\(username)\0\(password)".data(using: .utf8) else {
             throw CredentialStoreError.encodingFailed
         }
 
         // Delete any existing item first
-        delete(sourceId: sourceId)
+        delete(key: key)
 
         let query: [String: Any] = [
             kSecClass as String:            kSecClassGenericPassword,
             kSecAttrService as String:      service,
-            kSecAttrAccount as String:      sourceId,
+            kSecAttrAccount as String:      key,
             kSecValueData as String:        data,
             kSecAttrAccessible as String:   kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         ]
@@ -52,11 +79,11 @@ final class KeychainCredentialStore: CredentialStore {
         }
     }
 
-    func get(sourceId: String) -> (username: String, password: String)? {
+    func get(key: String) -> (username: String, password: String)? {
         let query: [String: Any] = [
             kSecClass as String:        kSecClassGenericPassword,
             kSecAttrService as String:  service,
-            kSecAttrAccount as String:  sourceId,
+            kSecAttrAccount as String:  key,
             kSecReturnData as String:   true,
             kSecMatchLimit as String:   kSecMatchLimitOne
         ]
@@ -74,11 +101,11 @@ final class KeychainCredentialStore: CredentialStore {
         return (username: parts[0], password: parts[1])
     }
 
-    func delete(sourceId: String) {
+    func delete(key: String) {
         let query: [String: Any] = [
             kSecClass as String:        kSecClassGenericPassword,
             kSecAttrService as String:  service,
-            kSecAttrAccount as String:  sourceId
+            kSecAttrAccount as String:  key
         ]
         SecItemDelete(query as CFDictionary)
     }
@@ -88,14 +115,15 @@ final class KeychainCredentialStore: CredentialStore {
     // LibrarySource record and moves them to Keychain.
     // Returns the credentialRef (== sourceId) on success, nil if no credentials.
 
-    func migrateFromPlaintext(sourceId: String, username: String?, password: String?) -> String? {
+    func migrateFromPlaintext(host: String, username: String?, password: String?) -> String? {
         guard let u = username, !u.isEmpty else { return nil }
         let p = password ?? ""
+        let key = CredentialKey.forHost(host)
         do {
-            try set(sourceId: sourceId, username: u, password: p)
-            return sourceId
+            try set(key: key, username: u, password: p)
+            return key
         } catch {
-            sLog("CREDENTIALS: Migration failed for \(sourceId): \(error)")
+            sLog("CREDENTIALS: Migration failed for \(key): \(error)")
             return nil
         }
     }
@@ -123,15 +151,30 @@ enum CredentialStoreError: Error, LocalizedError {
 
 extension LibrarySource {
 
-    /// Resolved SMB credentials — Keychain first, plaintext fallback during migration.
+    /// Resolved SMB credentials, newest storage scheme first.
+    ///
+    /// Three tiers, deliberately: host key (current), then whatever credentialRef
+    /// holds (a share sourceId on rows the v21 migration has not touched), then the
+    /// plaintext columns (pre-v12). The fallbacks are cheap and they are the reason
+    /// v21 can re-file additively rather than moving entries — a migration that
+    /// fails halfway leaves every source still resolvable by its old key instead of
+    /// stranding a user with a NAS they can no longer log into.
     var resolvedCredentials: (username: String, password: String) {
-        // Keychain — preferred path post-migration
-        if let ref = credentialRef,
-           let creds = KeychainCredentialStore.shared.get(sourceId: ref) {
+        if let creds = KeychainCredentialStore.shared.get(key: CredentialKey.forHost(host)) {
             return creds
         }
-        // Plaintext fallback — present until v12 migration runs
+        if let ref = credentialRef,
+           let creds = KeychainCredentialStore.shared.get(key: ref) {
+            return creds
+        }
         return (username: username ?? "", password: password ?? "")
+    }
+
+    /// Credentials for a server we may have no source row for — the re-add path.
+    /// Returns nil when nothing is stored, so callers can tell "no credentials"
+    /// apart from "guest".
+    static func storedCredentials(forHost host: String) -> (username: String, password: String)? {
+        KeychainCredentialStore.shared.get(key: CredentialKey.forHost(host))
     }
 
     /// Login-ready credentials — resolvedCredentials with the empty-username

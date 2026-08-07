@@ -527,32 +527,40 @@ final class ScannerTests: XCTestCase {
 
     func testKeychainCredentialStorageAndRetrieval() throws {
         let store = KeychainCredentialStore.shared
-        let sourceId = "test-keychain-\(UUID().uuidString)"
+        // Keyed by SERVER since v21, not by share id — see CredentialKey.
+        let key = CredentialKey.forHost("test-keychain-\(UUID().uuidString).local")
 
         // Clean up any prior test residue
-        store.delete(sourceId: sourceId)
+        store.delete(key: key)
 
         // Set credentials
-        try store.set(sourceId: sourceId, username: "testuser", password: "testpass")
+        try store.set(key: key, username: "testuser", password: "testpass")
 
         // Retrieve and verify
-        let retrieved = store.get(sourceId: sourceId)
+        let retrieved = store.get(key: key)
         XCTAssertEqual(retrieved?.username, "testuser")
         XCTAssertEqual(retrieved?.password, "testpass")
 
         // Delete and verify gone
-        store.delete(sourceId: sourceId)
-        let afterDelete = store.get(sourceId: sourceId)
+        store.delete(key: key)
+        let afterDelete = store.get(key: key)
         XCTAssertNil(afterDelete, "Credentials must be gone after delete")
+
+        // The host key must be stable across the spellings one server arrives in,
+        // or a re-added share misses its own credentials — the bug v21 fixed.
+        XCTAssertEqual(CredentialKey.forHost("AV-Server.local"), CredentialKey.forHost("av-server"))
+        XCTAssertEqual(CredentialKey.forHost("  AV-Server  "), CredentialKey.forHost("av-server"))
 
         // Verify that a source created via the new path stores no plaintext credentials
         let queue = try TestDatabase.makeQueue()
-        // Simulate saveSource() — credentialRef set, username/password nil
+        // Simulate saveSource() — credentialRef holds the SERVER key, not the share id
+        let sourceId = "test-source-\(UUID().uuidString)"
         var source = TestDatabase.makeSource(id: sourceId)
+        let serverKey = CredentialKey.forHost(source.host)
         source = LibrarySource(
             id: source.id, type: source.type, displayName: source.displayName,
             host: source.host, share: source.share, rootPath: source.rootPath,
-            username: nil, password: nil, credentialRef: sourceId,
+            username: nil, password: nil, credentialRef: serverKey,
             lastScanned: nil, trackCount: 0, scanState: "idle",
             lastScanFileCount: nil, lastScanTotalBytes: nil,
             createdAt: source.createdAt, updatedAt: source.updatedAt
@@ -565,7 +573,8 @@ final class ScannerTests: XCTestCase {
         }
         XCTAssertNil(stored?["username"] as String?, "Username must not be in database")
         XCTAssertNil(stored?["password"] as String?, "Password must not be in database")
-        XCTAssertEqual(stored?["credentialRef"] as String?, sourceId, "credentialRef must be set")
+        XCTAssertEqual(stored?["credentialRef"] as String?, serverKey,
+                       "credentialRef must hold the server key, not the share id")
     }
 
     // MARK: - WP-03 Test

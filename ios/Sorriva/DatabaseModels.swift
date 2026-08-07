@@ -332,6 +332,12 @@ struct Album: Codable, FetchableRecord, PersistableRecord, Identifiable {
     var trackCount: Int         // Denormalized — updated after scan
     var sourceId: String        // FK → library_sources.id
     var folderPath: String      // SMB path to album folder — used for artwork discovery
+    // Provenance for ONLINE matches only (v22). Null for folder and embedded art,
+    // which come from the user's own files and have nothing to attest to. Exists
+    // so a wrong cover can be found by query rather than by opening the JPEG.
+    var artMatchedName: String?     // collectionName the provider returned
+    var artMatchedArtist: String?   // artistName the provider returned
+    var artMatchScore: Double?      // 0...1 — why the match was accepted
     var createdAt: Int
     var updatedAt: Int
 
@@ -354,6 +360,9 @@ struct Album: Codable, FetchableRecord, PersistableRecord, Identifiable {
         static let trackCount          = Column(CodingKeys.trackCount)
         static let sourceId            = Column(CodingKeys.sourceId)
         static let folderPath          = Column(CodingKeys.folderPath)
+        static let artMatchedName      = Column(CodingKeys.artMatchedName)
+        static let artMatchedArtist    = Column(CodingKeys.artMatchedArtist)
+        static let artMatchScore       = Column(CodingKeys.artMatchScore)
         static let createdAt           = Column(CodingKeys.createdAt)
         static let updatedAt           = Column(CodingKeys.updatedAt)
     }

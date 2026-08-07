@@ -153,10 +153,27 @@ struct SMBSharePickerView: View {
     init(device: SMBDevice, prefillUsername: String = "", prefillPassword: String = "", onSaved: @escaping (LibrarySource?) -> Void) {
         self.device = device
         self.onSaved = onSaved
-        self.prefillUsername = prefillUsername
-        self.prefillPassword = prefillPassword
-        _username = State(initialValue: prefillUsername)
-        _password = State(initialValue: prefillPassword)
+
+        // Callers that already have a live source on this server pass its credentials
+        // in. Callers that do not — the discovery path, and every re-add after the
+        // last share on a server was removed — get them from the Keychain here.
+        //
+        // That second case is the whole of bNoCredentialReuseOnReAddingServer: the
+        // credentials were never lost, they were filed under the departed share's
+        // sourceId where no lookup could reach them. Keyed by host, they are simply
+        // found, and adding a share back to a server you have already authenticated
+        // to stops asking for a password the app is holding.
+        var u = prefillUsername
+        var p = prefillPassword
+        if u.isEmpty, let stored = LibrarySource.storedCredentials(forHost: device.host) {
+            u = stored.username
+            p = stored.password
+            sLog("CREDENTIALS: reusing stored credentials for \(device.host)")
+        }
+        self.prefillUsername = u
+        self.prefillPassword = p
+        _username = State(initialValue: u)
+        _password = State(initialValue: p)
     }
     @State private var shares: [String] = []
     @State private var isLoading = false
@@ -766,10 +783,13 @@ struct SMBConfigureSourceView: View {
         let now = Int(Date().timeIntervalSince1970)
         let sourceId = UUID().uuidString
 
-        // Store credentials in Keychain — never in SQLite
+        // Store credentials in Keychain — never in SQLite — under a per-SERVER key,
+        // so a later share on this machine (or a re-add of this one) finds them
+        // instead of asking again.
+        let credentialKey = CredentialKey.forHost(cleanHost)
         if !username.isEmpty {
             try? KeychainCredentialStore.shared.set(
-                sourceId: sourceId,
+                key: credentialKey,
                 username: username,
                 password: password
             )
@@ -784,7 +804,7 @@ struct SMBConfigureSourceView: View {
             rootPath: rootPath.isEmpty ? "/" : rootPath,
             username: nil,          // never stored in DB
             password: nil,          // never stored in DB
-            credentialRef: username.isEmpty ? nil : sourceId,
+            credentialRef: username.isEmpty ? nil : credentialKey,
             lastScanned: nil,
             trackCount: 0,
             scanState: "idle",

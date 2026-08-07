@@ -118,15 +118,22 @@ actor ArtworkCache {
         // from a stored-area comparison back to a hard "no existing art" gate.
         guard album.artPathThumb == nil else { return }
 
-        guard let url = searchURL(artist: album.artistName, album: album.title) else { return }
+        // Matching lives in ArtworkLookup, which constrains results to the artist's
+        // own catalogue and refuses to answer when nothing clears the bar. This
+        // used to be a limit=1 text search whose first result was taken on faith —
+        // see bArtworkArtistQuery, and the Creed cover it put on a Johnny Cash
+        // record. Returning nil here leaves the slot empty, which is the correct
+        // outcome: the online pass only ever gap-fills, so an empty slot stays
+        // available for folder or embedded art, and a wrong cover would not.
+        guard let match = await ArtworkLookup.shared.bestMatch(
+            artist: album.artistName, album: album.title
+        ) else {
+            sLog("ARTWORK: no confident match — \(album.artistName) · \(album.title)")
+            return
+        }
 
         do {
-            let (data, _) = try await session.data(from: url)
-            guard let artworkURL = parseArtworkURL(from: data) else {
-                sLog("ARTWORK: no match — \(album.artistName) · \(album.title)")
-                return
-            }
-
+            let artworkURL = match.artworkURL100
             let thumbURL = artworkURL.replacingOccurrences(of: "100x100", with: "300x300")
             let fullURL  = artworkURL.replacingOccurrences(of: "100x100", with: "600x600")
 
@@ -136,8 +143,12 @@ actor ArtworkCache {
             try? SorrivaDatabase.shared.updateAlbumArtworkWithDimensions(
                 albumId: album.id, thumbPath: thumbPath, fullPath: fullPath, width: 600, height: 600
             )
+            try? SorrivaDatabase.shared.recordArtworkMatch(
+                albumId: album.id, matchedName: match.collectionName,
+                matchedArtist: match.artistName, score: match.score
+            )
 
-            sLog("ARTWORK: online SAVED (600×600) — \(album.artistName) · \(album.title)")
+            sLog("ARTWORK: online SAVED (600×600) — \(album.artistName) · \(album.title) → matched \(match.artistName) · \(match.collectionName) [\(String(format: "%.2f", match.score))]")
 
             // Notify UI to reload artwork
             await MainActor.run {
@@ -175,25 +186,10 @@ actor ArtworkCache {
 
     // MARK: - Private
 
-    private func searchURL(artist: String, album: String) -> URL? {
-        // Strip leading "Artist - " prefix from album title if present
-        // e.g. "Stan Getz - This Is Jazz 14" → "This Is Jazz 14"
-        let prefix = "\(artist) - "
-        let cleanAlbum = album.hasPrefix(prefix) ? String(album.dropFirst(prefix.count)) : album
-        let query = "\(artist) \(cleanAlbum)"
-        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
-        return URL(string: "https://itunes.apple.com/search?term=\(encoded)&entity=album&limit=1&media=music")
-    }
-
-    private func parseArtworkURL(from data: Data) -> String? {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let results = json["results"] as? [[String: Any]],
-              let first = results.first,
-              let artworkUrl = first["artworkUrl100"] as? String else {
-            return nil
-        }
-        return artworkUrl
-    }
+    // searchURL and parseArtworkURL were removed 2026-08-07. They built a
+    // limit=1 query and accepted results.first without ever comparing the
+    // returned artistName to the one asked for — the entire mechanism behind
+    // bArtworkArtistQuery. Their replacement is ArtworkLookup.
 
     private func downloadAndSave(urlString: String, albumId: String, suffix: String) async throws -> String {
         guard let url = URL(string: urlString) else {
