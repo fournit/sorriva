@@ -127,11 +127,16 @@ struct MiniPlayerView: View {
     }
 
     private var artPlaceholder: some View {
-        RoundedRectangle(cornerRadius: 6)
+        // A zone on the TV input has no artwork and never will, so the placeholder is
+        // the real answer here rather than a gap waiting to be filled. The zone card
+        // already made this distinction (ZonesView); the mini player did not, which is
+        // why the same zone showed a TV on one surface and a music note on the other.
+        let isTV = snapshot?.isHDMI == true
+        return RoundedRectangle(cornerRadius: 6)
             .fill(Color.sCard)
             .overlay(
-                Image(systemName: "music.note")
-                    .font(.system(size: 14))
+                Image(systemName: isTV ? "tv.fill" : "music.note")
+                    .font(.system(size: isTV ? 15 : 14))
                     .foregroundColor(.sTextMuted)
             )
     }

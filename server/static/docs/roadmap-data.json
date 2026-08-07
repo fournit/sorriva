@@ -2658,6 +2658,80 @@
           "requires": [
             "fSimulatorUITestHarness"
           ]
+        },
+        {
+          "id": "bZoneShowsStaleStationWhenTVTakesOver",
+          "name": "A TV taking the room left the zone claiming a radio station was still playing",
+          "desc": "Turning on the TV makes Sonos switch the zone to its HDMI input on its own. Sorriva kept showing the station that had been interrupted — artwork, name, and an apparent playing state — indefinitely. Quitting and relaunching produced the opposite failure: a TV glyph with no words and a music note in the mini player, which was not recognition but the placeholder for having nothing to draw.\n\nONE CAUSE, TWO FACES. The reducer had no case for external inputs. The declaration went stale (the URI moved on), nothing resolves an htastream URI, and control fell through to the no-blank rule — hold the previous content WHILE THE ZONE IS PLAYING. The zone is playing, forever, with content that will never be replaced, so a rule written to stop artwork flashing between songs ended up guarding a station gone for hours. On a cold start there was no history to hold, hence the blank.\n\nFIXED 2026-08-08. resolveContent now treats HDMI/line-in as a content kind, resolving to 'TV' with a TV symbol and no station identity, ahead of the declaration because Sonos switching inputs is not something the app asked for or can veto. Guarded so a command the user issued within the grace window still wins: without that, tapping a station for a room whose TV is on flashed 'TV' over the station just chosen. The mini player's placeholder was also made HDMI-aware — the zone card already distinguished TV from music, the mini player did not, which is why one surface showed a television and the other a music note for the same zone.\n\nA SECOND DEFECT FOUND IN FIELD TESTING, and the more interesting one: the poll cleared isHDMI whenever a zone was not playing. Which input is selected is a SOURCE fact; whether sound is coming out is an ACTIVITY fact. While a TV warms up, HDMI is negotiated before audio flows, so the playing state oscillates and every poll landing on 'not playing' wiped the input — the card flickered between the TV icon and the last station for the whole warm-up. The clear was redundant as well as wrong, since leaving the input can only mean the URI ceasing to be an htastream URI, which the position-info path already owns.\n\nSeven reducer tests, both mechanisms mutation-validated. Measured Sonos behaviour recorded in engineering/sonos-playback-contract.md section 6a.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-08-08",
+          "completedAt": "2026-08-08",
+          "requires": []
+        },
+        {
+          "id": "fSonosEventSubscription",
+          "name": "Investigate event subscriptions to replace polling",
+          "desc": "Sorriva polls every 2 seconds while anything is playing. Tom's question from 2026-08-04 — whether the ghost-state bugs would keep coming until the app subscribes rather than polls — has never been properly answered. GENA was assessed then and rejected: it would not have fixed that bug class. Sonos's newer local control API is a different proposition and deserves its own look.\n\nWHAT IT OFFERS: a real subscription model rather than a poll loop, and a richer playback state. Reachable on port 1443 of any player; returns ERROR_API_KEY_VALIDATION_FAILED without credentials, so it needs a registered integration.\n\nWHAT IT COSTS, and this is the part to get right before committing: it is OAuth, so a Sonos account login inside Sorriva. An initial reading that this therefore requires a backend was WRONG — native apps use PKCE with a custom-scheme redirect the app handles itself, the same shape Tidal and others will need anyway. So the no-backend property survives. The real costs are a second protocol alongside UPnP, a dependency on Sonos keeping the programme open to non-commercial developers (unconfirmed — the partner docs describe Company accounts and imply but do not state an individual path), and an account login for something controlling speakers on the same LAN.\n\nNOT A REASON TO DO IT: distinguishing a live TV from a selected input. That was the question this came out of, and it turned out to be answerable over plain UPnP via ZoneGroupTopology's IdleState — see sonos-playback-contract.md 6a. Evaluate this on event-driven state alone, which is the thing polling genuinely cannot give us.",
+          "priority": "Normal",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-08-08",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fZonePollingTestSeam",
+          "name": "The polling path that feeds the reducer has no test coverage at all",
+          "desc": "PlaybackStateReducer now has 29 tests and they are good ones. Everything UPSTREAM of it has none: fetchTransportStates, updateZoneFromPositionInfo, and the topology parse that between them decide what a SonosZone actually contains.\n\nThat gap has now been demonstrated twice in one day. The isHDMI flicker (bZoneShowsStaleStationWhenTVTakesOver) was a field defect that no reducer test could catch, because the reducer was handling a correctly-flagged zone — the flag was being wiped upstream. A reducer test asserting 'an HDMI zone resolves to TV' passes happily while the poll ensures no zone is ever flagged HDMI for long enough to matter.\n\nThese functions take raw SOAP response data and mutate the zones array, so the seam is not difficult: feed captured XML in, assert on the resulting SonosZone. Real responses for the interesting cases are already recorded in sonos-playback-contract.md and easy to capture again with tools/sonos.py.\n\nWorth doing before the next playback change rather than after, since the reducer suite currently creates an impression of coverage the area does not have.",
+          "priority": "Normal",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-08-08",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "bGroupChangesMadeOutsideSorrivaAreNeverSeen",
+          "name": "Group changes Sorriva did not make are invisible until relaunch",
+          "desc": "Tom's repro, 2026-08-08: Living Room and Patio grouped playing Lost 80s. Turn on the TV. Sonos ungroups them — Living Room takes the TV, Patio keeps the station — and the Sonos app shows it. Sorriva keeps showing them grouped.\n\nNot specific to the TV. ANY grouping change made outside the app is missed: from the Sonos app, from a voice command, from home theatre autoplay. It persists until the app is relaunched or until Sorriva itself changes a group.\n\nTHE DATA IS ALREADY ARRIVING AND BEING THROWN AWAY. refreshIdleStates runs every ~15s on the poll loop and calls GetZoneGroupState — the entire household topology, group structure included — then extracts only IdleState per member and discards the rest. Group membership is set exclusively by requestTopologyRefresh, which fires at startup and immediately after Sorriva's own group/ungroup commands. Nothing observes an autonomous change. The function name hides this: it fetches everything and is named for the one field it keeps.\n\nVERIFIED 2026-08-08 that the payload does carry it: grouping Workout into Listening Room (nominated test zones, volume zero) appeared in GetZoneGroupState within seconds. Also verified there is no second gap downstream — the topology parse sets zone.groupMembers, PlaybackStore copies it into the snapshot, and the views read it. The pipeline is complete; only the refresh is missing.\n\nFIX SHAPE, and the reason it is not simply 'call fetchTopology more often': fetchTopology replaces the whole zones array, which the code already warns can clear zones outright on a timeout, and at a 15s cadence it would contend with the 2s transport poll for ownership of the same array. Extract group membership from the payload refreshIdleStates already parses and apply just that, the same surgical way IdleState is applied now. Network cost is zero — it is parsing that is absent. Rename the function to match what it actually does.\n\nRelated: fZonePollingTestSeam. This is the third defect in two days living in the polling path, which has no test coverage at all.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-08-08",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fHDMIInputSelection",
+          "name": "Offer the TV input as a source on HDMI-capable zones",
+          "desc": "A Sonos Amp, Arc, Beam, Ray or Playbar can play TV audio, and its HDMI input is a source like any other. Sorriva has no way to select it. That matters for anyone not using eARC autoplay, or who has TV autoplay switched off: today the only way to put such a zone on its TV is to leave Sorriva and open the Sonos app.\n\nDETECTING CAPABILITY — verified 2026-08-08. The ZoneGroupMember element in ZoneGroupTopology carries HdmiCecAvailable: 1 on the Arc Ultra, 0 on an Era 100. Sorriva already fetches and parses this topology and ignores the flag. isHDMI today is derived from the CURRENT URI, which says which input is selected, not which inputs exist — so a capable zone is invisible until something is already playing through it.\n\nCAVEAT TO CLEAR FIRST: the flag is named for HDMI-CEC, and it has only been checked on an Arc versus an Era. A Sonos AMP is untested and is precisely the case that prompted this. Confirm on real hardware before relying on it. HTSatChanMapSet (present only on a bonded home theatre, listing the surround channel map) is a second signal, but it would not cover an Amp with no surrounds.\n\nSELECTING IT: the input's own URI is x-sonos-htastream:RINCON_<coordinator>:spdif, measured and recorded in sonos-playback-contract.md 6a. Setting it via SetAVTransportURI is the obvious route and is NOT yet tested — a 200 from Sonos does not mean success, so this needs proving on hardware before it is built on.\n\nTVConfigurationError is in the same element (0 on a healthy setup) and looks like a ready-made way to surface a misconfigured TV rather than leaving the user to wonder why the input is silent.",
+          "priority": "Normal",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-08-08",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fHomeTheatreSettings",
+          "name": "Read and configure Sonos home theatre autoplay settings",
+          "desc": "Sonos exposes the home theatre autoplay settings over plain UPnP, readable AND writable, on DeviceProperties. Confirmed against an Arc Ultra 2026-08-08:\n\n  SetAutoplayLinkedZones(IncludeLinkedZones, Source) / Get…\n  SetAutoplayRoomUUID(RoomUUID, Source) / Get…\n  SetAutoplayVolume(Volume, Source) / Get…\n  SetUseAutoplayVolume(UseVolume, Source) / Get…\n\nIncludeLinkedZones is the 'ungroup on autoplay' behaviour: 0 means the TV zone isolates itself and drops linked zones when the TV starts, 1 means grouped zones come along. That is the setting behind bGroupChangesMadeOutsideSorrivaAreNeverSeen — knowing it would let Sorriva EXPLAIN why a group just dissolved rather than merely tracking it after the fact.\n\nUNKNOWN, and the first thing to settle: what string Source expects. Probably 'spdif' to match the input URI. Calling the getters with no Source returns empty defaults SILENTLY and identically on a non-HT speaker, which is how the first attempt looked like 'the settings are not exposed'. Any implementation must distinguish 'not set' from 'asked wrongly'.\n\nOPEN BEHAVIOURAL QUESTIONS from Tom, which need speakers and cannot be answered from the protocol: when autoplay ungroups a home theatre zone, do the departing zones keep playing; if two or more remain, do they regroup with each other; and if ungroup-on-autoplay is off, do the grouped zones actually play TV audio. Worth a deliberate test session — it involves grouping the Living Room, which is not a nominated test zone.\n\nWRITING is a different risk class from reading. These are settings on hardware the user owns and may have configured deliberately, and a wrong write is invisible until their TV behaves oddly days later. Read-only display first; changing them should be explicit, reversible, and show the prior value.",
+          "priority": "Normal",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-08-08",
+          "completedAt": null,
+          "requires": [
+            "fHDMIInputSelection"
+          ]
         }
       ]
     },
@@ -3315,6 +3389,18 @@
           "requires": [
             "fLibraryScanner"
           ]
+        },
+        {
+          "id": "fStorageAndLibraryRestructure",
+          "name": "Split sources from content — Storage holds the shares, Library Management holds the result",
+          "desc": "Tom's observation, 2026-08-07: 'this area of settings is to add shares so networking focused. scanning is library focused.' Local Library is plumbing; Library Management is content; the two are currently tangled. A DECISION TO SETTLE BEFORE THE REDESIGN STARTS, not to discover halfway through it.\n\nTHE LINE: Services = streaming sources. Storage = your own files. Library = what came out of both. Each screen owns one idea.\n\nDO NOT SPLIT 'ADD A SHARE' FROM 'SEE WHAT THAT SHARE CONTRIBUTED'. The instinct to have one screen for adding and another for reporting is the thing to resist — Roon does not do it, and the reason is that THE SHARE IS THE UNIT. One Storage screen listing each share with its state on the row: track count, last scanned, watching or errored, with edit / remove there too. Library Management then stops being about shares at all and becomes about the merged result — totals, duplicates, artwork coverage, cleanup tools.\n\nNAMING — Storage over Share Management. The audience is audiophiles, a good number arriving from Roon where the term is already Storage, and it pairs naturally against Services. Share Management describes the mechanism; Storage describes the thing. Tom's own framing was 'share management or similar', so this is a recommendation rather than a settled point.\n\nRELATED DECISIONS worth settling on the same page, because they are cheap now and expensive to unpick later: whether fArtworkManagement and fArtworkManualSearchUtility are one screen or two (they are two doors into one room — pick from search results, or supply your own image); and where fAutoScanOnShareAdd's progress-and-pause UI lives, since that is the thing currently blocking automatic scanning.\n\nWHAT THIS IS NOT: a rename. Moving the shares under a better heading without making the share row carry its own state leaves the same tangle with new labels. fSourceAvailability (dim unavailable content) and fArtworkProvenance (where a cover came from) both feed the row and the review lists this restructure implies.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-08-08",
+          "completedAt": null,
+          "requires": []
         }
       ]
     },

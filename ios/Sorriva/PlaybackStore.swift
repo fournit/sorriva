@@ -301,6 +301,52 @@ enum PlaybackStateReducer {
                                        context: PlaybackContext?,
                                        previous: ZonePlaybackSnapshot?,
                                        now: Date) -> PlaybackContext? {
+        // 0. The speaker is on an external input — TV over HDMI/eARC, or line-in.
+        //
+        // FIRST, ahead of our own declaration, because Sonos switching inputs is not
+        // something Sorriva asked for and not something it can veto. A TV powering on
+        // takes the room, and Sonos is the source of truth about what a speaker is
+        // doing. Measured 2026-08-08 on the Living Room Arc Ultra: the URI becomes
+        // x-sonos-htastream:RINCON_…:spdif, dc:title and r:streamContent go EMPTY, and
+        // the metadata class is object.item.audioItem.linein.homeTheater.
+        //
+        // Without this branch the zone kept claiming a radio station was playing, and
+        // did so permanently. The declaration went stale (URI moved on) and the
+        // resolver found nothing for an htastream URI, so the reducer fell through to
+        // the no-blank rule — hold the previous content while the zone is playing —
+        // and the zone IS playing, forever, with content that will never be replaced.
+        // A rule written to stop artwork flashing between songs was left guarding a
+        // station that had been gone for hours.
+        //
+        // Position and duration come back NOT_IMPLEMENTED, so duration 0 is honest and
+        // the progress bar has nothing to draw.
+        //
+        // Note what is NOT attempted: telling a live TV apart from a selected-but-idle
+        // input. Over UPnP the two are byte-identical — same state, same status, same
+        // available actions, same empty metadata. The Sonos app distinguishes them via
+        // the newer local control API, which Sorriva does not speak. "TV" is the honest
+        // answer in both cases.
+        // Yield to a command the user just issued. Between Sorriva sending a station to
+        // this room and Sonos reporting the new URI, the zone still looks like HDMI —
+        // and without this guard the card would flash "TV" over the station the user
+        // had just tapped. Sonos wins the changes IT initiates; the user wins theirs.
+        let userJustActed = declaration.map {
+            $0.source == .app && now.timeIntervalSince($0.declaredAt) < declarationGrace
+        } ?? false
+
+        if zone.isHDMI, !userJustActed {
+            // "TV" in albumName as well as track: the zone card draws its subtitle from
+            // albumName (where a station puts its name), so leaving it empty produced a
+            // card with a TV glyph and no words at all. Naming the source is the point.
+            return PlaybackContext(track: "TV",
+                                   artist: "",
+                                   albumName: "TV",
+                                   duration: 0,
+                                   artAlbum: nil,
+                                   artURL: nil,
+                                   isLocal: false)
+        }
+
         if let declaration {
             // 1. Sonos confirms what we declared — authoritative for the parts Sonos
             //    cannot report. See confirmedContent: this is NOT a blanket override.

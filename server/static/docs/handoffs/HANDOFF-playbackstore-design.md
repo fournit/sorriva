@@ -1,6 +1,6 @@
 # Sorriva — Authoritative PlaybackStore Design (Implementation Spec)
 
-**Date:** 2026-08-03 · **Updated:** 2026-08-06
+**Date:** 2026-08-03 · **Updated:** 2026-08-08
 **Status:** **COMPLETE — phases A, B, D and E built and device-tested. Phase C
 closed as a negative result: no code was needed.**
 **Companion to:** `HANDOFF-playbackstore-architecture.md` — read that first for the
@@ -24,6 +24,16 @@ and the existing behaviour was already correct. The premise came from reading co
 instead of querying hardware. If a future phase looks obviously necessary, measure
 before building — see `engineering/sonos-playback-contract.md`, which is the single
 authority for what the speakers actually do.
+
+**One case was added after completion (2026-08-08): external inputs.** A TV
+powering on makes Sonos switch a zone to HDMI unasked, which is content the app
+never declared, cannot declare, and which is neither a station nor a local track.
+`resolveContent` now has a first branch for it, ahead of the declaration, because
+Sonos switching inputs is not something Sorriva can veto — guarded so a command
+the user just issued still wins its grace window. The model absorbed this without
+strain, which is a point in its favour: a new content kind needed a branch, not a
+rethink. Measured speaker behaviour is in
+`engineering/sonos-playback-contract.md` §6a.
 
 Working discipline from the architecture handoff carries forward: diagnose →
 propose exact change → explicit confirmation → code; one file at a time; verify

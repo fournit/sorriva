@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.66 — credentials keyed by server; artwork matching constrained to the artist; first regression tests that run",
-  "version": "0.0.66",
+  "message": "v0.0.67 — a TV taking the room no longer leaves a ghost station; IdleState found; group blindness logged",
+  "version": "0.0.67",
   "db_migrate": false
 }

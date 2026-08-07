@@ -204,6 +204,67 @@ it addresses a speaker, not content.
 
 ---
 
+## 6a. External inputs — TV over HDMI/eARC, and line-in
+
+Measured on a Living Room Arc Ultra (bonded with four surrounds), 2026-08-08.
+
+**A TV powering on takes the room.** Sonos switches the zone to its HDMI input on its
+own; nothing asked it to and nothing can veto it. What the speaker then reports:
+
+| Field | Value |
+|---|---|
+| `TrackURI` / `CurrentURI` | `x-sonos-htastream:RINCON_<coordinator>:spdif` |
+| `CurrentTransportState` | `PLAYING` |
+| `CurrentTransportStatus` | `OK` |
+| `dc:title`, `r:streamContent` | **empty** |
+| `TrackDuration`, `RelTime` | `NOT_IMPLEMENTED` |
+| `GetCurrentTransportActions` | `Set, Play` |
+| `upnp:class` | `object.item.audioItem.linein.homeTheater` |
+
+Prefer the `upnp:class` — anything under `object.item.audioItem.linein` — over matching
+URI prefixes. It is stable and it covers line-in variants without a growing list.
+
+**The input STICKS.** Turning the TV off does not restore the previous station and does
+not stop the zone. Sonos keeps reporting the HDMI input as the zone's source, exactly as
+it keeps reporting the last URI a zone played. This is correct and the app must not
+"restore" anything: the TV genuinely was the last thing played there.
+
+### IdleState is how you tell a live input from a selected one
+
+**AVTransport cannot distinguish a TV that is playing from a TV that is off.** Every
+field above is byte-identical in both cases — state, status, available actions, empty
+metadata. Confirmed by measuring both.
+
+The discriminator is `IdleState` on the zone's `ZoneGroupMember` in
+**`ZoneGroupTopology`**, not in AVTransport:
+
+| | AVTransport | `IdleState` |
+|---|---|---|
+| TV on, audio playing | `PLAYING` / htastream | `0` |
+| TV on, silent | `PLAYING` / htastream | `1` |
+| TV off | `PLAYING` / htastream | `1` |
+
+This is how the Sonos app knows to show the room as not playing. **It needs no developer
+key and no second protocol** — Sorriva already parses it into `SonosZone.idleState`.
+
+`IdleState` is DEBOUNCED at the speaker. Measured ~20s from a TV going quiet to the flag
+flipping, against a 2s app poll interval, so essentially all of that latency is Sonos and
+none of it is ours. The debounce is almost certainly deliberate: a zone that flipped to
+idle during a quiet passage of dialogue would be worse than one that settles slowly. Do
+not design UI that assumes this is prompt.
+
+### The trap: source facts versus activity facts
+
+Which input a zone is on is a SOURCE fact. Whether sound is coming out is an ACTIVITY
+fact. They move independently, and code that clears the first because of the second
+breaks visibly: while a TV warms up, HDMI is negotiated but no audio flows yet, so the
+playing state oscillates. A poll that cleared the HDMI flag whenever the zone was "not
+playing" made the zone card flicker between the TV icon and the last station for the
+entire warm-up period (bZoneShowsStaleStationWhenTVTakesOver). The only legitimate way to
+leave the TV input is for the URI to stop being an htastream URI.
+
+---
+
 ## 7. Failure signatures — what a broken thing looks like
 
 | Symptom | Cause | §|

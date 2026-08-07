@@ -29,6 +29,8 @@ final class PlaybackReducerTests: XCTestCase {
 
     // MARK: - Builders
 
+    private let htastream = "x-sonos-htastream:RINCON_74CA60612AE901400:spdif"
+
     private func zone(_ id: String = "Z1",
                       name: String = "Living Room",
                       playing: Bool = true,
@@ -38,9 +40,11 @@ final class PlaybackReducerTests: XCTestCase {
                       volume: Int = 20,
                       elapsed: Int = 0,
                       duration: Int = 0,
-                      idle: Bool = false) -> SonosZone {
+                      idle: Bool = false,
+                      hdmi: Bool = false) -> SonosZone {
         var z = SonosZone(id: id, name: name, host: "10.0.0.9",
                           isPlaying: playing, volume: volume)
+        z.isHDMI = hdmi
         z.currentTrackURI = uri
         z.currentTrack = track
         z.currentArtist = artist
@@ -76,6 +80,95 @@ final class PlaybackReducerTests: XCTestCase {
                                        previous: previous,
                                        now: now)
         return out[0]
+    }
+
+    // MARK: - External inputs: the TV takes the room
+    // bZoneShowsStaleStationWhenTVTakesOver
+
+    /// Turning on the TV makes Sonos switch the zone to its HDMI input on its own. The
+    /// station Sorriva declared is still in the store, its URI no longer matches, and
+    /// nothing resolves an htastream URI — so the reducer used to fall through to the
+    /// no-blank rule, which holds the previous content WHILE THE ZONE IS PLAYING. The
+    /// zone is playing (the TV), forever, with content that will never be replaced. The
+    /// card showed a radio station that had been gone for hours.
+    ///
+    /// Measured on a real Arc Ultra 2026-08-08: URI becomes
+    /// x-sonos-htastream:RINCON_…:spdif, dc:title and r:streamContent go empty.
+    func testTVInputReplacesTheStationItInterrupted() {
+        let z = zone(uri: htastream, hdmi: true)
+        let stale = declaration(context(album: "Lost 80s", artURL: "logo.png"), uri: iHeart,
+                                ageSeconds: 3600)
+        let out = reduce([z], declarations: ["Z1": stale])
+        XCTAssertEqual(out.trackTitle, "TV")
+        XCTAssertEqual(out.albumName, "TV", "the card subtitle names the source")
+        XCTAssertNil(out.artURL, "the station logo must not survive the TV taking over")
+        XCTAssertTrue(out.isHDMI)
+    }
+
+    /// The no-blank rule is what made this permanent rather than momentary, so the
+    /// previous snapshot must not be able to resurrect the station either.
+    func testTVInputBeatsThePreviousSnapshot() {
+        let z = zone(uri: htastream, hdmi: true)
+        let was = reduce([zone(uri: iHeart, track: "Delirious", artist: "Prince")],
+                         contexts: ["Z1": context(album: "Lost 80s", artURL: "logo.png")])
+        let out = reduce([z], previous: [was])
+        XCTAssertEqual(out.trackTitle, "TV")
+        XCTAssertNil(out.artURL)
+    }
+
+    /// A resolved context left over from the station must not outrank the input either —
+    /// it is what produced the few seconds of stale artwork before the card settled.
+    func testTVInputBeatsALeftoverResolvedContext() {
+        let z = zone(uri: htastream, hdmi: true)
+        let out = reduce([z], contexts: ["Z1": context(album: "Lost 80s", artURL: "logo.png")])
+        XCTAssertEqual(out.albumName, "TV")
+        XCTAssertNil(out.artURL)
+    }
+
+    /// The TV going quiet is not the station coming back. Sonos keeps reporting the HDMI
+    /// input as the zone's source — confirmed on hardware — so the card keeps saying TV,
+    /// just not playing.
+    func testTVStaysTheSourceWhenItGoesQuiet() {
+        let z = zone(playing: false, uri: htastream, idle: true, hdmi: true)
+        let out = reduce([z], lastDeclarations: ["Z1": declaration(
+            context(album: "Lost 80s", artURL: "logo.png"), uri: iHeart, ageSeconds: 7200)])
+        XCTAssertEqual(out.albumName, "TV")
+        XCTAssertFalse(out.isPlaying)
+    }
+
+    /// COLD START — the second half of the reported bug. Declarations live in memory, so
+    /// quitting the app throws them away. On relaunch there is no declaration, no cached
+    /// context and no previous snapshot, and an htastream URI resolves to nothing: the
+    /// card rendered a TV glyph with no words, and the mini player a music note. The
+    /// glyph was not recognition, it was the placeholder for having nothing to draw.
+    func testTVInputIsNamedOnAColdStartWithNoHistory() {
+        let out = reduce([zone(uri: htastream, hdmi: true)])
+        XCTAssertEqual(out.trackTitle, "TV")
+        XCTAssertEqual(out.albumName, "TV")
+        XCTAssertTrue(out.isHDMI)
+    }
+
+    /// THE OTHER DIRECTION, and the reason the branch is guarded. Sending a station to a
+    /// room whose TV is on leaves a window where Sorriva has declared but Sonos still
+    /// reports htastream. Without the guard the card flashes "TV" over the station the
+    /// user just tapped. Sonos wins the changes it initiates; the user wins theirs.
+    func testAFreshUserChoiceBeatsTheTVInput() {
+        let z = zone(uri: htastream, hdmi: true)
+        let justTapped = declaration(context(album: "Lost 80s", artURL: "logo.png"),
+                                     uri: iHeart, ageSeconds: 1)
+        let out = reduce([z], declarations: ["Z1": justTapped])
+        XCTAssertEqual(out.albumName, "Lost 80s", "the user's own command must win its grace window")
+        XCTAssertEqual(out.artURL, "logo.png")
+    }
+
+    /// ...but only for the grace window. Once it lapses without Sonos agreeing, the
+    /// speaker is right and the declaration is not.
+    func testAnExpiredUserChoiceYieldsBackToTheTVInput() {
+        let z = zone(uri: htastream, hdmi: true)
+        let lapsed = declaration(context(album: "Lost 80s", artURL: "logo.png"),
+                                 uri: iHeart, ageSeconds: 30)
+        let out = reduce([z], declarations: ["Z1": lapsed])
+        XCTAssertEqual(out.albumName, "TV")
     }
 
     // MARK: - Stream content: the app names the station, Sonos names the song

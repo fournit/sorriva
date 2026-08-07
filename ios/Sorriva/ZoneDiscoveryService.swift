@@ -462,10 +462,21 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                 // commands is still settling, or a transient STOPPED mid-command would wipe
                 // the track the zone is about to resume. Same question as before, now asked
                 // of the store rather than of a duplicate field on the zone.
+                //
+                // isHDMI is deliberately NOT cleared here. It says which INPUT is selected;
+                // isPlaying says whether sound is coming out. Clearing the first because of
+                // the second made the Living Room card flicker between the TV icon and the
+                // last station for the whole time a TV took to warm up — HDMI negotiated
+                // but no audio yet, so every poll landing on "not playing" wiped the input,
+                // the reducer fell through to the last station, and the next poll put it
+                // back. Reported from the room 2026-08-08.
+                //
+                // The clear was redundant as well as wrong: the only legitimate way to
+                // leave the TV input is for the URI to stop being an htastream URI, and
+                // updateZoneFromPositionInfo already owns that in both directions.
                 if !finalPlaying && !PlaybackStore.shared.hasFreshTransportIntent(zoneID: id) {
                     zones[idx].currentTrack = ""
                     zones[idx].currentArtist = ""
-                    zones[idx].isHDMI = false
                 }
             }
         }
