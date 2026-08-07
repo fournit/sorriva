@@ -187,7 +187,6 @@
           "complexity": "S",
           "tag": "bug",
           "done": true,
-          "priority_rank": 3,
           "createdAt": "2026-07-14",
           "completedAt": "2026-07-26",
           "requires": [
@@ -364,7 +363,6 @@
           "complexity": "L",
           "tag": "feature",
           "done": true,
-          "priority_rank": 4,
           "createdAt": "2026-07-25",
           "completedAt": "2026-07-26",
           "requires": [
@@ -1119,14 +1117,16 @@
         {
           "id": "fAutoScanOnShareAdd",
           "name": "Scan automatically when a share is added, with somewhere to watch and pause it",
-          "desc": "Adding a share has exactly one purpose — getting its music into the library — so the confirmation dialog asks a question with only one sensible answer. Roon calls this Storage and never makes you kick off a scan of a source you just added; the only actions are disable, edit and delete. Do the same: the scan starts on save, with no prompt.\n\nThe blocker is that this is not just deleting the dialog. The dialog carries real information — a large library takes hours, the app must stay in the foreground, and auto-lock is suppressed while it runs. That warning has to move somewhere the user can actually see it, which means a place to watch the scan and pause it. That UI does not exist yet, which is why this is logged rather than built.\n\nA modal shown once and dismissed in five seconds is a worse home for that warning than a progress view that is true the whole time the scan runs. The scan ledger already survives interruption — it resumed cleanly through a hard crash on 2026-08-06 — so pausing and resuming is safe.\n\nThis supersedes bScanConfirmDialogLostDuringAddNavigation: with no dialog there is nothing to lose. Manual rescan should survive as a recovery action, demoted rather than primary.",
+          "desc": "Adding a share has exactly one purpose — getting its music into the library — so the confirmation dialog asks a question with only one sensible answer. Roon calls this Storage and never makes you kick off a scan of a source you just added; the only actions are disable, edit and delete. Do the same: the scan starts on save, with no prompt.\n\nThe blocker is that this is not just deleting the dialog. The dialog carries real information — a large library takes hours, the app must stay in the foreground, and auto-lock is suppressed while it runs. That warning has to move somewhere the user can actually see it, which means a place to watch the scan and pause it. That UI does not exist yet, which is why this is logged rather than built.\n\nA modal shown once and dismissed in five seconds is a worse home for that warning than a progress view that is true the whole time the scan runs. The scan ledger already survives interruption — it resumed cleanly through a hard crash on 2026-08-06 — so pausing and resuming is safe.\n\nThis supersedes bScanConfirmDialogLostDuringAddNavigation: with no dialog there is nothing to lose. Manual rescan should survive as a recovery action, demoted rather than primary.\n\nRELOOKED 2026-08-08, after fStorageAndLibraryRestructure settled where things live. This entry said the progress view had to go 'somewhere the user can actually see it' and could not say where, because at the time there was nowhere. THE ANSWER IS THE SHARE ROW IN STORAGE. The share is the unit; its scan is its state; progress belongs on the row alongside track count and last-scanned, not on a separate screen the user has to go looking for. That also means the foreground and auto-lock warning has a permanent home rather than a modal moment.\n\nTWO DIFFERENT THINGS WERE BEING CALLED RESUME. What exists today is CRASH RECOVERY — the ledger reconciles a scan that died and picks up where it stopped, proven through a hard crash on 2026-08-06. What does not exist is DELIBERATE PAUSE AND RESUME: a user stopping a scan because they want their phone back, and restarting it later on purpose. The ledger makes the second safe but does not provide it — pause is a control, and there is no control. Both are needed and they are not the same feature.\n\nManual rescan stays as a recovery action, demoted rather than primary — a row that scans itself on add and reports its own progress makes 'Scan Now' something you reach for when something looks wrong, not the normal path.",
           "priority": "High",
           "complexity": "M",
           "tag": "feature",
           "done": false,
           "createdAt": "2026-08-06",
           "completedAt": null,
-          "requires": []
+          "requires": [
+            "fStorageAndLibraryRestructure"
+          ]
         },
         {
           "id": "fSourceAvailability",
@@ -1174,7 +1174,8 @@
           "done": false,
           "createdAt": "2026-08-07",
           "completedAt": null,
-          "requires": []
+          "requires": [],
+          "priority_rank": 4
         },
         {
           "id": "fArtworkHigherResolutionFetch",
@@ -1186,7 +1187,8 @@
           "done": false,
           "createdAt": "2026-08-07",
           "completedAt": null,
-          "requires": []
+          "requires": [],
+          "priority_rank": 3
         },
         {
           "id": "fArtworkSourcingAndEnhancement",
@@ -2048,14 +2050,13 @@
         {
           "id": "fPlaybackStoreAuthoritativeState",
           "name": "Authoritative PlaybackStore - declare playback state, stop inferring it",
-          "desc": "Make PlaybackStore the single authority for what is playing, replacing the current inference-from-polling model that causes wrong current/previous track, wrong artwork, and zones not updating with current information. Split content-truth (the app resolves the Sonos-reported URI into track/station name and artwork, because Sonos often returns empty titles and never has local album art) from transport-truth (Sonos owns the URI plus play/volume/idle/group state via polling, which stays). A resolved name or artwork is shown ONLY while its URI matches what Sonos currently reports, so stale metadata cannot display - this is the safety guarantee that the old free-floating stationName field lacked. Every app action (station play, transfer, group, ungroup, local play) declares the zone's new state to the store instead of mutating raw fields; polling is demoted to transport-only plus detecting externally-initiated changes. Includes a no-blank rule: an actively-playing zone never renders empty content (hold last-known until the replacement resolves, then swap atomically). Tom's number one goal and the blocker to the UI redesign. Full implementation spec, phases A-E, caller-audit list, and open decisions in HANDOFF-playbackstore-design.md; rejected patches and problem history in HANDOFF-playbackstore-architecture.md. ZoneDiscoveryService decomposition follows once this is stable; Sonos GENA event subscriptions (fSonosEventSubscriptions) are the future push-based transport substrate.\n\nSTATUS 2026-08-04: PHASES A AND B COMPLETE AND DEVICE-TESTED. Phase A built PlaybackDeclaration (context + the URI it was declared against + source app/external + declaredAt), the declare/move/clear API, and the reducer precedence rule -- a declaration displays only while its URI matches what Sonos reports, with a short grace window for app-initiated declarations so a zone does not blank between the command and the first poll that confirms it. Phase B made the store own LAST PLAYING: it never expires and persists to zone_last_playing (schema v20), restored for every zone at launch, so an idle zone shows what it last played instead of nothing. Transfers now move the declaration rather than copying name fields, which structurally closes the round-trip staleness bug -- a copied name used to travel with its own URI and so corroborated itself past the freshness check. REMAINS: phase C (group/ungroup declarations), phase D (demote polling to transport-only), phase E (retire the side-channel fields the store replaces). ZoneDiscoveryService decomposition follows D/E.",
+          "desc": "Make PlaybackStore the single authority for what is playing, replacing the current inference-from-polling model that causes wrong current/previous track, wrong artwork, and zones not updating with current information. Split content-truth (the app resolves the Sonos-reported URI into track/station name and artwork, because Sonos often returns empty titles and never has local album art) from transport-truth (Sonos owns the URI plus play/volume/idle/group state via polling, which stays). A resolved name or artwork is shown ONLY while its URI matches what Sonos currently reports, so stale metadata cannot display - this is the safety guarantee that the old free-floating stationName field lacked. Every app action (station play, transfer, group, ungroup, local play) declares the zone's new state to the store instead of mutating raw fields; polling is demoted to transport-only plus detecting externally-initiated changes. Includes a no-blank rule: an actively-playing zone never renders empty content (hold last-known until the replacement resolves, then swap atomically). Tom's number one goal and the blocker to the UI redesign. Full implementation spec, phases A-E, caller-audit list, and open decisions in HANDOFF-playbackstore-design.md; rejected patches and problem history in HANDOFF-playbackstore-architecture.md. ZoneDiscoveryService decomposition follows once this is stable; Sonos GENA event subscriptions (fSonosEventSubscriptions) are the future push-based transport substrate.\n\nSTATUS 2026-08-04: PHASES A AND B COMPLETE AND DEVICE-TESTED. Phase A built PlaybackDeclaration (context + the URI it was declared against + source app/external + declaredAt), the declare/move/clear API, and the reducer precedence rule -- a declaration displays only while its URI matches what Sonos reports, with a short grace window for app-initiated declarations so a zone does not blank between the command and the first poll that confirms it. Phase B made the store own LAST PLAYING: it never expires and persists to zone_last_playing (schema v20), restored for every zone at launch, so an idle zone shows what it last played instead of nothing. Transfers now move the declaration rather than copying name fields, which structurally closes the round-trip staleness bug -- a copied name used to travel with its own URI and so corroborated itself past the freshness check. REMAINS: phase C (group/ungroup declarations), phase D (demote polling to transport-only), phase E (retire the side-channel fields the store replaces). ZoneDiscoveryService decomposition follows D/E.\n\nCLOSED 2026-08-08. The 'REMAINS: phase C, D, E' line above was stale. C closed as a negative result (fPlaybackStoreGroupDeclarations, 08-04) after measuring the speakers showed a grouped member never receives the stream, so Sonos restores its own queue on separation and the existing behaviour was already correct. D shipped 08-05 (fPlaybackStoreDemotePolling), E on 08-06 (fPlaybackStoreRetireSideChannels). A and B were built inside this entry.\n\nTHE MODEL HELD. A content kind nobody anticipated — a TV taking a room over HDMI — was absorbed on 08-08 with one branch in resolveContent rather than a rethink, which is the strongest evidence the content-truth/transport-truth split was the right shape.\n\nThe two follow-ons this entry carried are now their own items so they cannot be lost with it: fZoneDiscoveryServiceDecomposition and fSonosEventSubscriptions.",
           "priority": "High",
           "complexity": "L",
           "tag": "feature",
-          "done": false,
-          "priority_rank": 1,
+          "done": true,
           "createdAt": "2026-08-03",
-          "completedAt": null,
+          "completedAt": "2026-08-08",
           "requires": []
         },
         {
@@ -2095,7 +2096,6 @@
           "complexity": "M",
           "tag": "feature",
           "done": true,
-          "priority_rank": 2,
           "createdAt": "2026-07-16",
           "completedAt": "2026-07-21",
           "requires": [
@@ -2176,7 +2176,7 @@
         {
           "id": "fSonosEventSubscriptions",
           "name": "Sonos GENA event subscriptions - push transport state instead of polling",
-          "desc": "Replace poll-based transport/zone state with Sonos GENA (UPnP General Event Notification Architecture) event subscriptions. The app SUBSCRIBEs to each speaker's AVTransport and RenderingControl services; Sonos then pushes an HTTP NOTIFY to an in-app callback (via the existing in-app HTTP server, fLocalHTTPServer) the instant transport, track, or volume changes, instead of Sorriva polling every 2-5s. Benefits: near-instant updates, no poll-interval latency, far less network chatter, and it dissolves the external-change staleness window that the PlaybackStore rearchitecture otherwise mitigates with hold-last-good. Requires subscription lifecycle management: renew before timeout, re-subscribe on network change, unsubscribe on teardown. Strategic note: had GENA been known at design time, the transport layer would have been built on it from the start. Sequenced as a future tightening AFTER the PlaybackStore authoritative-declaration rearchitecture is stable and ZoneDiscoveryService is decomposed, at which point poll-to-push can be swapped behind the same transport interface without changing anything above it.",
+          "desc": "Replace poll-based transport/zone state with Sonos GENA (UPnP General Event Notification Architecture) event subscriptions. The app SUBSCRIBEs to each speaker's AVTransport and RenderingControl services; Sonos then pushes an HTTP NOTIFY to an in-app callback (via the existing in-app HTTP server, fLocalHTTPServer) the instant transport, track, or volume changes, instead of Sorriva polling every 2-5s. Benefits: near-instant updates, no poll-interval latency, far less network chatter, and it dissolves the external-change staleness window that the PlaybackStore rearchitecture otherwise mitigates with hold-last-good. Requires subscription lifecycle management: renew before timeout, re-subscribe on network change, unsubscribe on teardown. Strategic note: had GENA been known at design time, the transport layer would have been built on it from the start. Sequenced as a future tightening AFTER the PlaybackStore authoritative-declaration rearchitecture is stable and ZoneDiscoveryService is decomposed, at which point poll-to-push can be swapped behind the same transport interface without changing anything above it.\n\nSECOND OPTION, ADDED 2026-08-08 — the Sonos local control API. Reachable on port 1443 of any player; returns ERROR_API_KEY_VALIDATION_FAILED without credentials, so it needs a registered integration. It offers a real subscription model and a richer playback state than UPnP exposes. It is OAuth, so a Sonos account login inside Sorriva — but an initial reading that this therefore requires a backend was WRONG: native apps use PKCE with a custom-scheme redirect the app handles itself, the same shape Tidal and others will need anyway, so the no-backend property survives. Real costs are a second protocol alongside UPnP and a dependency on Sonos keeping the programme open to non-commercial developers (unconfirmed; the partner docs describe Company accounts and imply but do not state an individual path).\n\nSO THIS ITEM IS NOW A CHOICE, NOT A PLAN: GENA (no credentials, uses the in-app HTTP server, well-understood) versus the control API (richer state, needs a key and an account login). Evaluate them together — they answer the same question and should not be pursued in parallel.\n\nEVIDENCE THAT THE 'EXTERNAL CHANGES' ARGUMENT IS THE STRONG ONE: bGroupChangesMadeOutsideSorrivaAreNeverSeen, found 2026-08-08. A grouping change made from the Sonos app, a voice command or TV autoplay is invisible to Sorriva until relaunch. That is precisely the staleness window this entry describes, and it is now a demonstrated defect rather than a theoretical one. Note it also has a cheap poll-side fix, which should land first — push is the right long-term answer, not the urgent one.\n\nNOT A REASON TO DO THIS: distinguishing a live TV from a selected input. That question prompted the 2026-08-08 look and turned out to be answerable over plain UPnP via ZoneGroupTopology's IdleState — see sonos-playback-contract.md 6a.",
           "priority": "High",
           "complexity": "L",
           "tag": "feature",
@@ -2195,7 +2195,6 @@
           "complexity": "S",
           "tag": "feature",
           "done": true,
-          "priority_rank": null,
           "createdAt": "2026-07-20",
           "completedAt": "2026-07-20",
           "requires": []
@@ -2208,7 +2207,6 @@
           "complexity": "S",
           "tag": "feature",
           "done": true,
-          "priority_rank": null,
           "createdAt": "2026-07-20",
           "completedAt": "2026-07-20",
           "requires": []
@@ -2221,7 +2219,6 @@
           "complexity": "M",
           "tag": "feature",
           "done": true,
-          "priority_rank": null,
           "createdAt": "2026-07-20",
           "completedAt": "2026-07-20",
           "requires": []
@@ -2431,14 +2428,13 @@
         {
           "id": "bStationTrackFrozenByDeclaration",
           "name": "Radio zone stuck on the track that was playing when the station started",
-          "desc": "A playing radio zone keeps showing the track and artist that were current at the moment the station was declared, forever. Station name and artwork stay correct. Observed live 2026-08-04: Master Bedroom on iHeart Lost 80s, Sonos reporting Eurythmics and then Prince ~80s later, while the app displayed Chaka Khan -- a song that had played several tracks earlier.\n\nROOT CAUSE: the reducer's first precedence branch in PlaybackStore.resolveContent -- 'Sonos confirms what we declared, therefore authoritative; polling cannot override'. That is sound for a local file, whose URI changes with every track, so one URI really does mean one piece of content. It is false for a stream: the URI is the STATION (.../zc7934/hls.m3u8) and never changes while the songs do. So the branch matches on every poll forever and returns the snapshot frozen at declare time. Polling reports the correct track continuously and is discarded BY DESIGN.\n\nFIX (BUILT 2026-08-04, compiles clean; left open pending field verification -- Tom is running it for several days to see whether it manifests again): branch the confirmed-URI case on content kind. A local declaration returns unchanged -- the app owns all of it because Sonos has neither the track nor the art. A stream declaration returns its station identity with the LIVE track and artist layered on, since Sonos reports those correctly via r:streamContent and the app cannot know them. Hold the previous track rather than blanking if Sonos reports empty between songs. Confined to resolveContent; the URI check still gates the branch, so a declaration still cannot display a station the zone is not playing.\n\nWIDER POINT, worth keeping: declarations exist to cover the 1-2s gap between the app issuing a command and Sonos confirming it. They were then given permanent authority over content, which is a far bigger claim than that problem needs -- the exception became the rule, and every 'what's playing' ghost is a case where the app's copy went stale and that rule blocked reality from correcting it. Note this is NOT fixed by moving to GENA event subscriptions: push changes how the app learns of a change, not what it does with it, so the same rule would freeze content just as hard. See HANDOFF-playbackstore-design.md sections 3.1 and 12.1. BLOCKS phases C/D/E.",
+          "desc": "A playing radio zone keeps showing the track and artist that were current at the moment the station was declared, forever. Station name and artwork stay correct. Observed live 2026-08-04: Master Bedroom on iHeart Lost 80s, Sonos reporting Eurythmics and then Prince ~80s later, while the app displayed Chaka Khan -- a song that had played several tracks earlier.\n\nROOT CAUSE: the reducer's first precedence branch in PlaybackStore.resolveContent -- 'Sonos confirms what we declared, therefore authoritative; polling cannot override'. That is sound for a local file, whose URI changes with every track, so one URI really does mean one piece of content. It is false for a stream: the URI is the STATION (.../zc7934/hls.m3u8) and never changes while the songs do. So the branch matches on every poll forever and returns the snapshot frozen at declare time. Polling reports the correct track continuously and is discarded BY DESIGN.\n\nFIX (BUILT 2026-08-04, compiles clean; left open pending field verification -- Tom is running it for several days to see whether it manifests again): branch the confirmed-URI case on content kind. A local declaration returns unchanged -- the app owns all of it because Sonos has neither the track nor the art. A stream declaration returns its station identity with the LIVE track and artist layered on, since Sonos reports those correctly via r:streamContent and the app cannot know them. Hold the previous track rather than blanking if Sonos reports empty between songs. Confined to resolveContent; the URI check still gates the branch, so a declaration still cannot display a station the zone is not playing.\n\nWIDER POINT, worth keeping: declarations exist to cover the 1-2s gap between the app issuing a command and Sonos confirming it. They were then given permanent authority over content, which is a far bigger claim than that problem needs -- the exception became the rule, and every 'what's playing' ghost is a case where the app's copy went stale and that rule blocked reality from correcting it. Note this is NOT fixed by moving to GENA event subscriptions: push changes how the app learns of a change, not what it does with it, so the same rule would freeze content just as hard. See HANDOFF-playbackstore-design.md sections 3.1 and 12.1. BLOCKS phases C/D/E.\n\nCLOSED 2026-08-08 on Tom's field observation — not seen since everything was consolidated into PlaybackStore. Closing on absence alone would be weak, so what supports it: the fix was confirmedContent, which drew the compositional boundary explicitly — the app owns station identity (name and logo), Sonos owns what is playing right now via r:streamContent. A declaration bound to a station URI no longer pins the track that happened to be playing when the station started, because the URI never changes while the songs do. It is also guarded by a named regression test, testStreamFollowsLiveTrackWhileKeepingStationIdentity in PlaybackReducerTests, written from the live repro where Sonos reported Eurythmics then Prince while the app showed Chaka Khan. Fix, test, and four days of real listening — enough to call it.",
           "priority": "High",
           "complexity": "S",
           "tag": "bug",
-          "done": false,
-          "priority_rank": 1,
+          "done": true,
           "createdAt": "2026-08-04",
-          "completedAt": null,
+          "completedAt": "2026-08-08",
           "requires": []
         },
         {
@@ -2672,18 +2668,6 @@
           "requires": []
         },
         {
-          "id": "fSonosEventSubscription",
-          "name": "Investigate event subscriptions to replace polling",
-          "desc": "Sorriva polls every 2 seconds while anything is playing. Tom's question from 2026-08-04 — whether the ghost-state bugs would keep coming until the app subscribes rather than polls — has never been properly answered. GENA was assessed then and rejected: it would not have fixed that bug class. Sonos's newer local control API is a different proposition and deserves its own look.\n\nWHAT IT OFFERS: a real subscription model rather than a poll loop, and a richer playback state. Reachable on port 1443 of any player; returns ERROR_API_KEY_VALIDATION_FAILED without credentials, so it needs a registered integration.\n\nWHAT IT COSTS, and this is the part to get right before committing: it is OAuth, so a Sonos account login inside Sorriva. An initial reading that this therefore requires a backend was WRONG — native apps use PKCE with a custom-scheme redirect the app handles itself, the same shape Tidal and others will need anyway. So the no-backend property survives. The real costs are a second protocol alongside UPnP, a dependency on Sonos keeping the programme open to non-commercial developers (unconfirmed — the partner docs describe Company accounts and imply but do not state an individual path), and an account login for something controlling speakers on the same LAN.\n\nNOT A REASON TO DO IT: distinguishing a live TV from a selected input. That was the question this came out of, and it turned out to be answerable over plain UPnP via ZoneGroupTopology's IdleState — see sonos-playback-contract.md 6a. Evaluate this on event-driven state alone, which is the thing polling genuinely cannot give us.",
-          "priority": "Normal",
-          "complexity": "M",
-          "tag": "feature",
-          "done": false,
-          "createdAt": "2026-08-08",
-          "completedAt": null,
-          "requires": []
-        },
-        {
           "id": "fZonePollingTestSeam",
           "name": "The polling path that feeds the reducer has no test coverage at all",
           "desc": "PlaybackStateReducer now has 29 tests and they are good ones. Everything UPSTREAM of it has none: fetchTransportStates, updateZoneFromPositionInfo, and the topology parse that between them decide what a SonosZone actually contains.\n\nThat gap has now been demonstrated twice in one day. The isHDMI flicker (bZoneShowsStaleStationWhenTVTakesOver) was a field defect that no reducer test could catch, because the reducer was handling a correctly-flagged zone — the flag was being wiped upstream. A reducer test asserting 'an HDMI zone resolves to TV' passes happily while the poll ensures no zone is ever flagged HDMI for long enough to matter.\n\nThese functions take raw SOAP response data and mutate the zones array, so the seam is not difficult: feed captured XML in, assert on the resulting SonosZone. Real responses for the interesting cases are already recorded in sonos-playback-contract.md and easy to capture again with tools/sonos.py.\n\nWorth doing before the next playback change rather than after, since the reducer suite currently creates an impression of coverage the area does not have.",
@@ -2693,7 +2677,8 @@
           "done": false,
           "createdAt": "2026-08-08",
           "completedAt": null,
-          "requires": []
+          "requires": [],
+          "priority_rank": 1
         },
         {
           "id": "bGroupChangesMadeOutsideSorrivaAreNeverSeen",
@@ -2705,7 +2690,8 @@
           "done": false,
           "createdAt": "2026-08-08",
           "completedAt": null,
-          "requires": []
+          "requires": [],
+          "priority_rank": 2
         },
         {
           "id": "fHDMIInputSelection",
@@ -2731,6 +2717,20 @@
           "completedAt": null,
           "requires": [
             "fHDMIInputSelection"
+          ]
+        },
+        {
+          "id": "fZoneDiscoveryServiceDecomposition",
+          "name": "Break up ZoneDiscoveryService — 2,300 lines doing discovery, polling, transport and commands",
+          "desc": "ZoneDiscoveryService is ~2,300 lines and owns discovery, topology parsing, transport polling, position parsing, volume debouncing, grouping, transfers and station playback. It was always meant to be decomposed once the PlaybackStore rearchitecture was stable, and that condition is now met — phases A through E are complete.\n\nUNTIL 2026-08-08 THIS EXISTED ONLY AS A SENTENCE INSIDE fPlaybackStoreAuthoritativeState ('ZoneDiscoveryService decomposition follows D/E'). Closing that umbrella would have dropped it entirely, which is why it is now its own entry.\n\nWHY IT MATTERS BEYOND TIDINESS: three defects in two days lived in this file's polling path — the stale station when a TV took the room, the isHDMI flicker during TV warm-up, and group changes never being observed. The file has no test coverage at all (fZonePollingTestSeam). Size is why: there is no seam to test against, because everything is one class mutating one shared zones array from several async paths, which is also how a poll came to clear a source fact because of an activity fact.\n\nSEQUENCING: fZonePollingTestSeam FIRST. Tests before decomposition, so the refactor has something to prove it did not change behaviour — otherwise a large restructuring of the least-covered file in the app is a leap. The natural split follows the responsibilities above, with the transport layer isolated enough that poll-to-push (fSonosEventSubscriptions) can later be swapped behind the same interface without touching anything above it.",
+          "priority": "Normal",
+          "complexity": "L",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-08-08",
+          "completedAt": null,
+          "requires": [
+            "fZonePollingTestSeam"
           ]
         }
       ]
@@ -3393,14 +3393,15 @@
         {
           "id": "fStorageAndLibraryRestructure",
           "name": "Split sources from content — Storage holds the shares, Library Management holds the result",
-          "desc": "Tom's observation, 2026-08-07: 'this area of settings is to add shares so networking focused. scanning is library focused.' Local Library is plumbing; Library Management is content; the two are currently tangled. A DECISION TO SETTLE BEFORE THE REDESIGN STARTS, not to discover halfway through it.\n\nTHE LINE: Services = streaming sources. Storage = your own files. Library = what came out of both. Each screen owns one idea.\n\nDO NOT SPLIT 'ADD A SHARE' FROM 'SEE WHAT THAT SHARE CONTRIBUTED'. The instinct to have one screen for adding and another for reporting is the thing to resist — Roon does not do it, and the reason is that THE SHARE IS THE UNIT. One Storage screen listing each share with its state on the row: track count, last scanned, watching or errored, with edit / remove there too. Library Management then stops being about shares at all and becomes about the merged result — totals, duplicates, artwork coverage, cleanup tools.\n\nNAMING — Storage over Share Management. The audience is audiophiles, a good number arriving from Roon where the term is already Storage, and it pairs naturally against Services. Share Management describes the mechanism; Storage describes the thing. Tom's own framing was 'share management or similar', so this is a recommendation rather than a settled point.\n\nRELATED DECISIONS worth settling on the same page, because they are cheap now and expensive to unpick later: whether fArtworkManagement and fArtworkManualSearchUtility are one screen or two (they are two doors into one room — pick from search results, or supply your own image); and where fAutoScanOnShareAdd's progress-and-pause UI lives, since that is the thing currently blocking automatic scanning.\n\nWHAT THIS IS NOT: a rename. Moving the shares under a better heading without making the share row carry its own state leaves the same tangle with new labels. fSourceAvailability (dim unavailable content) and fArtworkProvenance (where a cover came from) both feed the row and the review lists this restructure implies.",
+          "desc": "PREREQUISITES — the agreed order into the UI work, 2026-08-08. This entry is the hinge, so the gate list lives here rather than in a plan document that would drift.\n\n1. fZonePollingTestSeam. THE ONLY HARD GATE. Three defects in two days lived in the polling path and none were caught by tests — Tom found two of them by looking at a room. A redesign touches every surface that reads this data, and without coverage there is no way to tell a rendering regression from a data one. That distinction is what cost an afternoon on 2026-08-08.\n\n2. bGroupChangesMadeOutsideSorrivaAreNeverSeen. High, small, and the new UI will show grouping more prominently than the current one. Building richer group UI on data that goes stale the moment somebody uses the Sonos app is building on sand.\n\n3. fArtworkHigherResolutionFetch. An XS that quadruples artwork resolution for free. The redesign is the moment artwork gets bigger; doing it afterwards means re-fetching a library's worth of covers.\n\n4. fArtworkProvenance. Small, and the artwork maintenance screens cannot be designed without it — a review list ranked by doubt needs to know where a cover came from and how confident the match was.\n\nDELIBERATELY NOT BEFORE THE UI: fSonosEventSubscription and fHomeTheatreSettings. Both interesting, neither blocking, and both would expand scope at exactly the wrong moment.\n\n---\n\nTom's observation, 2026-08-07: 'this area of settings is to add shares so networking focused. scanning is library focused.' Local Library is plumbing; Library Management is content; the two are currently tangled. A DECISION TO SETTLE BEFORE THE REDESIGN STARTS, not to discover halfway through it.\n\nTHE LINE: Services = streaming sources. Storage = your own files. Library = what came out of both. Each screen owns one idea.\n\nDO NOT SPLIT 'ADD A SHARE' FROM 'SEE WHAT THAT SHARE CONTRIBUTED'. The instinct to have one screen for adding and another for reporting is the thing to resist — Roon does not do it, and the reason is that THE SHARE IS THE UNIT. One Storage screen listing each share with its state on the row: track count, last scanned, watching or errored, with edit / remove there too. Library Management then stops being about shares at all and becomes about the merged result — totals, duplicates, artwork coverage, cleanup tools.\n\nNAMING — Storage over Share Management. The audience is audiophiles, a good number arriving from Roon where the term is already Storage, and it pairs naturally against Services. Share Management describes the mechanism; Storage describes the thing. Tom's own framing was 'share management or similar', so this is a recommendation rather than a settled point.\n\nRELATED DECISIONS worth settling on the same page, because they are cheap now and expensive to unpick later: whether fArtworkManagement and fArtworkManualSearchUtility are one screen or two (they are two doors into one room — pick from search results, or supply your own image); and where fAutoScanOnShareAdd's progress-and-pause UI lives — ANSWERED: on the share row itself. The share is the unit, its scan is its state, and progress belongs beside track count and last-scanned rather than on a screen the user has to go find. That unblocks automatic scanning, which is currently waiting on having anywhere to show it.\n\nWHAT THIS IS NOT: a rename. Moving the shares under a better heading without making the share row carry its own state leaves the same tangle with new labels. fSourceAvailability (dim unavailable content) and fArtworkProvenance (where a cover came from) both feed the row and the review lists this restructure implies.",
           "priority": "High",
           "complexity": "M",
           "tag": "feature",
           "done": false,
           "createdAt": "2026-08-08",
           "completedAt": null,
-          "requires": []
+          "requires": [],
+          "priority_rank": 5
         }
       ]
     },
