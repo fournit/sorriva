@@ -222,6 +222,73 @@ final class ZonePollingTests: XCTestCase {
         XCTAssertEqual(merged.map(\.name), ["Garage", "Patio"])
     }
 
+    /// THE REGRESSION THIS EXISTS TO CATCH. `zones` is a display-ready list and has
+    /// always been alphabetical, but that invariant lived as a `.sorted` at each
+    /// assignment site plus a comment on the property. Adding a new assignment site —
+    /// the 15-second merge, 2026-08-08 — silently broke it, and because that poll
+    /// replaces the list constantly the ordering survived only until the first tick.
+    /// Zone cards, the transfer picker and the group picker all went unordered.
+    ///
+    /// Sorting inside the merge puts the rule in one place; asserting it here means the
+    /// next person to add an assignment site cannot quietly lose it again.
+    func testMergeReturnsZonesAlphabetically() throws {
+        let svc = ZoneDiscoveryService()
+        let parsed = try XCTUnwrap(svc.parseTopology(data: try fixture("zonegroupstate")))
+        let merged = ZoneDiscoveryService.mergeTopology(parsed: parsed, into: [])
+        let names = merged.map(\.name)
+        XCTAssertEqual(names, names.sorted(), "zones must come back alphabetical, got \(names)")
+    }
+
+    /// Order must not depend on what the app happened to be holding beforehand.
+    func testMergeSortsRegardlessOfExistingOrder() throws {
+        let svc = ZoneDiscoveryService()
+        let parsed = try XCTUnwrap(svc.parseTopology(data: try fixture("zonegroupstate")))
+        let scrambled = Array(parsed.reversed())
+        let merged = ZoneDiscoveryService.mergeTopology(parsed: scrambled, into: scrambled)
+        let names = merged.map(\.name)
+        XCTAssertEqual(names, names.sorted(), "a reversed input must still come back sorted")
+    }
+
+    /// Members arrive from TopologyParser with no volume — the struct default of 0,
+    /// which the UI draws as MUTED. The merge must carry their real levels forward the
+    /// same way it carries the zone's own, or every refresh silences the sliders until
+    /// the next poll refills them. That cycling is what Tom saw on Master Bedroom and
+    /// Master Bath while the speakers sat steady at 14 and 18.
+    func testMergePreservesGroupMemberVolumes() {
+        var member = SonosGroupMember(id: "M1", name: "Master Bedroom", host: "10.0.0.11")
+        member.volume = 14
+        var live = SonosZone(id: "A", name: "Living Room", host: "10.0.0.9",
+                             isPlaying: true, volume: 9)
+        live.groupMembers = [member]
+
+        // What topology hands back: the same member, volume unset.
+        var fresh = SonosZone(id: "A", name: "Living Room", host: "10.0.0.9",
+                              isPlaying: false, volume: 0)
+        fresh.groupMembers = [SonosGroupMember(id: "M1", name: "Master Bedroom", host: "10.0.0.11")]
+
+        let merged = ZoneDiscoveryService.mergeTopology(parsed: [fresh], into: [live])
+        XCTAssertEqual(merged[0].groupMembers.first?.volume, 14,
+                       "a member's volume must survive a topology refresh")
+    }
+
+    /// ...but topology still decides WHO is in the group. A member that has left must
+    /// not be resurrected just because we remember how loud it was.
+    func testMergeDoesNotResurrectADepartedMember() {
+        var gone = SonosGroupMember(id: "M1", name: "Workout", host: "10.0.0.11")
+        gone.volume = 30
+        var live = SonosZone(id: "A", name: "Living Room", host: "10.0.0.9",
+                             isPlaying: true, volume: 9)
+        live.groupMembers = [gone]
+
+        var fresh = SonosZone(id: "A", name: "Living Room", host: "10.0.0.9",
+                              isPlaying: false, volume: 0)
+        fresh.groupMembers = []
+
+        let merged = ZoneDiscoveryService.mergeTopology(parsed: [fresh], into: [live])
+        XCTAssertTrue(merged[0].groupMembers.isEmpty,
+                      "topology is authoritative for membership, the poll only for volume")
+    }
+
     func testMergeAcceptsAZoneItHasNeverSeen() {
         // A speaker powered on mid-session has no prior state to carry forward.
         let fresh = SonosZone(id: "NEW", name: "Kitchen", host: "10.0.0.50",

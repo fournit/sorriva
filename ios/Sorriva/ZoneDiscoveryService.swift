@@ -322,31 +322,20 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             sLog("ZONES: Topology response status=\(status) bytes=\(data.count)")
 
             if let parsed = parseTopology(data: data) {
-                // Merge into existing zones rather than replacing wholesale.
-                // TopologyParser only knows id/name/host/idleState/groupMembers —
-                // a full replace resets every OTHER field (station info, current
-                // track, position, volume, grace period) to bare defaults on
-                // every topology fetch. Invisible for an already-idle zone with
-                // little to lose, but visibly blips an actively-playing
-                // coordinator's now-playing info to blank before the separate
-                // async fetchTransportStates below restores it moments later.
-                let previousByID = Dictionary(uniqueKeysWithValues: zones.map { ($0.id, $0) })
-                let merged = parsed.map { fresh -> SonosZone in
-                    guard let previous = previousByID[fresh.id] else { return fresh }
-                    var z = fresh
-                    z.isPlaying        = previous.isPlaying
-                    z.volume           = previous.volume
-                    z.currentTrack     = previous.currentTrack
-                    z.currentArtist    = previous.currentArtist
-                    z.currentTrackURI  = previous.currentTrackURI
-                    z.elapsedSeconds   = previous.elapsedSeconds
-                    z.durationSeconds  = previous.durationSeconds
-                    z.dbDeviceId       = previous.dbDeviceId
-                    // fresh.idleState, fresh.groupMembers, fresh.name, fresh.host
-                    // are authoritative from THIS topology read — kept as-is.
-                    return z
-                }
-                zones = merged.sorted { $0.name < $1.name }
+                // Merge rather than replace: TopologyParser only knows
+                // id/name/host/idleState/groupMembers, so a wholesale replace resets
+                // every other field — track, position, volume, HDMI — to bare defaults
+                // on every topology fetch. Invisible on an idle zone; it visibly blanks
+                // an actively-playing coordinator until fetchTransportStates catches up.
+                //
+                // This used to be an inline copy of mergeTopology. Two copies of one
+                // rule is how the alphabetical-sort invariant got lost on 2026-08-08 —
+                // it was restated at each assignment site instead of living in one
+                // place. The shared version is also strictly better: it carries forward
+                // isHDMI and capabilities, which this copy dropped (so a topology
+                // refresh silently cleared the TV flag), and it tolerates a duplicate
+                // zone id rather than trapping on it the way uniqueKeysWithValues does.
+                zones = ZoneDiscoveryService.mergeTopology(parsed: parsed, into: zones)
                 lastTopologyHost = host
                 topologyLastFetched = Date()
                 sLog("ZONES: Parsed \(zones.count) zones: \(zones.map(\.name).joined(separator: ", "))")
@@ -758,6 +747,17 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
     /// zone that leaves reappears. That is why the old code, which only patched
     /// IdleState in place, could never see a group change however often it ran.
     ///
+    /// RETURNS ALPHABETICALLY SORTED. `zones` is a display-ready list and has always
+    /// been alpha sorted, but that invariant lived as a `.sorted` at each assignment
+    /// site plus a comment on the property — so adding a new assignment site silently
+    /// broke it. That is exactly what happened on 2026-08-08: this merge shipped
+    /// assigning unsorted, and because it runs every 15s the alphabetical order
+    /// survived only until the first poll. Zone cards, transfer and group pickers all
+    /// went unordered.
+    ///
+    /// Sorting HERE puts the rule in one place that both callers inherit, and because
+    /// this function is pure it can be asserted in a test rather than remembered.
+    ///
     /// Pure and static so it can be tested without a speaker (fZonePollingTestSeam).
     static func mergeTopology(parsed: [SonosZone], into existing: [SonosZone]) -> [SonosZone] {
         // Refuse to act on nothing. A timed-out or truncated response parses to an
@@ -779,8 +779,30 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             merged.durationSeconds = prior.durationSeconds
             merged.capabilities    = prior.capabilities   // from the devices table
             merged.dbDeviceId      = prior.dbDeviceId
+
+            // MEMBER VOLUMES TOO. Topology is authoritative for WHICH members a group
+            // has; the transport poll is authoritative for how loud each one is.
+            // TopologyParser builds members as SonosGroupMember(id:name:host:) with no
+            // volume, so they arrive at the struct default of 0 — which the UI draws as
+            // muted. Taking fresh.groupMembers wholesale therefore reset every member to
+            // silent on each merge, and the poll refilled it moments later: the Master
+            // Bedroom and Master Bath sliders cycled between mute and their real level
+            // while the speakers never changed. Observed 2026-08-08 with both grouped to
+            // Living Room, and confirmed against the speakers, which reported a steady
+            // vol=14 and vol=18 throughout.
+            //
+            // Harmless before this merge ran on a timer, because a topology parse only
+            // happened at launch and after Sorriva's own grouping commands.
+            let priorVolumes = Dictionary(prior.groupMembers.map { ($0.id, $0.volume) },
+                                          uniquingKeysWith: { a, _ in a })
+            merged.groupMembers = fresh.groupMembers.map { m in
+                var m = m
+                if let known = priorVolumes[m.id] { m.volume = known }
+                return m
+            }
             return merged
         }
+        .sorted { $0.name < $1.name }
     }
 
     /// Refresh zone structure AND idle state from ZoneGroupTopology.

@@ -973,14 +973,15 @@
         {
           "id": "bChangeCheckRunsFullPipelineOnNoChange",
           "name": "Foreground change check runs artwork passes and retry scheduler even when nothing changed",
-          "desc": "A change check that filters to zero files still runs all three artwork passes, the retry scheduler, and the full state transition sequence. Harmless in wall-clock terms — measured 16.9s on an 11,670-file library, most of which is the walk — but it is ceremony for nothing, and it is what widens the window for bPhantomScanInterruptedDialog by setting scanState 'scanning' on every foreground. Observed 2026-07-31.",
-          "priority": "Low",
+          "desc": "A change check that filters to zero files still runs all three artwork passes, the retry scheduler, and the full state transition sequence. Harmless in wall-clock terms — measured 16.9s on an 11,670-file library, most of which is the walk — but it is ceremony for nothing, and it is what widens the window for bPhantomScanInterruptedDialog by setting scanState 'scanning' on every foreground. Observed 2026-07-31.\n\nRAISED FROM LOW TO HIGH, 2026-08-08. This entry called the cost 'harmless in wall-clock terms', which was assessed before anyone connected it to the screen never locking. runScan sets isIdleTimerDisabled = true, and this pipeline runs on EVERY foreground — so ~16.9s on Tom's library is not merely wasted work, it is seventeen seconds of suppressed auto-lock every single time the app is opened, paid in battery and screen burn.\n\nIt is also the exposure surface for bAutoLockNeverRestored: that latch only bites when a pipeline run fails to reach its end, and this is what makes runs frequent. Removing the unnecessary work removes most of the opportunity. Fix them together.",
+          "priority": "High",
           "complexity": "S",
           "tag": "bug",
           "done": false,
           "createdAt": "2026-07-31",
           "completedAt": null,
-          "requires": []
+          "requires": [],
+          "priority_rank": 2
         },
         {
           "id": "fScanLedgerUnitTests",
@@ -1238,6 +1239,19 @@
           "createdAt": "2026-08-08",
           "completedAt": null,
           "requires": []
+        },
+        {
+          "id": "bAutoLockNeverRestored",
+          "name": "The screen stops locking — auto-lock is suppressed on every foreground and latches off",
+          "desc": "Reported 2026-08-08: 'most times the app does not go to lock screen. it stays active all the time' with the device set to lock after 30 seconds.\n\nTWO FAULTS THAT COMPOUND.\n\nONE — IT IS A ONE-WAY LATCH. UIApplication.isIdleTimerDisabled is set true at the top of runScan (ScanCoordinator ~491). The reset that matters sits at the very END of a Task.detached, after the artwork passes AND after `await ScanRetryScheduler.shared.start(...)`, behind a `guard let self else { return }`. So it is not cleared when the scan finishes — it is cleared when the whole asynchronous chain finishes. Any cancellation, hang, throw or early return between those two points leaves auto-lock disabled, and NOTHING ELSE ever sets it false, so the phone stays awake until the app is killed. One miss is permanent. The other two resets do not save it: one fires only in the catch, the other only in wedged-pipeline recovery.\n\nTWO — IT IS SET CONSTANTLY. runScan executes on EVERY foreground, because every foreground runs a change check. On Tom's 11,670-file library that pipeline measures ~16.9s (bChangeCheckRunsFullPipelineOnNoChange), so auto-lock is suppressed for roughly seventeen seconds every time the app is opened, by design. Frequent exposure plus a one-way failure is why the symptom is 'most times' rather than 'occasionally'.\n\nFIX — DERIVE IT, DO NOT TOGGLE IT. The flag should follow from state: when activeScanSourceId becomes nil, auto-lock returns. That makes it a consequence rather than a pair of statements that must stay balanced across an async boundary. Add a safety net on entering the foreground — clear it before anything sets it — so even a future bug cannot survive an app switch.\n\nSAME SHAPE AS bZoneOrderLostByTopologyMerge: an invariant maintained by matching statements at a distance, which fails the moment one path skips one. Pair with bChangeCheckRunsFullPipelineOnNoChange — one removes the exposure, the other removes the latch.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-08-08",
+          "completedAt": null,
+          "requires": [],
+          "priority_rank": 1
         }
       ]
     },
@@ -1757,7 +1771,7 @@
           "done": false,
           "completedAt": null,
           "tag": "feature",
-          "priority_rank": 3
+          "priority_rank": 5
         },
         {
           "id": "fSonosDiscovery",
@@ -2101,7 +2115,7 @@
           "complexity": "S",
           "tag": "feature",
           "done": false,
-          "priority_rank": 2,
+          "priority_rank": 5,
           "createdAt": "2026-07-16",
           "completedAt": null,
           "requires": [
@@ -2144,7 +2158,7 @@
           "complexity": "L",
           "tag": "feature",
           "done": false,
-          "priority_rank": 3,
+          "priority_rank": 5,
           "createdAt": "2026-07-16",
           "completedAt": null,
           "requires": [
@@ -2174,7 +2188,7 @@
           "complexity": "S",
           "tag": "feature",
           "done": false,
-          "priority_rank": 2,
+          "priority_rank": 5,
           "createdAt": "2026-07-16",
           "completedAt": null,
           "requires": [
@@ -2522,8 +2536,8 @@
         {
           "id": "fFastUnitTestCycle",
           "name": "Speed up the unit test cycle - 10 minutes per run makes validation too expensive",
-          "desc": "Tom, verbatim: \"Separately, the ten-minute cycle itself is worth attacking at some point - a chunk of it is the simulator boot and test-bundle install, and there's a macOS destination in the scheme that may skip both. Not today's problem, but it would make this whole exercise cheap next time.\"\n\nCONTEXT. Measured 2026-08-05: a test run that touches a source file takes about ten minutes end to end, against roughly 0.1 seconds of actual test execution (17 reducer tests). Effectively all of it is rebuild, test-bundle install, and simulator boot. A test-only rerun with no source change is far quicker, so the cost is specifically paid whenever code changes -- which is every single time during development.\n\nWHY IT MATTERS BEYOND CONVENIENCE. It directly limits how much verification gets done. Validating that the reducer tests genuinely catch their bugs (deliberately reintroduce each defect, confirm the right tests go red) required one build cycle per mutation. At ten minutes each, the honest recommendation was to validate the subtle tests and take the rest on trust -- which Tom correctly rejected as inspection standing in for measurement. A fast cycle removes that trade-off entirely and makes mutation checking routine rather than an event.\n\nFIRST THING TO TRY: the scheme already lists a 'My Mac (Designed for iPad)' destination. If the test target runs there, it skips both the simulator boot and the bundle install. Not all tests will suit it -- anything touching UIKit or device paths may not -- but the reducer and scanner suites are pure logic over GRDB and files. Worth timing before any deeper build-settings work.",
-          "priority": "Medium",
+          "desc": "Tom, verbatim: \"Separately, the ten-minute cycle itself is worth attacking at some point - a chunk of it is the simulator boot and test-bundle install, and there's a macOS destination in the scheme that may skip both. Not today's problem, but it would make this whole exercise cheap next time.\"\n\nCONTEXT. Measured 2026-08-05: a test run that touches a source file takes about ten minutes end to end, against roughly 0.1 seconds of actual test execution (17 reducer tests). Effectively all of it is rebuild, test-bundle install, and simulator boot. A test-only rerun with no source change is far quicker, so the cost is specifically paid whenever code changes -- which is every single time during development.\n\nWHY IT MATTERS BEYOND CONVENIENCE. It directly limits how much verification gets done. Validating that the reducer tests genuinely catch their bugs (deliberately reintroduce each defect, confirm the right tests go red) required one build cycle per mutation. At ten minutes each, the honest recommendation was to validate the subtle tests and take the rest on trust -- which Tom correctly rejected as inspection standing in for measurement. A fast cycle removes that trade-off entirely and makes mutation checking routine rather than an event.\n\nFIRST THING TO TRY: the scheme already lists a 'My Mac (Designed for iPad)' destination. If the test target runs there, it skips both the simulator boot and the bundle install. Not all tests will suit it -- anything touching UIKit or device paths may not -- but the reducer and scanner suites are pure logic over GRDB and files. Worth timing before any deeper build-settings work.\n\nMEASURED 2026-08-08: a plain `xcodebuild build` completes in ~10 SECONDS. `xcodebuild test` scoped to a single suite with -only-testing takes ~10 MINUTES. The tests themselves execute in under a second, so the entire 60x difference is the test target build plus simulator clone, boot and install — not compilation of the app.\n\nWHICH MAKES THE FIX CLEAR: the code being tested is already pure. mergeTopology, PlaybackStateReducer, ArtworkLookup's scoring, ImageDimensionReader and ArtworkBestWins have no UIKit dependency — they are simply trapped inside an app target that does, which forces a simulator. Moved into a plain module they would build and run on macOS in seconds with no simulator at all.\n\nRAISED TO HIGH because fZoneDiscoveryServiceDecomposition now depends on it: that work is explicitly one-step-at-a-time with verification between steps, and at ten minutes a run the discipline becomes unaffordable. Tonight alone this cost six mutation runs plus the ordinary ones.",
+          "priority": "High",
           "complexity": "S",
           "tag": "feature",
           "done": false,
@@ -2753,17 +2767,68 @@
         },
         {
           "id": "fZoneDiscoveryServiceDecomposition",
-          "name": "Break up ZoneDiscoveryService — 2,300 lines doing discovery, polling, transport and commands",
-          "desc": "ZoneDiscoveryService is ~2,300 lines and owns discovery, topology parsing, transport polling, position parsing, volume debouncing, grouping, transfers and station playback. It was always meant to be decomposed once the PlaybackStore rearchitecture was stable, and that condition is now met — phases A through E are complete.\n\nUNTIL 2026-08-08 THIS EXISTED ONLY AS A SENTENCE INSIDE fPlaybackStoreAuthoritativeState ('ZoneDiscoveryService decomposition follows D/E'). Closing that umbrella would have dropped it entirely, which is why it is now its own entry.\n\nWHY IT MATTERS BEYOND TIDINESS: three defects in two days lived in this file's polling path — the stale station when a TV took the room, the isHDMI flicker during TV warm-up, and group changes never being observed. The file has no test coverage at all (fZonePollingTestSeam). Size is why: there is no seam to test against, because everything is one class mutating one shared zones array from several async paths, which is also how a poll came to clear a source fact because of an activity fact.\n\nSEQUENCING: fZonePollingTestSeam FIRST. Tests before decomposition, so the refactor has something to prove it did not change behaviour — otherwise a large restructuring of the least-covered file in the app is a leap. The natural split follows the responsibilities above, with the transport layer isolated enough that poll-to-push (fSonosEventSubscriptions) can later be swapped behind the same interface without touching anything above it.",
-          "priority": "Normal",
+          "name": "Decompose ZoneDiscoveryService — seven jobs, one class, one shared mutable array",
+          "desc": "ZoneDiscoveryService is ~2,300 lines, 39 functions and two delegate protocols, doing at least seven unrelated jobs:\n  1. Bonjour discovery — NetServiceBrowserDelegate + NetServiceDelegate\n  2. Network reachability monitoring — Network + SystemConfiguration\n  3. Topology fetch and parse — GetZoneGroupState, TopologyParser\n  4. Transport polling — state, volume, position, per zone every 2-5s\n  5. Queue management\n  6. Transport control — grouping, transfers, volume with its own debounce\n  7. Live iHeart station metadata, which has no business in a discovery service at all\n\nTHE STRUCTURAL DEFECT, and the thing decomposition must actually fix: `zones` is a SHARED MUTABLE ARRAY WITH TWO WRITERS. The 15-second topology parse and the 2-second transport poll both write into the same [SonosZone], and correctness depends on each voluntarily touching only its own fields. Nothing enforces it.\n\nTHREE WORKED EXAMPLES IN ONE EVENING, 2026-08-08, all the same mistake:\n  * isHDMI wiped by a topology refresh — the TV flag cleared as a side effect of refreshing names\n  * alphabetical order lost — the sort was a `.sorted` restated at each assignment site, and a new site did not restate it\n  * group member volumes reset to 0 — drawn as MUTED while the speakers sat steady at 14 and 18\nEach fix was 'remember to copy this field too'. That is not a fix, it is a subscription.\n\nWHY IT HAPPENS: GetZoneGroupState carries almost nothing SonosZone needs. Measured against a real capture, a ZoneGroupMember has 29 attributes and the app uses four — UUID, ZoneName, Location (host) and IdleState — plus group membership from the surrounding structure. NO volume, NO transport state, NO track, NO position. Those come from separate RenderingControl and AVTransport calls on the faster poll. So a topology refresh that writes a whole SonosZone is writing DEFAULTS into a dozen fields it knows nothing about. Volume 0 is not stale data, it is wrong data.\n\nTARGET SHAPE — hold the two apart so the bug cannot be written:\n  * topology[id] — name, host, idleState, groupMembers. Written only by the 15s parse.\n  * transport[id] — volume, playing, track, URI, position, isHDMI. Written only by the 2s poll.\n  * SonosZone becomes DERIVED: a pure function marries the two on demand and hands the result to PlaybackStore exactly as today.\n\nThe point is not tidiness. Today the topology writer holds a SonosZone WITH a volume field on it, so it CAN wipe volume — and did, three times. If it only ever holds a struct that has no volume field, wiping volume stops being something we remembered not to do and becomes something that will not compile. Same move as PlaybackStore's URI binding: make the bad state unrepresentable rather than guarded. It also answers 'which fields belong to whom' once, in the type, instead of in a hand-maintained list inside a merge function — which is exactly what failed.\n\nNOT PLAYBACKSTORE'S JOB. Its split is content-truth versus transport-truth FOR DISPLAY. Topology versus transport is a different question — what the speaker IS, before anything decides what to draw. Folding one into the other puts two unrelated reconciliations in the reducer and spoils a split that is currently clean.\n\nAPPROACH — ONE THING AT A TIME, Tom's direction 2026-08-08. Remove one function or one related group per\nstep, isolate the tests to that piece, confirm the existing suites still pass, and commit before starting\nthe next. A regression then has one candidate rather than seven, and a bisect lands on a small diff. This\nis explicitly NOT a big-bang restructure of a 2,300-line file.\n\nORDER, and the first step is not a file move. Separating topology[id] from transport[id] changes WHO OWNS\nWHICH DATA inside the existing class — no new files, no moved code — and it is verified by mergeTopology,\nwhich is already pure and already covered. Do it FIRST: it kills the bug class outright, and every step\nafter it becomes genuinely behaviour-neutral tidying. Extracting files while two writers still share a\nmutable array only moves the bug somewhere new.\n\nThen, independently and in any order: iHeart live metadata (least coupled, plainly does not belong here),\nBonjour discovery with its two delegate protocols, network reachability, queue management, and transport\ncontrol with its volume debounce.\n\nSEQUENCING: fZonePollingTestSeam FIRST — done 2026-08-08, and it already covers parseTopology, updateZoneFromPositionInfo and mergeTopology against real captured SOAP. Tests before restructuring, so the refactor has something to prove it did not change behaviour. Do the topology/transport split first since it has three demonstrated failures behind it; Bonjour, reachability and the iHeart metadata can move out afterwards and independently.\n\nfFastUnitTestCycle IS A REAL PREREQUISITE HERE, not a nicety. This approach depends on verifying each step in isolation, and a test run currently costs ~10 MINUTES against ~10 SECONDS for a plain build — measured 2026-08-08. Essentially all of it is the test target build plus cloning, booting and installing a simulator; the tests themselves run in under a second. Seven steps with two or three runs each is four to five hours of waiting, which is precisely how a disciplined refactor degrades into 'I'll just do two at once'. The pieces being tested here — mergeTopology, parseTopology, the reducer — are already PURE and only need a simulator because they are trapped in a UIKit app target.",
+          "priority": "High",
           "complexity": "L",
           "tag": "feature",
           "done": false,
           "createdAt": "2026-08-08",
           "completedAt": null,
           "requires": [
+            "fFastUnitTestCycle",
             "fZonePollingTestSeam"
           ]
+        },
+        {
+          "id": "bZoneOrderLostByTopologyMerge",
+          "name": "Zone cards stopped being alphabetical after v0.0.68",
+          "desc": "Shipped in v0.0.68 and found in the field the same evening: zone cards in Zones, and the transfer and group pickers, were no longer sorted by name.\n\nCAUSE. `zones` is a display-ready list and has always been alphabetical, but that invariant lived as a `.sorted { $0.name < $1.name }` REPEATED AT EACH ASSIGNMENT SITE, plus a comment on the property declaration. bGroupChangesMadeOutsideSorrivaAreNeverSeen added a new assignment site — the 15-second refreshZoneGroupState merge — without it. Because that path replaces the list every 15 seconds, alphabetical order survived only until the first poll, which is why it looked like the sort had been removed entirely rather than missed once.\n\nFIXED 2026-08-08 by moving the sort INSIDE mergeTopology so both callers inherit it, rather than adding a third `.sorted` and leaving the same trap for the next person. Two tests assert the ordering, including one that feeds a deliberately reversed list, and both go red when the sort is removed.\n\nTHE REAL LESSON is not 'remember to sort'. It is that an invariant restated at every call site is an invariant waiting to be broken by the next call site, and that a comment on a property does not enforce anything. The rule now lives in one pure function that a test can hold to account.",
+          "priority": "High",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-08-08",
+          "completedAt": "2026-08-08",
+          "requires": []
+        },
+        {
+          "id": "bTopologyRefreshDroppedHDMIAndCapabilities",
+          "name": "A full topology refresh silently cleared the TV flag and a zone's capabilities",
+          "desc": "Found 2026-08-08 while fixing bZoneOrderLostByTopologyMerge, and it predates that bug rather than being caused by it.\n\nfetchTopology carried its own INLINE COPY of the zone merge — near-identical to mergeTopology but missing two fields. It did not carry forward isHDMI, so any full topology refresh cleared the flag marking a zone as being on its TV input; and it did not carry forward capabilities, which are loaded from the devices table and are not in the topology payload, so they reset to the default set.\n\nThe isHDMI half is the same class as the flicker in bZoneShowsStaleStationWhenTVTakesOver: which input a zone is on is a SOURCE fact, and code that clears it as a side effect of refreshing something else will make the Living Room card fall back to a stale station until the next position-info poll restores the flag. It would have been hard to attribute, since a topology refresh is triggered by grouping and by app launch rather than on a timer.\n\nFIXED by deleting the duplicate outright — fetchTopology now calls mergeTopology, which carries both fields, tolerates a duplicate zone id (the inline copy used Dictionary(uniqueKeysWithValues:), which TRAPS on one) and returns sorted.\n\nWORTH RECORDING WHY IT EXISTED: two copies of one rule. The duplication is also what let the sort invariant go missing, so a single deletion closed both. When the same merge is needed in a third place, it must call this function rather than grow a third copy.",
+          "priority": "Normal",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-08-08",
+          "completedAt": "2026-08-08",
+          "requires": []
+        },
+        {
+          "id": "bTVNotRecordedAsLastPlaying",
+          "name": "A zone that spent the evening on TV claims a radio station once the TV is released",
+          "desc": "Living Room played TV all evening. Sonos then released the HDMI input entirely — measured 2026-08-08: state STOPPED, CurrentURI EMPTY, NrTracks 0, PlayMedium NONE. The card immediately showed 'Lost 80s', a station last played hours earlier.\n\nCAUSE. The HDMI branch in resolveContent DERIVES 'TV' from the live zone each time; it is not a declaration. zone_last_playing is written by PlaybackStore.declare, and nothing ever declares the TV because Sorriva did not start it. So while Sonos reports the input the card is right, and the moment Sonos lets go the reducer reaches past it to the last thing that WAS declared.\n\nThis is the ghost class the PlaybackStore rearchitecture was built to end, merely delayed by however long the speaker holds the input. Tom's rule from 2026-08-04 settles what it should say: Sonos is always the source of truth, and what a zone last played is what it last played. That was the television.\n\nFIX: persist the TV as last-playing when the reducer resolves a zone to it, so the fallback tells the truth instead of reaching behind it. Touches the store's persistence rules, which is why it was deliberately not improvised at midnight.\n\nPAIRS WITH bPlayOfferedWhenTransportCannotPlay — together they are why that card both said the wrong thing and offered a button that could not work.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-08-08",
+          "completedAt": null,
+          "requires": [],
+          "priority_rank": 3
+        },
+        {
+          "id": "bPlayOfferedWhenTransportCannotPlay",
+          "name": "Play is offered on zones whose transport cannot play anything",
+          "desc": "Living Room, 2026-08-08, after Sonos released its HDMI input: the zone card showed a play button and a station name. Asked what it could actually do, the speaker said Actions = 'Set'. Not Stop, not Play — Set alone. NrTracks 0, CurrentURI empty, PlayMedium NONE. Pressing play would have done nothing or errored; it certainly would not have started the station on the card.\n\nA STALE LABEL IS A DISPLAY BUG. A CONTROL THAT CANNOT WORK IS A PROMISE THE APP CANNOT KEEP, and the user has no way to tell the difference until they press it.\n\nTHE APP NEVER CONSULTS GetCurrentTransportActions. Sonos reports exactly what a zone can do right now, and three distinct values were observed in one day: 'Set, Stop, Play' on a normal zone whether playing or stopped; 'Set, Play' with an HDMI input selected; and 'Set' alone with nothing loaded. Sorriva enables playback controls without asking.\n\nThis is the same shape as IdleState (sonos-playback-contract.md 6a): a field Sonos has always exposed that answers a question the app was inferring. Honouring it fixes this case and every other dead-transport state nobody has thought of, rather than special-casing the one that was noticed.\n\nSCOPE WARNING: this changes when playback controls are enabled on EVERY zone card, mini player and Now Playing sheet. It wants the transport actions carried into ZonePlaybackSnapshot so the reducer decides, consistent with the rest of the store, and it wants tests — the polling seam now exists for exactly this. Not a one-line change despite the small fix.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-08-08",
+          "completedAt": null,
+          "requires": [],
+          "priority_rank": 4
         }
       ]
     },
@@ -2926,7 +2991,7 @@
           "complexity": "M",
           "tag": "feature",
           "done": false,
-          "priority_rank": 3,
+          "priority_rank": 5,
           "createdAt": "2026-07-15",
           "completedAt": null,
           "requires": [

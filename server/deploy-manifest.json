@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.68 — polling path has tests; group changes seen; scans start themselves; artwork at 1200px",
-  "version": "0.0.68",
+  "message": "v0.0.69 — zone order restored; group member volumes no longer flicker to mute",
+  "version": "0.0.69",
   "db_migrate": false
 }

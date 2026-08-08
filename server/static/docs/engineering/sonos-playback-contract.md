@@ -224,16 +224,44 @@ own; nothing asked it to and nothing can veto it. What the speaker then reports:
 Prefer the `upnp:class` — anything under `object.item.audioItem.linein` — over matching
 URI prefixes. It is stable and it covers line-in variants without a growing list.
 
-**The input STICKS.** Turning the TV off does not restore the previous station and does
-not stop the zone. Sonos keeps reporting the HDMI input as the zone's source, exactly as
-it keeps reporting the last URI a zone played. This is correct and the app must not
-"restore" anything: the TV genuinely was the last thing played there.
+**The input is held, then eventually released — THREE stages, not two.** This was
+recorded on 2026-08-08 as "the input STICKS", which was measured over minutes and is
+wrong over hours. The full sequence, watched to completion the same evening:
+
+| Stage | `CurrentURI` | State | `GetCurrentTransportActions` |
+|---|---|---|---|
+| TV playing | `x-sonos-htastream:…:spdif` | PLAYING | `Set, Play` |
+| TV off, input still held | `x-sonos-htastream:…:spdif` | PLAYING | `Set, Play` |
+| **Input released** | **empty** | STOPPED | **`Set`** |
+
+The third stage arrives long after the television is switched off — long enough that two
+separate measurements that evening both caught stage two and generalised from it. In the
+released state `NrTracks` is 0 and `PlayMedium` is `NONE`: the transport holds nothing
+at all, and **Play is not an available action**.
+
+Turning the TV off never restores the previous station, at any stage. The app must not
+"restore" anything — the TV genuinely was the last thing played there, which means it is
+what the zone's last-playing should say. It does not today, and that is
+bTVNotRecordedAsLastPlaying: the HDMI branch DERIVES "TV" for display and never declares
+it, so when stage three arrives the reducer reaches past it to whatever was last
+declared — a radio station from hours earlier.
+
+**THE LESSON, since this doc exists to hold measured facts:** a transition watched for
+five minutes is not a transition. Both wrong readings here came from sampling a state
+twice and inferring a rule, rather than watching until it stopped changing. If a claim in
+this file describes what a speaker does OVER TIME, it needs the whole sequence or it
+needs to say how long it was watched.
 
 ### IdleState is how you tell a live input from a selected one
 
-**AVTransport cannot distinguish a TV that is playing from a TV that is off.** Every
-field above is byte-identical in both cases — state, status, available actions, empty
-metadata. Confirmed by measuring both.
+**AVTransport cannot distinguish a TV that is playing from a TV that is off** while the
+input is still held (stages one and two above). Every field is byte-identical — state,
+status, available actions, empty metadata. Confirmed by measuring both.
+
+Once the input is RELEASED the transport does say so plainly, via `Actions` collapsing to
+`Set` alone. That is a different fact from "the TV is off" and arrives much later, so it
+is no substitute for `IdleState` — but it is decisive about whether the zone can play
+anything at all, which the app currently ignores (bPlayOfferedWhenTransportCannotPlay).
 
 The discriminator is `IdleState` on the zone's `ZoneGroupMember` in
 **`ZoneGroupTopology`**, not in AVTransport:
