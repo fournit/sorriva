@@ -444,3 +444,51 @@ needs re-verification, Stage 2 not started — this is the real name of "the
 priority" issue in roadmap-data.json), `bDuplicateAlbumDetection` (not
 started), `bTagEditsNotDetected` (not started), `fScanFailureUtility`
 (reclassified out, not scanner hardening).
+
+---
+
+## 2026-08-08 — the foreground change check no longer costs the screen
+
+Two behaviours changed in `ScanCoordinator`, both driven by a symptom that
+looked unrelated to scanning: the phone would not auto-lock.
+
+**Auto-lock is derived, and only from user-initiated scans.**
+`isIdleTimerDisabled` was set true at the top of `runScanBody` and cleared in
+four other places — the catch, the end of a detached pipeline, wedge recovery.
+Any cancellation or hang between them left it stuck on permanently, because
+nothing else ever set it false. It is now a `didSet` consequence of
+`activeScanSourceId`, so there is no statement left to skip; there is exactly
+one assignment in the whole app.
+
+The half that actually fixed the symptom is different, and worth not
+forgetting: **an automatic change check never engages the timer at all.**
+Keeping the screen awake is for a scan someone is watching. The automatic
+check runs on EVERY foreground and is dominated by the tree walk, so honouring
+it there suppressed auto-lock for most of ~17 seconds on an 11,670-file
+library, every time the app was opened. Fixing only the latch would have
+changed almost nothing.
+
+**A check that finds nothing now stops.** Filtering to zero files still ran
+three artwork passes, the retry scheduler and the full state sequence, because
+the pipeline was wired to "a scan ran" rather than "work was found". It now
+returns early. Nothing is lost: `checkForChanges` resumes a pending artwork
+phase on its own branch, and the `"retrying"` case restarts the scheduler.
+
+**The walk itself still runs on every foreground, and that is not optional** —
+it is how the app learns nothing changed. It is also the remaining cost and the
+remaining risk: see `fResumableChangeWalk`. The walk keeps no record of how far
+it got, so termination mid-walk restarts from the top, and on a large library
+with short sessions that can livelock into never completing a pass. Suspension
+is fine — backgrounding freezes and resumes. Termination is the case that hurts.
+
+**A killed automatic check no longer asks permission to resume.**
+`bPhantomScanInterruptedDialog` was meant to have dissolved this, but its guard
+lives in the `"error"` branch, which a fresh kill reaches only one foreground
+later — so the dialog appeared once and tidied itself up afterwards. The same
+test now sits in the `"scanning"` branch. Standing rule: an automatic process
+the user did not start must never present a dialog.
+
+**Known limitation, logged as `bIdleTimerFollowsWedgedScanState`.** Deriving the
+timer made it honest about `activeScanSourceId`, but did not make that state
+reliable — a user-initiated scan whose pipeline wedges still leaves it set, and
+the screen awake. Needs a progress timeout, not another flag.

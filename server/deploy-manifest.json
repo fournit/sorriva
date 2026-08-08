@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.69 — zone order restored; group member volumes no longer flicker to mute",
-  "version": "0.0.69",
+  "message": "v0.0.70 — tests run in 1.3s without a simulator; the phone locks again",
+  "version": "0.0.70",
   "db_migrate": false
 }
