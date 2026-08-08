@@ -1,5 +1,9 @@
 import XCTest
+#if SWIFT_PACKAGE
+// Compiled into the FastTests target directly, so there is no module to import.
+#else
 @testable import Sorriva
+#endif
 
 // Tests for the PURE half of ArtworkLookup — normalization, title scoring, and
 // ranking. No network: these are the parts that decide whether a cover is right,

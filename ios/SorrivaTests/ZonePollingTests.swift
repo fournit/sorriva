@@ -1,5 +1,9 @@
 import XCTest
+#if SWIFT_PACKAGE
+// Compiled into the FastTests target directly, so there is no module to import.
+#else
 @testable import Sorriva
+#endif
 
 // MARK: - ZonePollingTests
 //
@@ -33,14 +37,19 @@ final class ZonePollingTests: XCTestCase {
         if let url { return try Data(contentsOf: url) }
         // Bundled resources are not always wired up in a synchronized-folder target;
         // fall back to the source tree so the suite runs either way.
-        let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        // resolvingSymlinksInPath matters: under the FastTests package this file is
+        // a symlink to this one, and resolving it lands back in SorrivaTests/ where
+        // Fixtures/ actually lives.
+        let here = URL(fileURLWithPath: #filePath)
+            .resolvingSymlinksInPath()
+            .deletingLastPathComponent()
         return try Data(contentsOf: here.appendingPathComponent("Fixtures/\(name).xml"))
     }
 
     // MARK: - parseTopology
 
     func testTopologyParsesGroupsAndIdentifiesCoordinators() throws {
-        let zones = ZoneDiscoveryService().parseTopology(data: try fixture("zonegroupstate"))
+        let zones = SonosTopology.parse(data: try fixture("zonegroupstate"))
         let list = try XCTUnwrap(zones)
         XCTAssertFalse(list.isEmpty, "a real household response must yield zones")
 
@@ -57,7 +66,7 @@ final class ZonePollingTests: XCTestCase {
     }
 
     func testTopologyExcludesBondedSatellitesFromGroupMembers() throws {
-        let list = try XCTUnwrap(ZoneDiscoveryService().parseTopology(data: try fixture("zonegroupstate")))
+        let list = try XCTUnwrap(SonosTopology.parse(data: try fixture("zonegroupstate")))
         // Surrounds and subs are bonded hardware, not group members a user can
         // manage. If they leak into groupMembers the UI offers to ungroup a speaker
         // that physically cannot leave.
@@ -87,7 +96,7 @@ final class ZonePollingTests: XCTestCase {
     // (nominated test zones, volume held at zero) and restored immediately after.
 
     func testTopologyPopulatesGroupMembers() throws {
-        let list = try XCTUnwrap(ZoneDiscoveryService().parseTopology(data: try fixture("zonegroupstate_grouped")))
+        let list = try XCTUnwrap(SonosTopology.parse(data: try fixture("zonegroupstate_grouped")))
         let listening = try XCTUnwrap(list.first { $0.name == "Listening Room" })
         XCTAssertEqual(listening.groupMembers.map(\.name), ["Workout"],
                        "Workout was grouped into Listening Room when this was captured")
@@ -96,7 +105,7 @@ final class ZonePollingTests: XCTestCase {
     }
 
     func testAGroupedZoneIsNotAlsoAStandaloneZone() throws {
-        let list = try XCTUnwrap(ZoneDiscoveryService().parseTopology(data: try fixture("zonegroupstate_grouped")))
+        let list = try XCTUnwrap(SonosTopology.parse(data: try fixture("zonegroupstate_grouped")))
         // A member belongs to its coordinator's zone and must NOT appear as a zone of
         // its own, or the UI shows the same speaker twice and offers to control it
         // independently while it is following someone else.
@@ -105,9 +114,8 @@ final class ZonePollingTests: XCTestCase {
     }
 
     func testGroupingIsVisibleAsADifferenceBetweenTheTwoCaptures() throws {
-        let svc = ZoneDiscoveryService()
-        let apart = try XCTUnwrap(svc.parseTopology(data: try fixture("zonegroupstate")))
-        let together = try XCTUnwrap(svc.parseTopology(data: try fixture("zonegroupstate_grouped")))
+        let apart = try XCTUnwrap(SonosTopology.parse(data: try fixture("zonegroupstate")))
+        let together = try XCTUnwrap(SonosTopology.parse(data: try fixture("zonegroupstate_grouped")))
         // The whole point of bGroupChangesMadeOutsideSorrivaAreNeverSeen: the payload
         // Sorriva already fetches every 15 seconds DOES carry the change. Two real
         // captures, one grouped and one not, differing exactly where they should.
@@ -118,7 +126,7 @@ final class ZonePollingTests: XCTestCase {
     }
 
     func testTopologyCarriesIdleState() throws {
-        let list = try XCTUnwrap(ZoneDiscoveryService().parseTopology(data: try fixture("zonegroupstate")))
+        let list = try XCTUnwrap(SonosTopology.parse(data: try fixture("zonegroupstate")))
         // IdleState is the ONLY way to tell a live input from a selected one — see
         // sonos-playback-contract.md 6a. If parsing drops it every zone silently
         // defaults to false and a TV that has gone quiet becomes indistinguishable
@@ -137,11 +145,10 @@ final class ZonePollingTests: XCTestCase {
     }
 
     func testTopologyRejectsRubbishWithoutCrashing() {
-        let svc = ZoneDiscoveryService()
-        XCTAssertNil(svc.parseTopology(data: Data()), "empty data must not parse")
-        XCTAssertNil(svc.parseTopology(data: Data("not xml at all".utf8)))
+        XCTAssertNil(SonosTopology.parse(data: Data()), "empty data must not parse")
+        XCTAssertNil(SonosTopology.parse(data: Data("not xml at all".utf8)))
         // A truncated response is the realistic failure — a timeout mid-transfer.
-        XCTAssertNil(svc.parseTopology(data: Data("<s:Envelope><ZoneGroupState>".utf8)))
+        XCTAssertNil(SonosTopology.parse(data: Data("<s:Envelope><ZoneGroupState>".utf8)))
     }
 
     // MARK: - mergeTopology
@@ -166,14 +173,13 @@ final class ZonePollingTests: XCTestCase {
     }
 
     func testMergeAdoptsGroupStructureFromTopology() throws {
-        let svc = ZoneDiscoveryService()
-        let apart = try XCTUnwrap(svc.parseTopology(data: try fixture("zonegroupstate")))
-        let together = try XCTUnwrap(svc.parseTopology(data: try fixture("zonegroupstate_grouped")))
+        let apart = try XCTUnwrap(SonosTopology.parse(data: try fixture("zonegroupstate")))
+        let together = try XCTUnwrap(SonosTopology.parse(data: try fixture("zonegroupstate_grouped")))
 
         // The app is holding the ungrouped world; Sonos now reports the grouped one.
         // This is exactly what happens when a TV takes a room, or somebody groups from
         // the Sonos app — and what Sorriva used to miss entirely.
-        let merged = ZoneDiscoveryService.mergeTopology(parsed: together, into: apart)
+        let merged = SonosTopology.merge(parsed: together, into: apart)
         XCTAssertNil(merged.first { $0.name == "Workout" },
                      "Workout joined a group and must stop being a zone of its own")
         let listening = try XCTUnwrap(merged.first { $0.name == "Listening Room" })
@@ -181,11 +187,10 @@ final class ZonePollingTests: XCTestCase {
     }
 
     func testMergeSeesAnUngroupToo() throws {
-        let svc = ZoneDiscoveryService()
-        let apart = try XCTUnwrap(svc.parseTopology(data: try fixture("zonegroupstate")))
-        let together = try XCTUnwrap(svc.parseTopology(data: try fixture("zonegroupstate_grouped")))
+        let apart = try XCTUnwrap(SonosTopology.parse(data: try fixture("zonegroupstate")))
+        let together = try XCTUnwrap(SonosTopology.parse(data: try fixture("zonegroupstate_grouped")))
         // The other direction — Sonos ungrouping on TV autoplay is precisely this.
-        let merged = ZoneDiscoveryService.mergeTopology(parsed: apart, into: together)
+        let merged = SonosTopology.merge(parsed: apart, into: together)
         XCTAssertNotNil(merged.first { $0.name == "Workout" }, "Workout left the group")
         let listening = try XCTUnwrap(merged.first { $0.name == "Listening Room" })
         XCTAssertTrue(listening.groupMembers.isEmpty)
@@ -199,7 +204,7 @@ final class ZonePollingTests: XCTestCase {
         var fresh = SonosZone(id: "A", name: "Garage", host: "10.0.0.9", isPlaying: false, volume: 0)
         fresh.idleState = true
 
-        let merged = ZoneDiscoveryService.mergeTopology(parsed: [fresh], into: live)
+        let merged = SonosTopology.merge(parsed: [fresh], into: live)
         XCTAssertEqual(merged.count, 1)
         XCTAssertTrue(merged[0].isPlaying, "playing is the transport poll's fact, not topology's")
         XCTAssertEqual(merged[0].volume, 33)
@@ -217,7 +222,7 @@ final class ZonePollingTests: XCTestCase {
     /// poll loop in the first place, and the reason this guard exists.
     func testMergeRefusesToActOnAnEmptyParse() {
         let live = [zoneWithState("A", "Garage"), zoneWithState("B", "Patio")]
-        let merged = ZoneDiscoveryService.mergeTopology(parsed: [], into: live)
+        let merged = SonosTopology.merge(parsed: [], into: live)
         XCTAssertEqual(merged.count, 2, "an empty parse must never clear the zone list")
         XCTAssertEqual(merged.map(\.name), ["Garage", "Patio"])
     }
@@ -232,19 +237,17 @@ final class ZonePollingTests: XCTestCase {
     /// Sorting inside the merge puts the rule in one place; asserting it here means the
     /// next person to add an assignment site cannot quietly lose it again.
     func testMergeReturnsZonesAlphabetically() throws {
-        let svc = ZoneDiscoveryService()
-        let parsed = try XCTUnwrap(svc.parseTopology(data: try fixture("zonegroupstate")))
-        let merged = ZoneDiscoveryService.mergeTopology(parsed: parsed, into: [])
+        let parsed = try XCTUnwrap(SonosTopology.parse(data: try fixture("zonegroupstate")))
+        let merged = SonosTopology.merge(parsed: parsed, into: [])
         let names = merged.map(\.name)
         XCTAssertEqual(names, names.sorted(), "zones must come back alphabetical, got \(names)")
     }
 
     /// Order must not depend on what the app happened to be holding beforehand.
     func testMergeSortsRegardlessOfExistingOrder() throws {
-        let svc = ZoneDiscoveryService()
-        let parsed = try XCTUnwrap(svc.parseTopology(data: try fixture("zonegroupstate")))
+        let parsed = try XCTUnwrap(SonosTopology.parse(data: try fixture("zonegroupstate")))
         let scrambled = Array(parsed.reversed())
-        let merged = ZoneDiscoveryService.mergeTopology(parsed: scrambled, into: scrambled)
+        let merged = SonosTopology.merge(parsed: scrambled, into: scrambled)
         let names = merged.map(\.name)
         XCTAssertEqual(names, names.sorted(), "a reversed input must still come back sorted")
     }
@@ -266,7 +269,7 @@ final class ZonePollingTests: XCTestCase {
                               isPlaying: false, volume: 0)
         fresh.groupMembers = [SonosGroupMember(id: "M1", name: "Master Bedroom", host: "10.0.0.11")]
 
-        let merged = ZoneDiscoveryService.mergeTopology(parsed: [fresh], into: [live])
+        let merged = SonosTopology.merge(parsed: [fresh], into: [live])
         XCTAssertEqual(merged[0].groupMembers.first?.volume, 14,
                        "a member's volume must survive a topology refresh")
     }
@@ -284,7 +287,7 @@ final class ZonePollingTests: XCTestCase {
                               isPlaying: false, volume: 0)
         fresh.groupMembers = []
 
-        let merged = ZoneDiscoveryService.mergeTopology(parsed: [fresh], into: [live])
+        let merged = SonosTopology.merge(parsed: [fresh], into: [live])
         XCTAssertTrue(merged[0].groupMembers.isEmpty,
                       "topology is authoritative for membership, the poll only for volume")
     }
@@ -293,49 +296,47 @@ final class ZonePollingTests: XCTestCase {
         // A speaker powered on mid-session has no prior state to carry forward.
         let fresh = SonosZone(id: "NEW", name: "Kitchen", host: "10.0.0.50",
                               isPlaying: false, volume: 10)
-        let merged = ZoneDiscoveryService.mergeTopology(parsed: [fresh], into: [])
+        let merged = SonosTopology.merge(parsed: [fresh], into: [])
         XCTAssertEqual(merged.map(\.name), ["Kitchen"])
     }
 
     // MARK: - updateZoneFromPositionInfo
 
-    private func service(withZone id: String) -> ZoneDiscoveryService {
-        let svc = ZoneDiscoveryService()
-        svc.zones = [SonosZone(id: id, name: "Test Room", host: "10.0.0.9",
-                               isPlaying: true, volume: 20)]
-        return svc
+    private func testZone(_ id: String) -> SonosZone {
+        SonosZone(id: id, name: "Test Room", host: "10.0.0.9",
+                  isPlaying: true, volume: 20)
     }
 
     func testHDMIPositionInfoFlagsTheZoneAsTV() throws {
-        let svc = service(withZone: "Z1")
-        svc.updateZoneFromPositionInfo(zoneID: "Z1", positionData: try fixture("positioninfo_hdmi"))
-        XCTAssertTrue(svc.zones[0].isHDMI, "an htastream URI must flag the zone as HDMI")
-        XCTAssertEqual(svc.zones[0].currentTrack, "TV")
+        var zone = testZone("Z1")
+        zone = SonosTopology.applyPositionInfo(to: zone, data: try fixture("positioninfo_hdmi"))
+        XCTAssertTrue(zone.isHDMI, "an htastream URI must flag the zone as HDMI")
+        XCTAssertEqual(zone.currentTrack, "TV")
     }
 
     func testStationPositionInfoDoesNotFlagHDMI() throws {
-        let svc = service(withZone: "Z1")
-        svc.updateZoneFromPositionInfo(zoneID: "Z1", positionData: try fixture("positioninfo_station"))
-        XCTAssertFalse(svc.zones[0].isHDMI)
-        XCTAssertTrue(svc.zones[0].currentTrackURI.contains("radio"),
-                      "got \(svc.zones[0].currentTrackURI)")
+        var zone = testZone("Z1")
+        zone = SonosTopology.applyPositionInfo(to: zone, data: try fixture("positioninfo_station"))
+        XCTAssertFalse(zone.isHDMI)
+        XCTAssertTrue(zone.currentTrackURI.contains("radio"),
+                      "got \(zone.currentTrackURI)")
     }
 
     func testLocalFilePositionInfoDoesNotFlagHDMI() throws {
-        let svc = service(withZone: "Z1")
-        svc.updateZoneFromPositionInfo(zoneID: "Z1", positionData: try fixture("positioninfo_local"))
-        XCTAssertFalse(svc.zones[0].isHDMI)
-        XCTAssertTrue(svc.zones[0].currentTrackURI.hasPrefix("x-file-cifs://"),
-                      "got \(svc.zones[0].currentTrackURI)")
+        var zone = testZone("Z1")
+        zone = SonosTopology.applyPositionInfo(to: zone, data: try fixture("positioninfo_local"))
+        XCTAssertFalse(zone.isHDMI)
+        XCTAssertTrue(zone.currentTrackURI.hasPrefix("x-file-cifs://"),
+                      "got \(zone.currentTrackURI)")
     }
 
     /// Leaving the TV input can only mean the URI ceasing to be an htastream URI.
     func testMovingFromHDMIToAStationClearsTheFlag() throws {
-        let svc = service(withZone: "Z1")
-        svc.updateZoneFromPositionInfo(zoneID: "Z1", positionData: try fixture("positioninfo_hdmi"))
-        XCTAssertTrue(svc.zones[0].isHDMI)
-        svc.updateZoneFromPositionInfo(zoneID: "Z1", positionData: try fixture("positioninfo_station"))
-        XCTAssertFalse(svc.zones[0].isHDMI, "a non-HDMI URI must clear the flag")
+        var zone = testZone("Z1")
+        zone = SonosTopology.applyPositionInfo(to: zone, data: try fixture("positioninfo_hdmi"))
+        XCTAssertTrue(zone.isHDMI)
+        zone = SonosTopology.applyPositionInfo(to: zone, data: try fixture("positioninfo_station"))
+        XCTAssertFalse(zone.isHDMI, "a non-HDMI URI must clear the flag")
     }
 
     /// THE FLICKER. Which input is selected is a SOURCE fact; whether sound is
@@ -344,18 +345,17 @@ final class ZonePollingTests: XCTestCase {
     /// on every cycle that landed on "not playing", and the card flickered between
     /// the TV icon and the last station for the whole warm-up.
     func testAnIdleHDMIZoneStaysFlaggedAsTV() throws {
-        let svc = service(withZone: "Z1")
-        svc.updateZoneFromPositionInfo(zoneID: "Z1", positionData: try fixture("positioninfo_hdmi"))
-        svc.zones[0].isPlaying = false
-        svc.zones[0].idleState = true
-        svc.updateZoneFromPositionInfo(zoneID: "Z1", positionData: try fixture("positioninfo_hdmi"))
-        XCTAssertTrue(svc.zones[0].isHDMI,
+        var zone = testZone("Z1")
+        zone = SonosTopology.applyPositionInfo(to: zone, data: try fixture("positioninfo_hdmi"))
+        zone.isPlaying = false
+        zone.idleState = true
+        zone = SonosTopology.applyPositionInfo(to: zone, data: try fixture("positioninfo_hdmi"))
+        XCTAssertTrue(zone.isHDMI,
                       "a zone parked on its TV input is still on its TV input when silent")
     }
 
-    func testPositionInfoForAnUnknownZoneIsIgnored() throws {
-        let svc = service(withZone: "Z1")
-        svc.updateZoneFromPositionInfo(zoneID: "NOPE", positionData: try fixture("positioninfo_hdmi"))
-        XCTAssertFalse(svc.zones[0].isHDMI, "a response for another zone must not bleed across")
-    }
+    // testPositionInfoForAnUnknownZoneIsIgnored moved to ZoneServiceLookupTests on
+    // 2026-08-08. It asserts on the zone LOOKUP, which stayed in ZoneDiscoveryService
+    // when the parsing moved to SonosTopology — so it needs a live service and cannot
+    // run in the FastTests package.
 }

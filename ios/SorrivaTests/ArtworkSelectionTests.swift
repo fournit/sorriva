@@ -1,5 +1,9 @@
 import XCTest
+#if SWIFT_PACKAGE
+// Compiled into the FastTests target directly, so there is no module to import.
+#else
 @testable import Sorriva
+#endif
 
 // MARK: - ArtworkSelectionTests
 // bArtworkSelectionNotBestWins. Covers the two pure, testable pieces of the
@@ -14,8 +18,27 @@ final class ArtworkSelectionTests: XCTestCase {
     // MARK: - ImageDimensionReader
 
     private func loadFixture(_ name: String, ext: String) throws -> Data {
-        guard let url = Bundle(for: ArtworkSelectionTests.self).url(forResource: name, withExtension: ext) else {
-            XCTFail("Missing fixture \(name).\(ext) — add it to the SorrivaTests target.")
+        // BUNDLE FIRST, SOURCE TREE SECOND — and the order is load-bearing.
+        //
+        // Under Xcode these tests run INSIDE THE SIMULATOR, which cannot read
+        // /Users/... on the host, so a #filePath lookup fails there: #filePath is a
+        // Mac path baked in at compile time. Under the FastTests package they run
+        // natively on the Mac, where there is no resource bundle but the source tree
+        // is right there. Neither mechanism works in both places; trying them in this
+        // order does. Reversing them breaks the simulator run — that is exactly how
+        // this file broke on 2026-08-08.
+        //
+        // resolvingSymlinksInPath matters for the fallback: in the package this file
+        // is a symlink into SorrivaTests/, and resolving it lands beside the images.
+        if let url = Bundle(for: ArtworkSelectionTests.self).url(forResource: name, withExtension: ext) {
+            return try Data(contentsOf: url)
+        }
+        let dir = URL(fileURLWithPath: #filePath)
+            .resolvingSymlinksInPath()
+            .deletingLastPathComponent()
+        let url = dir.appendingPathComponent("\(name).\(ext)")
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            XCTFail("Missing fixture \(name).\(ext) — not in the test bundle, and not at \(dir.path).")
             return Data()
         }
         return try Data(contentsOf: url)

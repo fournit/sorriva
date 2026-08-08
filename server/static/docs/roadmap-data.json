@@ -2829,6 +2829,17 @@
           "completedAt": null,
           "requires": [],
           "priority_rank": 4
+        },
+        {
+          "id": "bVolumeDebounceGuardUnused",
+          "name": "Volume debounce guard in updateZoneFromPositionInfo is computed but never used",
+          "desc": "In ZoneDiscoveryService.updateZoneFromPositionInfo, volumeIsDebouncing is calculated from volumeCommandTimes and volumeDebounceInterval and then never read. The comment above it (B-001) states volume should only be updated from a poll when no recent volume command has been sent, so either the guard was dropped in a refactor or the volume update it protected moved elsewhere and the calculation is dead leftover. Found 2026-08-08 while extracting the pure parsing functions for the fast test suite; not fixed at the time to keep that surgery behaviour-preserving. Decide which it is before deleting: if a poll can still overwrite a just-set volume, this is the missing guard for the member-volume cycling class of bug, and it needs a test. If the volume update genuinely moved, delete the dead lines.",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": false,
+          "createdAt": "2026-08-08",
+          "completedAt": null,
+          "requires": []
         }
       ]
     },
