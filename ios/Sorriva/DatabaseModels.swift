@@ -338,6 +338,8 @@ struct Album: Codable, FetchableRecord, PersistableRecord, Identifiable {
     var artMatchedName: String?     // collectionName the provider returned
     var artMatchedArtist: String?   // artistName the provider returned
     var artMatchScore: Double?      // 0...1 — why the match was accepted
+    var artSource: String?          // v23 — which pass supplied the image on screen
+    var artBestRejectedScore: Double?  // v23 — best online score that missed the bar
     var createdAt: Int
     var updatedAt: Int
 
@@ -363,6 +365,8 @@ struct Album: Codable, FetchableRecord, PersistableRecord, Identifiable {
         static let artMatchedName      = Column(CodingKeys.artMatchedName)
         static let artMatchedArtist    = Column(CodingKeys.artMatchedArtist)
         static let artMatchScore       = Column(CodingKeys.artMatchScore)
+        static let artSource           = Column(CodingKeys.artSource)
+        static let artBestRejectedScore = Column(CodingKeys.artBestRejectedScore)
         static let createdAt           = Column(CodingKeys.createdAt)
         static let updatedAt           = Column(CodingKeys.updatedAt)
     }
@@ -508,4 +512,18 @@ struct FolderStat: Codable, FetchableRecord, PersistableRecord, Identifiable {
         static let totalBytes = Column(CodingKeys.totalBytes)
         static let scannedAt  = Column(CodingKeys.scannedAt)
     }
+}
+
+// MARK: - ArtworkSource
+//
+// Which pass supplied the cover currently on screen (v23). Distinct from the
+// embeddedArtScanned / folderArtScanned / onlineArtAttempted markers, which record
+// which passes RAN — a question nobody was asking. The artwork review list ranks
+// albums by doubt, and "where did this come from" is half of that judgement: art
+// from the user's own files is trustworthy in a way an internet match is not.
+enum ArtworkSource: String {
+    case embedded   // ID3/FLAC picture frame in the audio file itself
+    case folder     // cover.jpg and friends beside the tracks
+    case online     // matched against a provider — see artMatchedName / artMatchScore
+    case manual     // the user chose it; beats every automated pass
 }

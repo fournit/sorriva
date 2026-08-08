@@ -107,15 +107,34 @@ struct SorrivaContextMenuModifier: ViewModifier {
     let imageURL: String?
     let actions: [SorrivaContextAction]
     let sheetHeight: CGFloat
+    /// True where a plain tap on the card means nothing else, so the menu can own it.
+    ///
+    /// Long press is invisible — nobody discovers it, they conclude the card is dead.
+    /// That is exactly what happened with the share cards, whose ellipsis was drawn but
+    /// wired to nothing. Where a tap is FREE the menu should take it; where a tap
+    /// already navigates or plays it must not, which is why this is opt-in per call
+    /// site rather than a blanket change.
+    let triggersOnTap: Bool
 
     @State private var isPresented = false
 
     func body(content: Content) -> some View {
-        content
-            .simultaneousGesture(
-                LongPressGesture(minimumDuration: 0.4)
-                    .onEnded { _ in isPresented = true }
-            )
+        Group {
+            if triggersOnTap {
+                content
+                    .contentShape(Rectangle())
+                    .onTapGesture { isPresented = true }
+            } else {
+                // Tap is spoken for here — navigating or playing — so the menu keeps the
+                // long press until those screens are reconciled. It is the only route to
+                // these actions, so it cannot simply be removed.
+                content
+                    .simultaneousGesture(
+                        LongPressGesture(minimumDuration: 0.4)
+                            .onEnded { _ in isPresented = true }
+                    )
+            }
+        }
             .sheet(isPresented: $isPresented) {
                 SorrivaContextMenuSheet(
                     title: title,
@@ -137,7 +156,8 @@ extension View {
         album: Album? = nil,
         imageURL: String? = nil,
         actions: [SorrivaContextAction],
-        sheetHeight: CGFloat = 240
+        sheetHeight: CGFloat = 240,
+        triggersOnTap: Bool = false
     ) -> some View {
         modifier(SorrivaContextMenuModifier(
             title: title,
@@ -145,7 +165,8 @@ extension View {
             album: album,
             imageURL: imageURL,
             actions: actions,
-            sheetHeight: sheetHeight
+            sheetHeight: sheetHeight,
+            triggersOnTap: triggersOnTap
         ))
     }
 }

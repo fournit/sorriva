@@ -204,26 +204,58 @@ struct SMBServerDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
 
-                    // Header card — long press for server actions
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(spacing: 12) {
+                    // Server header card.
+                    //
+                    // This is a HEADER, not the first of four peers — the shares below
+                    // belong to it. It used to say so by being half width, which read
+                    // correctly on a phone but is not an iOS idiom (lists run edge to
+                    // edge) and would leave a small box adrift in empty space on iPad.
+                    //
+                    // So hierarchy comes from SIZE AND POSITION instead, the way Settings
+                    // marks the Apple ID row at the top of its list: same width as
+                    // everything below, unmistakably taller and heavier. The SHARES
+                    // section label underneath already separates it structurally; this
+                    // makes it look separate too.
+                    //
+                    // The card's only action is its menu, so it shows an ellipsis and no
+                    // chevron — the two are mutually exclusive. A chevron promises the
+                    // body opens something; an ellipsis promises a menu. This card had
+                    // NEITHER until 2026-08-08 and hid its actions behind a long press,
+                    // which nobody discovers.
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(alignment: .top, spacing: 14) {
                             ZStack {
-                                RoundedRectangle(cornerRadius: 10)
+                                RoundedRectangle(cornerRadius: 12)
                                     .fill(Color.sBrass.opacity(0.15))
-                                    .frame(width: 48, height: 48)
+                                    .frame(width: 56, height: 56)
                                 Image(systemName: "externaldrive.connected.to.line.below")
-                                    .font(.system(size: 22))
+                                    .font(.system(size: 26))
                                     .foregroundColor(.sBrass)
                             }
-                            VStack(alignment: .leading, spacing: 2) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                // Two lines, then truncate. Unbounded wrapping let a long
+                                // name — "Downstairs Media Server (Synology)" and the like
+                                // — grow the header card arbitrarily. Two covers every
+                                // realistic name while putting a ceiling on the damage.
                                 Text(serverName)
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(.system(size: 20, weight: .semibold))
                                     .foregroundColor(.sTextPrimary)
+                                    .lineLimit(2)
+                                // The host stays one line: it is an address, and a
+                                // truncated address is still recognisable in a way a
+                                // truncated name is not.
                                 Text(host)
-                                    .font(.system(size: 12))
+                                    .font(.system(size: 13))
                                     .foregroundColor(.sTextMuted)
                                     .lineLimit(1)
                             }
+                            Spacer(minLength: 8)
+                            // Top-aligned: against a two-line title it reads as the
+                            // card's affordance rather than floating mid-card.
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 17))
+                                .foregroundColor(.sTextMuted)
+                                .padding(.top, 2)
                         }
                         HStack(spacing: 6) {
                             Image(systemName: "person")
@@ -232,16 +264,17 @@ struct SMBServerDetailView: View {
                             Text(username.isEmpty ? "Guest access" : username)
                                 .font(.system(size: 12))
                                 .foregroundColor(.sTextMuted)
+                            Spacer()
                         }
-
                     }
-                    .padding(16)
+                    .padding(18)
                     .background(Color.sSurface)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                     .padding(.horizontal, 16)
                     .padding(.top, 16)
                     .padding(.bottom, 16)
-                    .onLongPressGesture { showServerActionSheet = true }
+                    .contentShape(Rectangle())
+                    .onTapGesture { showServerActionSheet = true }
 
                     // Scan status panel — visible during active scan, retries, or while messages remain
                     let activeSource = sources.first(where: {
@@ -281,9 +314,14 @@ struct SMBServerDetailView: View {
                                         }
                                         .buttonStyle(.plain)
                                     } else {
-                                        // Library mode — long press for actions
+                                        // Library mode — the card's only action is its
+                                        // menu, which the ellipsis already advertises.
+                                        // Until 2026-08-08 that ellipsis was a decorative
+                                        // Image and only a long press worked, so tapping
+                                        // the affordance did nothing at all.
                                         ShareDetailCard(source: source)
-                                            .onLongPressGesture {
+                                            .contentShape(Rectangle())
+                                            .onTapGesture {
                                                 actionSource = source
                                             }
                                     }
@@ -545,6 +583,18 @@ struct ScanStatusPanel: View {
                 Text(phaseLabel)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.sBrass)
+            }
+
+            // The warning the scan-confirmation alert used to carry. It belongs here
+            // rather than in a modal: it is true for the whole scan, not for the five
+            // seconds somebody spends dismissing a dialog — and with scans now starting
+            // themselves on add, this is the only thing telling the user their phone is
+            // busy.
+            if scanState == "scanning" || scanState == "retrying" {
+                Text("Keep Sorriva open — backgrounding pauses the scan. Auto-lock is off until it finishes.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.sTextMuted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             if !coordinator.statusMessages.isEmpty {

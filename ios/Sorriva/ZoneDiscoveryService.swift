@@ -738,7 +738,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                 if pollCount >= 3 {
                     pollCount = 0
                     if let anyHost = zones.first?.host {
-                        await refreshIdleStates(host: anyHost)
+                        await refreshZoneGroupState(host: anyHost)
                     }
                 }
             }
@@ -746,7 +746,52 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
     }
 
     // Fetch fresh IdleState from topology without replacing the zones array
-    private func refreshIdleStates(host: String) async {
+    /// Merge a freshly parsed topology into the live zones, preserving transport state.
+    ///
+    /// Topology owns IDENTITY and STRUCTURE — which zones exist, their names and hosts,
+    /// who is grouped with whom, and IdleState. The 2s transport poll owns ACTIVITY —
+    /// playing, volume, track, position, HDMI. Neither may overwrite the other's facts,
+    /// which is why this is a merge and not an assignment.
+    ///
+    /// Grouping changes HOW MANY zones there are, so this cannot be a field update:
+    /// a zone that joins a group stops being a zone and becomes a member of one, and a
+    /// zone that leaves reappears. That is why the old code, which only patched
+    /// IdleState in place, could never see a group change however often it ran.
+    ///
+    /// Pure and static so it can be tested without a speaker (fZonePollingTestSeam).
+    static func mergeTopology(parsed: [SonosZone], into existing: [SonosZone]) -> [SonosZone] {
+        // Refuse to act on nothing. A timed-out or truncated response parses to an
+        // empty list, and applying that would clear every zone in the app — the exact
+        // hazard that kept full topology refreshes off the poll loop in the first place.
+        guard !parsed.isEmpty else { return existing }
+
+        let byID = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return parsed.map { fresh in
+            guard let prior = byID[fresh.id] else { return fresh }
+            var merged = fresh                 // identity, host, groupMembers, idleState
+            merged.isPlaying       = prior.isPlaying
+            merged.volume          = prior.volume
+            merged.currentTrack    = prior.currentTrack
+            merged.currentArtist   = prior.currentArtist
+            merged.currentTrackURI = prior.currentTrackURI
+            merged.isHDMI          = prior.isHDMI
+            merged.elapsedSeconds  = prior.elapsedSeconds
+            merged.durationSeconds = prior.durationSeconds
+            merged.capabilities    = prior.capabilities   // from the devices table
+            merged.dbDeviceId      = prior.dbDeviceId
+            return merged
+        }
+    }
+
+    /// Refresh zone structure AND idle state from ZoneGroupTopology.
+    ///
+    /// Renamed from refreshIdleStates on 2026-08-08. It always fetched the entire
+    /// household topology and kept only IdleState, throwing the group structure away —
+    /// so a group change made from the Sonos app, a voice command or TV autoplay was
+    /// invisible until relaunch (bGroupChangesMadeOutsideSorrivaAreNeverSeen). The name
+    /// described the one field it kept rather than what it asked for, which is most of
+    /// why the gap went unnoticed.
+    private func refreshZoneGroupState(host: String) async {
         let soapBody = """
         <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
           <s:Body>
@@ -765,29 +810,18 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         request.timeoutInterval = 5
 
         guard let (data, _) = try? await URLSession.shared.data(for: request),
-              let raw = String(data: data, encoding: .utf8),
-              let start = raw.range(of: "<ZoneGroupState>"),
-              let end = raw.range(of: "</ZoneGroupState>") else { return }
+              let parsed = parseTopology(data: data) else { return }
 
-        let encoded = String(raw[start.upperBound..<end.lowerBound])
-        let decoded = encoded
-            .replacingOccurrences(of: "&lt;", with: "<")
-            .replacingOccurrences(of: "&gt;", with: ">")
-            .replacingOccurrences(of: "&quot;", with: "\"")
-            .replacingOccurrences(of: "&amp;", with: "&")
-
-        // Extract IdleState per UUID — update in-place, no array replacement
-        let pattern = #"UUID="([^"]+)"[^>]*IdleState="(\d)""#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return }
-        let matches = regex.matches(in: decoded, range: NSRange(decoded.startIndex..., in: decoded))
-        for match in matches {
-            guard let uuidRange = Range(match.range(at: 1), in: decoded),
-                  let stateRange = Range(match.range(at: 2), in: decoded) else { continue }
-            let uuid = String(decoded[uuidRange])
-            let idle = decoded[stateRange] == "1"
-            if let idx = zones.firstIndex(where: { $0.id == uuid }) {
-                zones[idx].idleState = idle
+        // The same parser fetchTopology uses. The bespoke IdleState regex that used to
+        // sit here read one attribute out of a payload that describes the whole
+        // household, which is how group changes stayed invisible.
+        let merged = ZoneDiscoveryService.mergeTopology(parsed: parsed, into: zones)
+        if merged != zones {
+            let before = Set(zones.map(\.id)), after = Set(merged.map(\.id))
+            if before != after {
+                sLog("ZONES: group structure changed — \(zones.count) zones -> \(merged.count)")
             }
+            zones = merged
         }
     }
 
@@ -797,6 +831,9 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
     // track and station art — giving users "what's on now" even when paused.
 
     // Called from fetchTransportStates when we get UPnP position info for a playing zone
+    /// Raw GetPositionInfo response in, zone fields updated. Also a seam: it takes
+    /// bytes and mutates one zone, so a test can feed a captured response and assert
+    /// on the result. Three defects in two days lived here.
     func updateZoneFromPositionInfo(zoneID: String, positionData: Data) {
         guard let idx = zones.firstIndex(where: { $0.id == zoneID }) else { return }
         let raw = String(data: positionData, encoding: .utf8) ?? ""
@@ -1544,9 +1581,17 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             await fetchTransportStates()
             if let host = zones.first?.host {
-                await refreshIdleStates(host: host)
+                await refreshZoneGroupState(host: host)
             }
-            // Full topology refresh to get updated group members
+            // Full topology refresh to get updated group members.
+            //
+            // Now arguably redundant: refreshZoneGroupState above merges group structure
+            // as of 2026-08-08, which is the whole point of that fix. Left in place
+            // deliberately rather than removed in the same change — this path runs after
+            // OUR OWN grouping command, where being certain matters more than saving a
+            // round trip, and removing it is a behavioural change that deserves its own
+            // test rather than riding along with the bug fix.
+            //
             try? await Task.sleep(nanoseconds: 500_000_000)
             if let host = zones.first?.host {
                 requestTopologyRefresh(host: host)
@@ -1964,7 +2009,10 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         }
     }
 
-    private func parseTopology(data: Data) -> [SonosZone]? {
+    /// Raw GetZoneGroupState response in, zones out. No network, no state — the
+    /// natural seam for the polling path, which had no test coverage until
+    /// fZonePollingTestSeam. Internal rather than private so tests can reach it.
+    func parseTopology(data: Data) -> [SonosZone]? {
         // The ZoneGroupState value is HTML-entity-encoded XML inside the SOAP response.
         // Extract the inner XML string, decode entities, then parse as XML.
         guard let raw = String(data: data, encoding: .utf8) else { return nil }
@@ -2223,7 +2271,7 @@ struct SonosZone: Identifiable, Equatable {
 //   Satellite elements = bonded sub/surround speakers, always skip
 //   The coordinator ZoneGroupMember (UUID == Coordinator attr) = the zone
 
-private class TopologyParser: NSObject, XMLParserDelegate {
+class TopologyParser: NSObject, XMLParserDelegate {
     private let data: Data
     private var zones: [SonosZone] = []
 

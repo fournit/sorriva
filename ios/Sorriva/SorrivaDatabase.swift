@@ -1128,6 +1128,29 @@ final class SorrivaDatabase {
             print("SORRIVA DB: v22 artwork match provenance columns added")
         }
 
+        migrator.registerMigration("v23_artwork_source") { db in
+            // WHICH PASS SUPPLIED THE COVER ON SCREEN. v22 added what an ONLINE match
+            // was; this records where the winning image came from at all.
+            //
+            // Nothing did. ArtworkBestWins.selectWinner returns a winner and the caller
+            // stores the image, but the knowledge of which pass produced it is thrown
+            // away — embeddedArtScanned / folderArtScanned / onlineArtAttempted record
+            // which passes RAN, not which one won, so folder art and embedded art were
+            // indistinguishable after the fact. The artwork review list in
+            // fArtworkManualSearchUtility ranks albums by doubt and cannot do that
+            // without knowing the provenance of what it is doubting.
+            //
+            // artBestRejectedScore is the other half: ArtworkLookup declining at 0.40
+            // used to go to the debug log and nowhere else, so a blank slot could not
+            // be told apart from one never attempted. "We looked and found nothing
+            // better than 0.40" is a far more useful thing to show a user than silence.
+            try db.alter(table: "albums") { t in
+                t.add(column: "artSource", .text)              // embedded | folder | online | manual
+                t.add(column: "artBestRejectedScore", .double)  // best online score that missed the bar
+            }
+            print("SORRIVA DB: v23 artwork source + rejected-score columns added")
+        }
+
         try migrator.migrate(dbQueue)
         print("SORRIVA DB: Migrations complete")
     }
@@ -1998,15 +2021,28 @@ final class SorrivaDatabase {
     /// folder/online) call this instead of updateAlbumArtwork so later passes
     /// can compare their own candidate's area against what's already stored.
     func updateAlbumArtworkWithDimensions(
-        albumId: String, thumbPath: String?, fullPath: String?, width: Int, height: Int
+        albumId: String, thumbPath: String?, fullPath: String?, width: Int, height: Int,
+        source: ArtworkSource
     ) throws {
         let now = Int(Date().timeIntervalSince1970)
         try dbQueue.write { db in
             try db.execute(sql: """
                 UPDATE albums
-                SET artPathThumb = ?, artPathFull = ?, artworkWidth = ?, artworkHeight = ?, updatedAt = ?
+                SET artPathThumb = ?, artPathFull = ?, artworkWidth = ?, artworkHeight = ?,
+                    artSource = ?, updatedAt = ?
                 WHERE id = ?
-            """, arguments: [thumbPath, fullPath, width, height, now, albumId])
+            """, arguments: [thumbPath, fullPath, width, height, source.rawValue, now, albumId])
+        }
+    }
+
+    /// Record that the online pass looked and found nothing good enough.
+    ///
+    /// Distinguishes "never attempted" from "attempted, best candidate scored 0.40" —
+    /// which is what lets the review list explain a blank instead of just showing one.
+    func recordArtworkRejection(albumId: String, bestScore: Double) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE albums SET artBestRejectedScore = ? WHERE id = ?",
+                           arguments: [bestScore, albumId])
         }
     }
 

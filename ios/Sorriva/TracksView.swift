@@ -92,7 +92,8 @@ struct TracksView: View {
                                             trackToRemove = track
                                             showRemoveConfirm = true
                                         },
-                                        sheetHeight: 260
+                                        sheetHeight: 260,
+                                        triggersOnTap: true
                                     )
                             }
                         }

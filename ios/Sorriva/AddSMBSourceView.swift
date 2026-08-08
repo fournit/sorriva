@@ -209,6 +209,12 @@ struct SMBSharePickerView: View {
                                         .foregroundColor(.sTextMuted)
                                 }
                             }
+                            // Card hugged its content and so rendered narrower than every
+                            // other card in the app — settings rows, share rows, Network
+                            // Share, the server card in Local Library all run full width.
+                            // It read as a different kind of thing rather than the same
+                            // server card seen on another screen.
+                            Spacer(minLength: 0)
                         }
                         .padding(12)
                         .background(Color.sSurface)

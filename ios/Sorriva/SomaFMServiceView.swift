@@ -28,31 +28,23 @@ struct SomaFMServiceView: View {
 
             VStack(spacing: 0) {
 
-                // Service header
-                HStack(spacing: 16) {
+                // Service header. No ellipsis — SomaFM is listener-supported and
+                // has no account at all, so there is nothing to configure.
+                ServiceHeaderCard(
+                    name: "SomaFM",
+                    subtitle: stations.isEmpty
+                        ? "No account required · 46 channels"
+                        : "\(stations.count) channel\(stations.count == 1 ? "" : "s") · No account required"
+                ) {
                     ZStack {
                         Circle()
                             .fill(Color(hex: "#2C3E50"))
-                            .frame(width: 52, height: 52)
+                            .frame(width: 56, height: 56)
                         Text("SF")
-                            .font(.system(size: 18, weight: .black))
+                            .font(.system(size: 20, weight: .black))
                             .foregroundColor(.white)
                     }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("SomaFM")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundColor(.sTextPrimary)
-                        Text(stations.isEmpty
-                             ? "No account required · 46 channels"
-                             : "\(stations.count) channel\(stations.count == 1 ? "" : "s") · No account required")
-                            .font(.system(size: 13))
-                            .foregroundColor(.sTextMuted)
-                    }
-                    Spacer()
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-                .padding(.bottom, 16)
 
                 if stations.isEmpty {
                     Spacer()
@@ -94,7 +86,8 @@ struct SomaFMServiceView: View {
                                                 showRemoveConfirm = true
                                             }
                                         ),
-                                        sheetHeight: 310
+                                        sheetHeight: 310,
+                                        triggersOnTap: true
                                     )
                             }
                         }

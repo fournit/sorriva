@@ -112,8 +112,28 @@ final class ScanCoordinator: ObservableObject {
     // MARK: - Public API
 
     /// Called when a new share is saved — queues confirmation alert.
+    /// A share was just added. Scan it — no prompt.
+    ///
+    /// fAutoScanOnShareAdd. Adding a share has exactly one purpose: getting its music
+    /// into the library. The confirmation this replaces asked a question with only one
+    /// sensible answer, and its Cancel path left a share sitting there doing nothing.
+    /// Roon calls this Storage and never makes you start a scan of a source you just
+    /// added; the only actions are edit and remove.
+    ///
+    /// It also deletes a live defect rather than fixing an instance of it
+    /// (bScanConfirmDialogLostDuringAddNavigation): the alert was raised mid-navigation,
+    /// SwiftUI dropped it, and the queued scan was silently lost — a share added and
+    /// never scanned, recoverable only by knowing to use ••• → Scan Now.
+    ///
+    /// The warning that alert carried — hours on a large library, keep the app in the
+    /// foreground, auto-lock suppressed — moves to ScanStatusPanel, where it is true for
+    /// as long as the scan runs rather than for the five seconds a modal is on screen.
+    ///
+    /// MANUAL rescan keeps its confirmation. Re-reading an already-scanned share IS a
+    /// question worth asking, and that path is not the one the dialog breaks on.
     func scanNewSource(_ source: LibrarySource) {
-        pendingFullScanSource = source
+        sLog("SCAN: new share \(source.share)\(source.rootPath) added — scanning automatically")
+        confirmAndScanSource(source)
     }
 
     /// Called from confirmation alert — user confirmed full scan.
@@ -826,7 +846,7 @@ final class ScanCoordinator: ObservableObject {
                         albumId: album.id,
                         thumbPath: "artwork/\(album.id)_thumb.jpg",
                         fullPath:  "artwork/\(album.id)_full.jpg",
-                        width: winner.width, height: winner.height
+                        width: winner.width, height: winner.height, source: .folder
                     )
                     found += 1
                     if winner.width < 200 && winner.height < 200 {
@@ -1097,7 +1117,7 @@ final class ScanCoordinator: ObservableObject {
                         albumId: album.id,
                         thumbPath: "artwork/\(album.id)_thumb.jpg",
                         fullPath: "artwork/\(album.id)_full.jpg",
-                        width: winner.width, height: winner.height
+                        width: winner.width, height: winner.height, source: .embedded
                     )
                     try? SorrivaDatabase.shared.markEmbeddedArtScanned(albumId: album.id)
                     if let ledgerSessionId {

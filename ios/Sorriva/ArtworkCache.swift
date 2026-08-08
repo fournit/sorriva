@@ -128,27 +128,40 @@ actor ArtworkCache {
         guard let match = await ArtworkLookup.shared.bestMatch(
             artist: album.artistName, album: album.title
         ) else {
+            // Record WHY the slot is empty, not just that it is. A review list can then
+            // say "we looked and nothing scored better than 0.40" instead of showing a
+            // blank indistinguishable from an album never attempted.
+            if let best = await ArtworkLookup.shared.candidates(
+                artist: album.artistName, album: album.title, limit: 1).first {
+                try? SorrivaDatabase.shared.recordArtworkRejection(albumId: album.id, bestScore: best.score)
+            }
             sLog("ARTWORK: no confident match — \(album.artistName) · \(album.title)")
             return
         }
 
         do {
+            // Ask for 1200, not 600. The size is a path component Apple honours up to
+            // whatever the asset actually holds, so this costs the same single request
+            // and returns four times the pixels on most albums. Doing it later would
+            // mean re-fetching a whole library's worth of covers, and the redesign is
+            // exactly when artwork gets displayed bigger.
             let artworkURL = match.artworkURL100
             let thumbURL = artworkURL.replacingOccurrences(of: "100x100", with: "300x300")
-            let fullURL  = artworkURL.replacingOccurrences(of: "100x100", with: "600x600")
+            let fullURL  = artworkURL.replacingOccurrences(of: "100x100", with: "1200x1200")
 
-            let thumbPath = try await downloadAndSave(urlString: thumbURL, albumId: album.id, suffix: "thumb")
-            let fullPath  = try await downloadAndSave(urlString: fullURL,  albumId: album.id, suffix: "full")
+            let thumb = try await downloadAndSave(urlString: thumbURL, albumId: album.id, suffix: "thumb")
+            let full  = try await downloadAndSave(urlString: fullURL,  albumId: album.id, suffix: "full")
 
             try? SorrivaDatabase.shared.updateAlbumArtworkWithDimensions(
-                albumId: album.id, thumbPath: thumbPath, fullPath: fullPath, width: 600, height: 600
+                albumId: album.id, thumbPath: thumb.path, fullPath: full.path,
+                width: full.width, height: full.height, source: .online
             )
             try? SorrivaDatabase.shared.recordArtworkMatch(
                 albumId: album.id, matchedName: match.collectionName,
                 matchedArtist: match.artistName, score: match.score
             )
 
-            sLog("ARTWORK: online SAVED (600×600) — \(album.artistName) · \(album.title) → matched \(match.artistName) · \(match.collectionName) [\(String(format: "%.2f", match.score))]")
+            sLog("ARTWORK: online SAVED (\(full.width)×\(full.height)) — \(album.artistName) · \(album.title) → matched \(match.artistName) · \(match.collectionName) [\(String(format: "%.2f", match.score))]")
 
             // Notify UI to reload artwork
             await MainActor.run {
@@ -191,7 +204,17 @@ actor ArtworkCache {
     // returned artistName to the one asked for — the entire mechanism behind
     // bArtworkArtistQuery. Their replacement is ArtworkLookup.
 
-    private func downloadAndSave(urlString: String, albumId: String, suffix: String) async throws -> String {
+    /// Returns the stored relative path AND the image's true pixel size.
+    ///
+    /// The size is measured rather than assumed. Apple serves the LARGEST it has and
+    /// silently returns something smaller when the asset caps out — measured
+    /// 2026-08-08, four of five sampled albums served a full 1200x1200 from the same
+    /// URL that was being asked for 600, while an older Miles Davis asset genuinely
+    /// stopped at 600. Recording the requested size would therefore write a number
+    /// that is sometimes a lie, and artworkWidth/artworkHeight feed the best-wins
+    /// comparison — a folder cover that is genuinely larger must be able to win.
+    private func downloadAndSave(urlString: String, albumId: String,
+                                 suffix: String) async throws -> (path: String, width: Int, height: Int) {
         guard let url = URL(string: urlString) else {
             throw ArtworkError.invalidURL
         }
@@ -204,7 +227,8 @@ actor ArtworkCache {
         let filePath = dir.appendingPathComponent("\(albumId)_\(suffix).jpg")
         try data.write(to: filePath)
 
-        return "artwork/\(albumId)_\(suffix).jpg"
+        let size = ImageDimensionReader.dimensions(data: data) ?? (width: 0, height: 0)
+        return ("artwork/\(albumId)_\(suffix).jpg", size.width, size.height)
     }
 
     private func artworkDirectory() -> URL {

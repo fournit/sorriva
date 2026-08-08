@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.67 — a TV taking the room no longer leaves a ghost station; IdleState found; group blindness logged",
-  "version": "0.0.67",
+  "message": "v0.0.68 — polling path has tests; group changes seen; scans start themselves; artwork at 1200px",
+  "version": "0.0.68",
   "db_migrate": false
 }

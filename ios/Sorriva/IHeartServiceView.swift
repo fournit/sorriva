@@ -30,31 +30,24 @@ struct IHeartServiceView: View {
 
             VStack(spacing: 0) {
 
-                // Service header
-                HStack(spacing: 16) {
+                // Service header. No ellipsis: iHeart DOES support accounts, but
+                // Sorriva deliberately uses the anonymous path, so there is nothing
+                // here to sign into or configure. That is a decision, not a gap.
+                ServiceHeaderCard(
+                    name: "iHeartRADIO",
+                    subtitle: stations.isEmpty
+                        ? "No account required"
+                        : "\(stations.count) station\(stations.count == 1 ? "" : "s") · No account required"
+                ) {
                     ZStack {
                         Circle()
                             .fill(Color(hex: "#CC2027"))
-                            .frame(width: 52, height: 52)
+                            .frame(width: 56, height: 56)
                         Image(systemName: "radio")
-                            .font(.system(size: 24))
+                            .font(.system(size: 26))
                             .foregroundColor(.white)
                     }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("iHeartRADIO")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundColor(.sTextPrimary)
-                        Text(stations.isEmpty
-                             ? "No account required"
-                             : "\(stations.count) station\(stations.count == 1 ? "" : "s") · No account required")
-                            .font(.system(size: 13))
-                            .foregroundColor(.sTextMuted)
-                    }
-                    Spacer()
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-                .padding(.bottom, 16)
 
                 if stations.isEmpty {
                     Spacer()
@@ -111,7 +104,8 @@ struct IHeartServiceView: View {
                                                 }
                                             }
                                         ),
-                                        sheetHeight: 310
+                                        sheetHeight: 310,
+                                        triggersOnTap: true
                                     )
                             }
                         }
