@@ -44,7 +44,14 @@ Note the earlier "UNAS Pro drops sessions after ~2 reads" finding is suspect: a 
 - **Timestamps are CDT/CST.** `TZ='America/Chicago' date`.
 - **Feature IDs** are `fCamelCase` for features, `bCamelCase` for bugs.
 - **Flag every new file** and ask whether it belongs in the repo.
-- **Store Tom's feature descriptions verbatim.** Never rewrite them.
+- **Write Tom's ideas up as specifications, then get them reviewed before they land.**
+  His chat messages are stream of consciousness — hedges, questions, half-formed
+  framing. Quoting them into a roadmap entry freezes his uncertainty as though it
+  were scope. Restate the idea in precise language: the problem, the requirements,
+  the boundaries, the open decisions, and what is measured versus estimated.
+  Capture the intent completely — losing a requirement is worse than clumsy prose.
+  **Draft the text, show it to him, and only write it to the roadmap once he agrees.**
+  Store his words verbatim ONLY when he explicitly says it is a spec.
 - **Be concise.** Answer the question asked. No preamble, no restating the request.
 
 ## Structure

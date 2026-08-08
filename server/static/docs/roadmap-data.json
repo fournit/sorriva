@@ -1252,6 +1252,17 @@
           "completedAt": null,
           "requires": [],
           "priority_rank": 1
+        },
+        {
+          "id": "fResumableChangeWalk",
+          "name": "Change-check walk should checkpoint and resume, never restart from the top",
+          "desc": "The automatic change check walks the entire share tree on every foreground and keeps no record of how far it got. If the app is terminated mid-walk, the next launch starts again from the top. On a large library with short sessions this can livelock: every foreground pays for a walk that never finishes, so changes are never detected and the library silently stops updating.\n\nREQUIREMENT. The walk must checkpoint its position and resume from it, so that progress accumulates across foregrounds and a complete pass is guaranteed regardless of how briefly the app is open on any one occasion.\n\nREQUIREMENT. Resumption is automatic and silent. The change check is a background process the user did not initiate, so it must never present a dialog, a confirmation, or a resume prompt under any circumstance.\n\nSCOPE NOTE — suspension versus termination. Backgrounding the app suspends the walk and it resumes where it froze, so ordinary app switching already loses nothing. This work addresses termination under memory pressure, which is the case that restarts from zero.\n\nSIZING. One measurement exists: approximately 17 seconds total on an 11,670-file library, the majority of which is the walk. Linear extrapolation suggests roughly 25 seconds at 20k files and 50 seconds at 40k, but this is derived from a single data point. Cost is one SMB directory listing per folder, so folder count is the driver rather than file count. Measure across real library sizes before designing to any figure.\n\nIMPLEMENTATION DIRECTION. The walk already visits folders sequentially and compares each against a stored fingerprint. Persisting folder-level progress mirrors what the scan ledger already does for per-file outcomes. An open decision remains: how stale a partial walk may become before it should be discarded and restarted.\n\nRELATED. The silent-resumption requirement was partially satisfied on 2026-08-08 — a killed automatic check that had planned no work now resets without raising a scan-interrupted dialog. Checkpointing remains outstanding.",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-08-08",
+          "completedAt": null,
+          "requires": []
         }
       ]
     },

@@ -14,7 +14,37 @@ final class ScanCoordinator: ObservableObject {
 
     // MARK: - Published state
 
-    @Published var activeScanSourceId: String? = nil
+    @Published var activeScanSourceId: String? = nil {
+        didSet {
+            if activeScanSourceId == nil { activeScanIsUserInitiated = false }
+            updateIdleTimer()
+        }
+    }
+
+    /// bAutoLockNeverRestored, 2026-08-08. Auto-lock used to be suppressed by
+    /// `isIdleTimerDisabled = true` at the top of a scan and restored by four
+    /// separate statements elsewhere — one in the catch, one at the very end of a
+    /// detached pipeline, one in wedge recovery. Any cancellation, throw or hang
+    /// between them left the phone awake permanently, because nothing else ever
+    /// set it false. One miss was forever.
+    ///
+    /// It is now DERIVED. There is no statement left to skip: the timer follows
+    /// the state, so when no user scan is running auto-lock is on, by construction.
+    ///
+    /// AND ONLY FOR USER-INITIATED SCANS. Keeping the screen awake makes sense for
+    /// a scan someone is watching. The automatic change check runs on EVERY
+    /// foreground and is dominated by the tree walk — ~17s on an 11,670-file
+    /// library — so honouring it there meant seventeen seconds of suppressed
+    /// auto-lock every time the app was opened, for work nobody asked for. That,
+    /// not the latch alone, is why the symptom was "most times".
+    private var activeScanIsUserInitiated = false {
+        didSet { updateIdleTimer() }
+    }
+
+    private func updateIdleTimer() {
+        UIApplication.shared.isIdleTimerDisabled =
+            (activeScanSourceId != nil && activeScanIsUserInitiated)
+    }
     @Published var progress: ScanProgress? = nil
     @Published var lastReport: ScanReport? = nil
     @Published var pendingFullScanSource: LibrarySource? = nil
@@ -167,6 +197,12 @@ final class ScanCoordinator: ObservableObject {
     /// Runs incremental rescan for changed folders on completed sources.
     /// Restarts retry scheduler if pending skips exist and no scan is active.
     func checkForChanges() {
+        // Belt and braces for bAutoLockNeverRestored. The timer is derived now, so
+        // this should never fire — but a foreground is the one moment we can be
+        // certain nothing is mid-flight, and a stuck timer costs the user battery
+        // silently until they kill the app. Cheap insurance against a future path
+        // that reintroduces the latch.
+        if activeScanSourceId == nil { updateIdleTimer() }
         let now = Date()
         guard now.timeIntervalSince(lastCheckForChanges) > 30 else {
             sLog("SCAN: checkForChanges — skipped (debounce)")
@@ -243,9 +279,31 @@ final class ScanCoordinator: ObservableObject {
                         activeScanSourceId = nil
                         progress = nil
                         lastPipelineProgress = nil
-                        UIApplication.shared.isIdleTimerDisabled = false
                         try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "error")
                         interruptedScanSource = source
+                        continue
+                    }
+                    // An AUTOMATIC check that was killed before it planned any work
+                    // has nothing to decide about. It was a tree walk nobody asked
+                    // for, it committed nothing, and the next foreground simply
+                    // walks again — so asking the user to confirm a resume is
+                    // asking about a scan they never started.
+                    //
+                    // bPhantomScanInterruptedDialog was supposed to have dissolved
+                    // this, but its guard lives in the "error" branch below, which a
+                    // fresh kill only reaches one foreground LATER. So the dialog
+                    // still appeared once, then tidied itself up afterwards.
+                    //
+                    // Tom's rule, 2026-08-08: "it is an automatic process so a user
+                    // should never be involved."
+                    if let killed = try? SorrivaDatabase.shared.activeScanSession(sourceId: source.id),
+                       killed.trigger == SorrivaDatabase.ScanTrigger.automatic.rawValue,
+                       killed.plannedFiles == 0 {
+                        sLog("SCAN: killed automatic check with no planned work for \(source.displayName) — resetting silently")
+                        try? SorrivaDatabase.shared.updateScanSessionState(
+                            sessionId: killed.id, state: .cancelled)
+                        try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "complete")
+                        try? SorrivaDatabase.shared.setCurrentScanSessionId(sourceId: source.id, sessionId: nil)
                         continue
                     }
                     sLog("SCAN: killed scan detected for \(source.displayName) — offering resume")
@@ -472,6 +530,7 @@ final class ScanCoordinator: ObservableObject {
     private func runScanBody(source: LibrarySource, folders: [String]?,
                          sessionId: String, resumeSessionId: String?,
                          triggerKind: SorrivaDatabase.ScanTrigger = .manual) async {
+        activeScanIsUserInitiated = (triggerKind != .automatic)
         activeScanSourceId = source.id
         lastPipelineProgress = Date()
         // Recorded BEFORE the scan starts, so if the app is killed mid-scan the
@@ -486,9 +545,6 @@ final class ScanCoordinator: ObservableObject {
         let ledgerSessionId: String? = sessionId
 
         sLog("SCAN: state -> scanning (resume=\(resumeSessionId != nil))")
-
-        // Prevent screen lock during scan
-        UIApplication.shared.isIdleTimerDisabled = true
 
         do {
             if let folders = folders {
@@ -516,11 +572,41 @@ final class ScanCoordinator: ObservableObject {
             ScanLogSession.end()
             // Session id deliberately left in place — it is what a resume needs.
             try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "error")
-            UIApplication.shared.isIdleTimerDisabled = false
             if activeScanSourceId == source.id {
                 activeScanSourceId = nil
                 progress = nil
             }
+            return
+        }
+
+        // bChangeCheckRunsFullPipelineOnNoChange — an automatic check that planned
+        // zero files found nothing, so there is nothing for the pipeline to do. It
+        // used to run all three artwork passes, the retry scheduler and the whole
+        // state sequence anyway, because the pipeline is wired to "a scan ran"
+        // rather than "work was found".
+        //
+        // Nothing is lost by stopping here: checkForChanges resumes a pending
+        // artwork phase on its own branch, and the "retrying" case restarts the
+        // scheduler. Both recover independently of this run.
+        //
+        // The WALK still happens — that is how we learn nothing changed, and on a
+        // large library it is most of the cost. Only the ceremony after it goes.
+        if triggerKind == .automatic,
+           let planned = (try? SorrivaDatabase.shared.activeScanSession(sourceId: source.id))?.plannedFiles,
+           planned == 0 {
+            sLog("SCAN: change check found no changes for \(source.displayName) — skipping pipeline")
+            if let ledgerSessionId {
+                try? SorrivaDatabase.shared.updateScanSessionState(
+                    sessionId: ledgerSessionId, state: .complete)
+            }
+            try? SorrivaDatabase.shared.updateScanState(sourceId: source.id, state: "complete")
+            try? SorrivaDatabase.shared.setCurrentScanSessionId(sourceId: source.id, sessionId: nil)
+            ScanLogSession.end()
+            if activeScanSourceId == source.id {
+                activeScanSourceId = nil
+                progress = nil
+            }
+            lastPipelineProgress = nil
             return
         }
 
@@ -566,7 +652,6 @@ final class ScanCoordinator: ObservableObject {
 
             // Pass 1 done — restore screen lock and clear active state
             await MainActor.run {
-                UIApplication.shared.isIdleTimerDisabled = false
                 if self.activeScanSourceId == source.id {
                     self.activeScanSourceId = nil
                     self.progress = nil
