@@ -2860,6 +2860,19 @@
           "createdAt": "2026-08-08",
           "completedAt": null,
           "requires": []
+        },
+        {
+          "id": "bTransferFlashesZonesAsGrouped",
+          "name": "Transfer briefly shows both zones grouped before settling",
+          "desc": "Transferring playback briefly shows the source and destination zones as grouped before settling. Reported 2026-08-08, after the timed topology refresh shipped in v0.0.68.\n\nNOT A REPORTING ERROR. Transfer moves audio by grouping the destination onto the source so playback syncs, waiting 2 seconds, then having the source step aside so the destination inherits the queue. For roughly 2.5 seconds the zones genuinely ARE grouped on the speakers. Topology refresh runs every third poll — about every 6 seconds during playback — so it lands inside that window roughly two times in five and correctly reports a grouping that is about to undo itself. Previously topology was only read after Sorriva's own commands completed, so the app never observed the middle of its own manoeuvre.\n\nREQUIREMENT. The timed topology refresh must not run while a transfer is in flight. The transfer already ends with an explicit refresh 1.5 seconds after its last step, so the settled picture still arrives.\n\nCONSTRAINT ON THE IMPLEMENTATION. Suppression must be a self-expiring deadline, not a boolean that is set and cleared. A flag whose reset sits at the end of an async sequence strands every group change invisible until relaunch if that sequence dies — the failure shape of bAutoLockNeverRestored and of bGroupChangesMadeOutsideSorrivaAreNeverSeen. A deadline degrades to today's behaviour instead of to a permanent fault. Measured transfers run about 5.2 seconds; roughly 8 gives headroom.\n\nSCOPE. Transfer only. Grouping and ungrouping must continue to appear immediately, since there the group change is the user's intent rather than a means to something else. Accepted cost: a grouping made from the Sonos app during the suppression window appears a few seconds later than it otherwise would.",
+          "priority": "High",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": false,
+          "priority_rank": 1,
+          "createdAt": "2026-08-08",
+          "completedAt": null,
+          "requires": []
         }
       ]
     },
