@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.70 — tests run in 1.3s without a simulator; the phone locks again",
-  "version": "0.0.70",
+  "message": "v0.0.71 — Sonos commands split out, deduplicated and tested",
+  "version": "0.0.71",
   "db_migrate": false
 }
