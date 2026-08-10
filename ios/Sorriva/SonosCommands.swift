@@ -30,53 +30,26 @@ import Foundation
 
 enum SonosCommands {
 
+    /// Swap this in a test to assert what a command sends without a speaker.
+    /// See SonosSOAP.swift for why it is a static var rather than a parameter.
+    nonisolated(unsafe) static var soap: SonosSOAPTransport = LiveSonosSOAP()
+
     static func fetchPositionData(host: String) async -> Data? {
-        let soapBody = """
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-          <s:Body>
-            <u:GetPositionInfo xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+        return try? await soap.send(host: host, service: .avTransport, action: "GetPositionInfo",
+                                            innerXML: """
               <InstanceID>0</InstanceID>
-            </u:GetPositionInfo>
-          </s:Body>
-        </s:Envelope>
-        """
-        guard let url = URL(string: "http://\(host):1400/MediaRenderer/AVTransport/Control"),
-              let bodyData = soapBody.data(using: .utf8) else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.setValue("\"urn:schemas-upnp-org:service:AVTransport:1#GetPositionInfo\"",
-                         forHTTPHeaderField: "SOAPACTION")
-        request.httpBody = bodyData
-        request.timeoutInterval = 3
-        return try? await URLSession.shared.data(for: request).0
+            """, timeout: SonosTimeout.quick).body
     }
 
     static func fetchMediaInfo(host: String) async -> (name: String, artURL: String)? {
-        let soapBody = """
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-          <s:Body>
-            <u:GetMediaInfo xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+        guard let reply = try? await soap.send(host: host, service: .avTransport, action: "GetMediaInfo",
+                                              innerXML: """
               <InstanceID>0</InstanceID>
-            </u:GetMediaInfo>
-          </s:Body>
-        </s:Envelope>
-        """
-        guard let url = URL(string: "http://\(host):1400/MediaRenderer/AVTransport/Control"),
-              let bodyData = soapBody.data(using: .utf8) else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.setValue("\"urn:schemas-upnp-org:service:AVTransport:1#GetMediaInfo\"",
-                         forHTTPHeaderField: "SOAPACTION")
-        request.httpBody = bodyData
-        request.timeoutInterval = 3
-
-        guard let data = try? await URLSession.shared.data(for: request).0,
-              let raw = String(data: data, encoding: .utf8) else {
+            """, timeout: SonosTimeout.quick) else {
             print("SORRIVA: GetMediaInfo fetch failed for \(host)")
             return nil
         }
+        let raw = reply.text
 
         print("SORRIVA: GetMediaInfo raw (\(host)): \(raw.prefix(500))")
 
@@ -142,29 +115,14 @@ enum SonosCommands {
 
         let didl = "&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;item id=&quot;-1&quot; parentID=&quot;-1&quot; restricted=&quot;true&quot;&gt;&lt;dc:title&gt;\(escapedName)&lt;/dc:title&gt;\(artElement)&lt;upnp:class&gt;object.item.audioItem.audioBroadcast&lt;/upnp:class&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;"
 
-        let soapBody = """
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-          <s:Body>
-            <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+        do {
+            let reply = try await soap.send(host: host, service: .avTransport, action: "SetAVTransportURI",
+                                            innerXML: """
               <InstanceID>0</InstanceID>
               <CurrentURI>\(escapedURL)</CurrentURI>
               <CurrentURIMetaData>\(didl)</CurrentURIMetaData>
-            </u:SetAVTransportURI>
-          </s:Body>
-        </s:Envelope>
-        """
-        guard let url = URL(string: "http://\(host):1400/MediaRenderer/AVTransport/Control"),
-              let bodyData = soapBody.data(using: .utf8) else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.setValue("\"urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI\"",
-                         forHTTPHeaderField: "SOAPACTION")
-        request.httpBody = bodyData
-        request.timeoutInterval = 5
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            """, timeout: SonosTimeout.action)
+            let status = reply.status
             print("SORRIVA: SetAVTransportURI \(host) status=\(status)")
         } catch {
             print("SORRIVA: SetAVTransportURI error: \(error.localizedDescription)")
@@ -175,29 +133,14 @@ enum SonosCommands {
     /// Used by LocalPlaybackService which builds musicTrack DIDL rather than audioBroadcast.
     static func setAVTransportURIWithMetadata(host: String, streamURL: String, didl: String) async {
         let escapedURL = streamURL.replacingOccurrences(of: "&", with: "&amp;")
-        let soapBody = """
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-          <s:Body>
-            <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+        do {
+            let reply = try await soap.send(host: host, service: .avTransport, action: "SetAVTransportURI",
+                                            innerXML: """
               <InstanceID>0</InstanceID>
               <CurrentURI>\(escapedURL)</CurrentURI>
               <CurrentURIMetaData>\(didl)</CurrentURIMetaData>
-            </u:SetAVTransportURI>
-          </s:Body>
-        </s:Envelope>
-        """
-        guard let url = URL(string: "http://\(host):1400/MediaRenderer/AVTransport/Control"),
-              let bodyData = soapBody.data(using: .utf8) else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.setValue("\"urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI\"",
-                         forHTTPHeaderField: "SOAPACTION")
-        request.httpBody = bodyData
-        request.timeoutInterval = 5
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            """, timeout: SonosTimeout.action)
+            let status = reply.status
             sLog("LOCALPLAY: SetAVTransportURIWithMetadata \(host) status=\(status) url=\(streamURL.prefix(60))")
         } catch {
             sLog("LOCALPLAY: SetAVTransportURIWithMetadata error \(host): \(error.localizedDescription)")
@@ -205,27 +148,12 @@ enum SonosCommands {
     }
 
     static func removeAllTracksFromQueue(host: String) async {
-        let soapBody = """
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-          <s:Body>
-            <u:RemoveAllTracksFromQueue xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-              <InstanceID>0</InstanceID>
-            </u:RemoveAllTracksFromQueue>
-          </s:Body>
-        </s:Envelope>
-        """
-        guard let url = URL(string: "http://\(host):1400/MediaRenderer/AVTransport/Control"),
-              let bodyData = soapBody.data(using: .utf8) else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.setValue("\"urn:schemas-upnp-org:service:AVTransport:1#RemoveAllTracksFromQueue\"",
-                         forHTTPHeaderField: "SOAPACTION")
-        request.httpBody = bodyData
-        request.timeoutInterval = 5
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let reply = try await soap.send(host: host, service: .avTransport, action: "RemoveAllTracksFromQueue",
+                                            innerXML: """
+              <InstanceID>0</InstanceID>
+            """, timeout: SonosTimeout.action)
+            let status = reply.status
             print("SORRIVA: RemoveAllTracksFromQueue \(host) status=\(status)")
         } catch {
             print("SORRIVA: RemoveAllTracksFromQueue error: \(error.localizedDescription)")
@@ -237,10 +165,9 @@ enum SonosCommands {
         // Build comma-separated URI and DIDL lists
         let uriList = uris.map { $0.replacingOccurrences(of: "&", with: "&amp;") }.joined(separator: " ")
         let didlList = didls.joined(separator: " ")
-        let soapBody = """
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-          <s:Body>
-            <u:AddMultipleURIsToQueue xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+        do {
+            let reply = try await soap.send(host: host, service: .avTransport, action: "AddMultipleURIsToQueue",
+                                            innerXML: """
               <InstanceID>0</InstanceID>
               <UpdateID>0</UpdateID>
               <NumberOfURIs>\(uris.count)</NumberOfURIs>
@@ -250,22 +177,8 @@ enum SonosCommands {
               <ContainerMetaData></ContainerMetaData>
               <DesiredFirstTrackNumberEnqueued>0</DesiredFirstTrackNumberEnqueued>
               <EnqueueAsNext>0</EnqueueAsNext>
-            </u:AddMultipleURIsToQueue>
-          </s:Body>
-        </s:Envelope>
-        """
-        guard let url = URL(string: "http://\(host):1400/MediaRenderer/AVTransport/Control"),
-              let bodyData = soapBody.data(using: .utf8) else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.setValue("\"urn:schemas-upnp-org:service:AVTransport:1#AddMultipleURIsToQueue\"",
-                         forHTTPHeaderField: "SOAPACTION")
-        request.httpBody = bodyData
-        request.timeoutInterval = 10
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            """, timeout: SonosTimeout.bulk)
+            let status = reply.status
             print("SORRIVA: AddMultipleURIsToQueue \(host) \(uris.count) tracks status=\(status)")
         } catch {
             print("SORRIVA: AddMultipleURIsToQueue error: \(error.localizedDescription)")
@@ -279,36 +192,22 @@ enum SonosCommands {
             .replacingOccurrences(of: "\"", with: "&quot;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
-        let body = """
-        <u:AddURIToQueue xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-          <InstanceID>0</InstanceID>
-          <EnqueuedURI>\(escapedURI)</EnqueuedURI>
-          <EnqueuedURIMetaData>\(didl)</EnqueuedURIMetaData>
-          <DesiredFirstTrackNumberEnqueued>0</DesiredFirstTrackNumberEnqueued>
-          <EnqueueAsNext>0</EnqueueAsNext>
-        </u:AddURIToQueue>
-        """
-        let soapBody = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-          <s:Body>
-            \(body)
-          </s:Body>
-        </s:Envelope>
-        """
-        guard let url = URL(string: "http://\(host):1400/MediaRenderer/AVTransport/Control") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.setValue("\"urn:schemas-upnp-org:service:AVTransport:1#AddURIToQueue\"",
-                         forHTTPHeaderField: "SOAPACTION")
-        request.httpBody = soapBody.data(using: .utf8)
+        // Previously sent with NO timeoutInterval, so it inherited URLSession's
+        // 60-second default — an unreachable speaker froze the start of an album for
+        // a full minute. Nobody chose that; it is what the sixteenth hand-written
+        // copy of this block happened to omit.
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            sLog("SONOS: AddURIToQueue \(host) status=\(status)")
-            if status != 200, let resp = String(data: data, encoding: .utf8) {
-                sLog("SONOS: AddURIToQueue error body — \(resp)")
+            let reply = try await soap.send(host: host, service: .avTransport, action: "AddURIToQueue",
+                                            innerXML: """
+              <InstanceID>0</InstanceID>
+              <EnqueuedURI>\(escapedURI)</EnqueuedURI>
+              <EnqueuedURIMetaData>\(didl)</EnqueuedURIMetaData>
+              <DesiredFirstTrackNumberEnqueued>0</DesiredFirstTrackNumberEnqueued>
+              <EnqueueAsNext>0</EnqueueAsNext>
+            """, timeout: SonosTimeout.action)
+            sLog("SONOS: AddURIToQueue \(host) status=\(reply.status)")
+            if !reply.ok {
+                sLog("SONOS: AddURIToQueue error body — \(reply.text)")
             }
         } catch {
             sLog("SONOS: AddURIToQueue error: \(error.localizedDescription)")
@@ -325,34 +224,16 @@ enum SonosCommands {
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
         let didl = "&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot; xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;&lt;container id=&quot;&quot; parentID=&quot;S:&quot; restricted=&quot;false&quot;&gt;&lt;dc:title&gt;\(escapedPath)&lt;/dc:title&gt;&lt;upnp:class&gt;object.container&lt;/upnp:class&gt;&lt;/container&gt;&lt;/DIDL-Lite&gt;"
-        let body = """
-        <u:CreateObject xmlns:u="urn:schemas-upnp-org:service:ContentDirectory:1">
-          <ContainerID>S:</ContainerID>
-          <Elements>\(didl)</Elements>
-        </u:CreateObject>
-        """
-        let soapBody = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-          <s:Body>
-            \(body)
-          </s:Body>
-        </s:Envelope>
-        """
-        guard let url = URL(string: "http://\(host):1400/MediaServer/ContentDirectory/Control") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.setValue("\"urn:schemas-upnp-org:service:ContentDirectory:1#CreateObject\"",
-                         forHTTPHeaderField: "SOAPACTION")
-        request.httpBody = soapBody.data(using: .utf8)
+        // Also previously untimed — same 60-second default, same path. Share
+        // registration runs before every local-file play.
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            sLog("SONOS: CreateObject \(host) nasPath=\(nasPath) status=\(status)")
-            if let resp = String(data: data, encoding: .utf8) {
-                sLog("SONOS: CreateObject response — \(resp.prefix(200))")
-            }
+            let reply = try await soap.send(host: host, service: .contentDirectory, action: "CreateObject",
+                                            innerXML: """
+              <ContainerID>S:</ContainerID>
+              <Elements>\(didl)</Elements>
+            """, timeout: SonosTimeout.action)
+            sLog("SONOS: CreateObject \(host) nasPath=\(nasPath) status=\(reply.status)")
+            sLog("SONOS: CreateObject response — \(reply.text.prefix(200))")
         } catch {
             sLog("SONOS: CreateObject error: \(error.localizedDescription)")
         }
@@ -360,31 +241,13 @@ enum SonosCommands {
     }
 
     static func sendTransportAction(host: String, action: String) async {
-        let soapBody = """
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-          <s:Body>
-            <u:\(action) xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-              <InstanceID>0</InstanceID>
-              <Speed>1</Speed>
-            </u:\(action)>
-          </s:Body>
-        </s:Envelope>
-        """
-        guard let url = URL(string: "http://\(host):1400/MediaRenderer/AVTransport/Control"),
-              let bodyData = soapBody.data(using: .utf8) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.setValue("\"urn:schemas-upnp-org:service:AVTransport:1#\(action)\"",
-                         forHTTPHeaderField: "SOAPACTION")
-        request.httpBody = bodyData
-        request.timeoutInterval = 3
-
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            sLog("LOCALPLAY: \(action) \(host) status=\(status)")
+            let reply = try await soap.send(host: host, service: .avTransport, action: action,
+                                            innerXML: """
+                  <InstanceID>0</InstanceID>
+                  <Speed>1</Speed>
+            """, timeout: SonosTimeout.quick)
+            sLog("LOCALPLAY: \(action) \(host) status=\(reply.status)")
         } catch {
             sLog("LOCALPLAY: \(action) error \(host): \(error.localizedDescription)")
         }
@@ -393,29 +256,14 @@ enum SonosCommands {
     static func addMember(coordinatorHost: String, memberHost: String, memberUUID: String) async {
         // SetAVTransportURI with x-rincon: (single colon) sent to MEMBER's host
         // x-rincon:RINCON_XXXX tells the member to join the coordinator's group
-        let soapBody = """
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-          <s:Body>
-            <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+        do {
+            let reply = try await soap.send(host: memberHost, service: .avTransport, action: "SetAVTransportURI",
+                                            innerXML: """
               <InstanceID>0</InstanceID>
               <CurrentURI>x-rincon:\(memberUUID)</CurrentURI>
               <CurrentURIMetaData></CurrentURIMetaData>
-            </u:SetAVTransportURI>
-          </s:Body>
-        </s:Envelope>
-        """
-        guard let url = URL(string: "http://\(memberHost):1400/MediaRenderer/AVTransport/Control"),
-              let bodyData = soapBody.data(using: .utf8) else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.setValue("\"urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI\"",
-                         forHTTPHeaderField: "SOAPACTION")
-        request.httpBody = bodyData
-        request.timeoutInterval = 5
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            """, timeout: SonosTimeout.action)
+            let status = reply.status
             sLog("TRANSFER: AddMember \(memberHost) → \(memberUUID) status=\(status)")
         } catch {
             sLog("TRANSFER: AddMember error: \(error.localizedDescription)")
@@ -423,27 +271,12 @@ enum SonosCommands {
     }
 
     static func becomeCoordinator(host: String) async {
-        let soapBody = """
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-          <s:Body>
-            <u:BecomeCoordinatorOfStandaloneGroup xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-              <InstanceID>0</InstanceID>
-            </u:BecomeCoordinatorOfStandaloneGroup>
-          </s:Body>
-        </s:Envelope>
-        """
-        guard let url = URL(string: "http://\(host):1400/MediaRenderer/AVTransport/Control"),
-              let bodyData = soapBody.data(using: .utf8) else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.setValue("\"urn:schemas-upnp-org:service:AVTransport:1#BecomeCoordinatorOfStandaloneGroup\"",
-                         forHTTPHeaderField: "SOAPACTION")
-        request.httpBody = bodyData
-        request.timeoutInterval = 5
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let reply = try await soap.send(host: host, service: .avTransport, action: "BecomeCoordinatorOfStandaloneGroup",
+                                            innerXML: """
+              <InstanceID>0</InstanceID>
+            """, timeout: SonosTimeout.action)
+            let status = reply.status
             sLog("TRANSFER: BecomeCoordinator \(host) status=\(status)")
         } catch {
             sLog("TRANSFER: BecomeCoordinator error: \(error.localizedDescription)")
@@ -451,31 +284,14 @@ enum SonosCommands {
     }
 
     static func sendSetVolume(host: String, volume: Int) async {
-        let soapBody = """
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-          <s:Body>
-            <u:SetVolume xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+        do {
+            let reply = try await soap.send(host: host, service: .renderingControl, action: "SetVolume",
+                                            innerXML: """
               <InstanceID>0</InstanceID>
               <Channel>Master</Channel>
               <DesiredVolume>\(volume)</DesiredVolume>
-            </u:SetVolume>
-          </s:Body>
-        </s:Envelope>
-        """
-        guard let url = URL(string: "http://\(host):1400/MediaRenderer/RenderingControl/Control"),
-              let bodyData = soapBody.data(using: .utf8) else { return }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.setValue("\"urn:schemas-upnp-org:service:RenderingControl:1#SetVolume\"",
-                         forHTTPHeaderField: "SOAPACTION")
-        request.httpBody = bodyData
-        request.timeoutInterval = 3
-
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            """, timeout: SonosTimeout.quick)
+            let status = reply.status
             print("SORRIVA: SetVolume \(host) → \(volume) status=\(status)")
         } catch {
             print("SORRIVA: SetVolume error \(host): \(error.localizedDescription)")
@@ -483,30 +299,13 @@ enum SonosCommands {
     }
 
     static func volumeInfo(host: String) async -> Int {
-        let soapBody = """
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-          <s:Body>
-            <u:GetVolume xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+        do {
+            let reply = try await soap.send(host: host, service: .renderingControl, action: "GetVolume",
+                                            innerXML: """
               <InstanceID>0</InstanceID>
               <Channel>Master</Channel>
-            </u:GetVolume>
-          </s:Body>
-        </s:Envelope>
-        """
-        guard let url = URL(string: "http://\(host):1400/MediaRenderer/RenderingControl/Control"),
-              let bodyData = soapBody.data(using: .utf8) else { return 0 }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.setValue("\"urn:schemas-upnp-org:service:RenderingControl:1#GetVolume\"",
-                         forHTTPHeaderField: "SOAPACTION")
-        request.httpBody = bodyData
-        request.timeoutInterval = 3
-
-        do {
-            let (data, _) = try await URLSession.shared.data(for: request)
-            let raw = String(data: data, encoding: .utf8) ?? ""
+            """, timeout: SonosTimeout.quick)
+            let raw = reply.text ?? ""
             // Extract <CurrentVolume>42</CurrentVolume>
             if let start = raw.range(of: "<CurrentVolume>"),
                let end = raw.range(of: "</CurrentVolume>") {
@@ -529,27 +328,12 @@ enum SonosCommands {
     /// the real state turns "silent with 200s everywhere" into one obvious line.
     static func verifyPlaybackStarted(host: String, context: String) async {
         try? await Task.sleep(nanoseconds: 2_500_000_000)
-        let soapBody = """
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-          <s:Body>
-            <u:GetTransportInfo xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-              <InstanceID>0</InstanceID>
-            </u:GetTransportInfo>
-          </s:Body>
-        </s:Envelope>
-        """
-        guard let url = URL(string: "http://\(host):1400/MediaRenderer/AVTransport/Control"),
-              let bodyData = soapBody.data(using: .utf8) else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.setValue("\"urn:schemas-upnp-org:service:AVTransport:1#GetTransportInfo\"",
-                         forHTTPHeaderField: "SOAPACTION")
-        request.httpBody = bodyData
-        request.timeoutInterval = 3
         do {
-            let (data, _) = try await URLSession.shared.data(for: request)
-            let raw = String(data: data, encoding: .utf8) ?? ""
+            let reply = try await soap.send(host: host, service: .avTransport, action: "GetTransportInfo",
+                                            innerXML: """
+              <InstanceID>0</InstanceID>
+            """, timeout: SonosTimeout.quick)
+            let raw = reply.text ?? ""
             var state = "UNKNOWN"
             if let open = raw.range(of: "<CurrentTransportState>"),
                let close = raw.range(of: "</CurrentTransportState>",
@@ -569,30 +353,13 @@ enum SonosCommands {
     }
 
     static func transportInfo(host: String) async -> Bool {
-        let soapBody = """
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-          <s:Body>
-            <u:GetTransportInfo xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-              <InstanceID>0</InstanceID>
-            </u:GetTransportInfo>
-          </s:Body>
-        </s:Envelope>
-        """
-
-        guard let url = URL(string: "http://\(host):1400/MediaRenderer/AVTransport/Control"),
-              let bodyData = soapBody.data(using: .utf8) else { return false }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.setValue("\"urn:schemas-upnp-org:service:AVTransport:1#GetTransportInfo\"",
-                         forHTTPHeaderField: "SOAPACTION")
-        request.httpBody = bodyData
-        request.timeoutInterval = 3
 
         do {
-            let (data, _) = try await URLSession.shared.data(for: request)
-            let raw = String(data: data, encoding: .utf8) ?? ""
+            let reply = try await soap.send(host: host, service: .avTransport, action: "GetTransportInfo",
+                                            innerXML: """
+              <InstanceID>0</InstanceID>
+            """, timeout: SonosTimeout.quick)
+            let raw = reply.text ?? ""
             let isPlaying = raw.contains("PLAYING") || raw.contains("TRANSITIONING")
             print("SORRIVA: Transport \(host) → \(isPlaying ? "PLAYING" : "STOPPED")")
             return isPlaying
