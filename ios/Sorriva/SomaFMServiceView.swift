@@ -154,7 +154,7 @@ struct SomaFMServiceView: View {
                         streamURL = await SomaFMAPI.fetchStreamURL(channelID: rs.name)
                     }
                     guard let url = streamURL else { return }
-                    await ZoneDiscoveryService.playStationURL(
+                    await SonosCommands.playStationURL(
                         streamURL: url, on: zone,
                         stationName: rs.name, artURL: rs.logoURL)
                     discovery.persistStationPlay(

@@ -486,7 +486,7 @@ struct MediaCard: View {
 
                         guard let url = streamURL else { return }
 
-                        await ZoneDiscoveryService.playStationURL(
+                        await SonosCommands.playStationURL(
                             streamURL: url,
                             on: zone,
                             stationName: stationName,

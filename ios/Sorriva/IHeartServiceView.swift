@@ -184,7 +184,7 @@ struct IHeartServiceView: View {
                         streamURL = await IHeartAPI.fetchStreamURL(streamID: rs.id)
                     }
                     guard let url = streamURL else { return }
-                    await ZoneDiscoveryService.playStationURL(
+                    await SonosCommands.playStationURL(
                         streamURL: url, on: zone,
                         stationName: rs.name, artURL: rs.logoURL)
                     discovery.persistStationPlay(

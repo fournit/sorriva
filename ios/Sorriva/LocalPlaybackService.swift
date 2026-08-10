@@ -118,12 +118,12 @@ final class LocalPlaybackService {
             // the transport holds, and a bare file URI travels badly.
             //
             // See engineering/sonos-playback-contract.md §3 — the authority for this.
-            await ZoneDiscoveryService.sendTransportAction(host: host, action: "Stop")
-            await ZoneDiscoveryService.removeAllTracksFromQueue(host: host)
-            await ZoneDiscoveryService.addURIToQueue(host: host, uri: uri)
+            await SonosCommands.sendTransportAction(host: host, action: "Stop")
+            await SonosCommands.removeAllTracksFromQueue(host: host)
+            await SonosCommands.addURIToQueue(host: host, uri: uri)
             let queueURI = "x-rincon-queue:\(zoneID)#0"
-            await ZoneDiscoveryService.setAVTransportURIWithMetadata(host: host, streamURL: queueURI, didl: "")
-            await ZoneDiscoveryService.sendTransportAction(host: host, action: "Play")
+            await SonosCommands.setAVTransportURIWithMetadata(host: host, streamURL: queueURI, didl: "")
+            await SonosCommands.sendTransportAction(host: host, action: "Play")
             sLog("LOCALPLAY: single-track queue started — \(title)")
         }.value
         // Re-declare transport optimism now that the command has actually gone out.
@@ -141,7 +141,7 @@ final class LocalPlaybackService {
         // user-controlled and unbounded.
         PlaybackStore.shared.declareTransport(zoneID: zoneID, playing: true)
         // Fire-and-forget: confirm Sonos actually started rather than trusting the 200.
-        Task.detached { await ZoneDiscoveryService.verifyPlaybackStarted(host: host, context: title) }
+        Task.detached { await SonosCommands.verifyPlaybackStarted(host: host, context: title) }
     }
 
     // MARK: - Album queue
@@ -169,21 +169,21 @@ final class LocalPlaybackService {
         await Task.detached {
             // Stop first — see playSingleTrack: clearing the queue does not reset a
             // wedged transport, and a wedged zone 200s every command that follows.
-            await ZoneDiscoveryService.sendTransportAction(host: host, action: "Stop")
+            await SonosCommands.sendTransportAction(host: host, action: "Stop")
             // Clear existing queue first
-            await ZoneDiscoveryService.removeAllTracksFromQueue(host: host)
+            await SonosCommands.removeAllTracksFromQueue(host: host)
 
             // AddURIToQueue in loop — x-file-cifs requires single-track calls
             // No DIDL needed — Sonos reads metadata directly from the file
             for (idx, uri) in uris.enumerated() {
-                await ZoneDiscoveryService.addURIToQueue(host: host, uri: uri)
+                await SonosCommands.addURIToQueue(host: host, uri: uri)
                 sLog("LOCALPLAY: queued track \(idx + 1)/\(uris.count)")
             }
 
             // Point transport at queue and play
             let queueURI = "x-rincon-queue:\(zoneID)#0"
-            await ZoneDiscoveryService.setAVTransportURIWithMetadata(host: host, streamURL: queueURI, didl: "")
-            await ZoneDiscoveryService.sendTransportAction(host: host, action: "Play")
+            await SonosCommands.setAVTransportURIWithMetadata(host: host, streamURL: queueURI, didl: "")
+            await SonosCommands.sendTransportAction(host: host, action: "Play")
             sLog("LOCALPLAY: album queue started — \(uris.count) tracks")
         }.value
         // Re-declare transport optimism now that the command has actually gone out.
@@ -202,7 +202,7 @@ final class LocalPlaybackService {
         PlaybackStore.shared.declareTransport(zoneID: zoneID, playing: true)
         // Fire-and-forget: confirm Sonos actually started rather than trusting the 200.
         let queueLabel = "album queue (\(uris.count) tracks)"
-        Task.detached { await ZoneDiscoveryService.verifyPlaybackStarted(host: host, context: queueLabel) }
+        Task.detached { await SonosCommands.verifyPlaybackStarted(host: host, context: queueLabel) }
     }
 
     // MARK: - NAS share registration
