@@ -1,0 +1,1 @@
+../../../SorrivaTests/SonosCommandTests.swift
