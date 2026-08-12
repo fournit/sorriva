@@ -241,7 +241,19 @@ def in_quiet_hours(now=None):
     return False
 
 
-def assert_testable(room):
+def household_id(host):
+    """The Sonos household this speaker belongs to, or "" if it will not say.
+
+    Zone names are not unique across systems — see test-zones.json. This is what
+    makes a permission specific to one house.
+    """
+    code, body = soap(host, "GetHouseholdID",
+                      service="urn:schemas-upnp-org:service:DeviceProperties:1",
+                      path="/DeviceProperties/Control")
+    return field(body, "CurrentHouseholdID") if code == 200 else ""
+
+
+def assert_testable(room, host=None):
     """Gate for anything that starts or stops audio. Call it FIRST.
 
     Read-only inspection needs no permission — it is invisible. Playback is not:
@@ -252,6 +264,21 @@ def assert_testable(room):
 
     Zones are listed in test-zones.json by Tom. Absence means no.
     """
+    # A household-scoped permission needs the speaker to prove which household it
+    # is in, so it cannot be satisfied by name alone.
+    scoped = _policy().get("households", {})
+    if host and scoped:
+        hh = household_id(host)
+        if hh in scoped and room in scoped[hh]:
+            if in_quiet_hours():
+                raise ZoneNotTestable("Within quiet hours — refusing to make noise.")
+            return True
+        for other, rooms in scoped.items():
+            if room in rooms and other != hh:
+                raise ZoneNotTestable(
+                    "%r is nominated for household %s, but this speaker reports %s. "
+                    "Same zone name, different house — refusing." % (room, other, hh or "nothing"))
+
     allowed = testable_zones()
     if not allowed:
         raise ZoneNotTestable(
@@ -280,7 +307,7 @@ def testing(room, host):
     that actually happened on 2026-08-05, where a probe track left playing in a
     room was mistaken for a real result and corrupted the finding it was checking.
     """
-    assert_testable(room)
+    assert_testable(room, host=host)
     saved = capture_state(host)
     try:
         if _policy().get("mute_during_test", True):

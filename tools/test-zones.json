@@ -9,6 +9,20 @@
     "allowed list governs Claude's behaviour too, not just these scripts."
   ],
   "allowed": ["Listening Room", "Garage", "Workout"],
+  "_households_comment": [
+    "Zone names are NOT unique across Sonos systems. Tom has an 'Office' in both the",
+    "home household and a second location, and a name-only permission would have",
+    "authorised audio in the wrong house. Anything listed under `households` is",
+    "permitted ONLY when the speaker's GetHouseholdID matches that key.",
+    "Added 2026-08-11 when the second system was first used for testing.",
+    "The `allowed` list above remains name-only and therefore unscoped. That is a gap:",
+    "those three names would be testable in any household that happened to reuse them.",
+    "It is tolerable only because no other system does. Bind them to the home household",
+    "id when next on that network."
+  ],
+  "households": {
+    "Sonos_t2Nqe53wtDGzDfwAY6wVjwcpLf": ["Office"]
+  },
   "mute_during_test": true,
   "quiet_hours": {
     "_comment": "Empty by design. Tom, 2026-08-06: 'volume should be set to zero during testing. with zero volume, no hours are out of bounds.'",

@@ -435,23 +435,29 @@ uses Sonos's service integration for them — it stores real stream URLs and pla
 by construction. SiriusXM and Spotify have closed catalogues, so the household's own
 favorite is the only handle, and that handle is account-bound.
 
-**But the CHANNEL is global — only the handle is local.** `CH 15 - Yacht Rock Radio`
-carries the identical `channel-linear:9150cc82-af5c-3be3-d170-0e81d87375a8` in both
-households. Three values differ and always travel together: `sn` (4 at home, 3 at the
-second system), `flags` (8292 / 8260) and the token's account field. All three are
-IDENTICAL across every favorite of a given service within a household — measured across
-all eight SiriusXM favorites — so they belong to the household-and-service pair, not to
-the channel.
+**The handle is NOT enforced — a favorite is portable verbatim.** `CH 15 - Yacht Rock
+Radio` carries the identical `channel-linear:9150cc82-af5c-3be3-d170-0e81d87375a8` in
+both households. Three values differ per household and always travel together — `sn`
+(4 at home, 3 at the second system), `flags` (8292 / 8260) and the token's account
+field — but substituting them changes nothing.
 
-So a favorite IS transferable between households where the service is linked. Store the
-portable half (channel id, `sid`, title, artwork) and rebuild the handle locally:
+Measured 2026-08-11 as an A/B on one speaker at the second location: the HOME handle
+(`sn=4`, home token) and the LOCAL handle (`sn=3`, local token) both reached PLAYING on
+the same channel, same track. **The speaker resolves the service through its own
+linkage and ignores the handle it was given.**
 
-```
-x-sonosapi-stream:{channelId}?sid={sid}&flags={local}&sn={local}
-<desc id="cdudn">{local token}</desc>
-```
+So store `<res>` and `<r:resMD>` exactly as read and play them exactly as stored. No
+reconstruction, no per-household profile.
 
-One favorite of a service is enough to learn `sn`, `flags` and the token for that
-household. **Not every favorite has these** — Sonos Radio browse shortcuts carry no
-`<res>` at all and cannot be played, and some carry no `sid`/`sn` with a token account
-of `0`.
+**Why this works at all, and where the claim stops.** Sorriva never authenticates to
+Sonos or to the service. The credential lives in the speaker, placed there by the Sonos
+app; Sorriva only hands the speaker a reference to content the household is already
+entitled to. Behaviour is therefore known only for accounts already linked — both
+systems here link the SAME SiriusXM and Sonos accounts. A different service account, or
+a different Sonos account, is genuinely UNTESTED, and since Sorriva performs no
+authentication it could neither detect nor repair a mismatch. It would surface as a
+favorite that simply does not play.
+
+**Not every favorite is playable.** Sonos Radio browse shortcuts — `Discover Sonos
+Radio`, `Sonos Presents`, `Trending Now` — carry no `<res>` at all. Some carry no
+`sid`/`sn`/`flags`, with a token account of `0`. Filter rather than assume.
