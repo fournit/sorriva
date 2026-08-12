@@ -411,3 +411,47 @@ Two rules follow, both learned the expensive way:
 2. **Do not conclude a capability is absent because one speaker refuses.** An hour was
    spent concluding favorites were unreachable, on the basis of a single speaker that
    happens not to answer.
+
+### Favorites belong to the household, not the user
+
+Measured 2026-08-11, first test against a second Sonos system. Home: 42 favorites
+across five services. A second location: 10, of which 8 are SiriusXM. Same service ID,
+**different account token**:
+
+```
+home            SA_RINCON9479_X_#Svc9479-4f5dfd4b-Token
+second system   SA_RINCON9479_X_#Svc9479-db2b2c51-Token
+                            ↑ SiriusXM  ↑ per-household account
+```
+
+Shape is `SA_RINCON{serviceId}_X_#Svc{serviceId}-{account}-Token`. No expiry is encoded
+and none was observed — it names which linked account to use rather than carrying a
+credential. Stable, but **a favorite saved in one household will not play in another.**
+
+**The dividing line is whether Sorriva has its own adapter for the service.**
+iHeartRADIO and SomaFM work unchanged in a different household because Sorriva never
+uses Sonos's service integration for them — it stores real stream URLs and plays
+`x-rincon-mp3radio://` directly (`radio-service-integration.md` §3). Those are portable
+by construction. SiriusXM and Spotify have closed catalogues, so the household's own
+favorite is the only handle, and that handle is account-bound.
+
+**But the CHANNEL is global — only the handle is local.** `CH 15 - Yacht Rock Radio`
+carries the identical `channel-linear:9150cc82-af5c-3be3-d170-0e81d87375a8` in both
+households. Three values differ and always travel together: `sn` (4 at home, 3 at the
+second system), `flags` (8292 / 8260) and the token's account field. All three are
+IDENTICAL across every favorite of a given service within a household — measured across
+all eight SiriusXM favorites — so they belong to the household-and-service pair, not to
+the channel.
+
+So a favorite IS transferable between households where the service is linked. Store the
+portable half (channel id, `sid`, title, artwork) and rebuild the handle locally:
+
+```
+x-sonosapi-stream:{channelId}?sid={sid}&flags={local}&sn={local}
+<desc id="cdudn">{local token}</desc>
+```
+
+One favorite of a service is enough to learn `sn`, `flags` and the token for that
+household. **Not every favorite has these** — Sonos Radio browse shortcuts carry no
+`<res>` at all and cannot be played, and some carry no `sid`/`sn` with a token account
+of `0`.
