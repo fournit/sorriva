@@ -344,3 +344,70 @@ comparison is what identified the queue requirement on 2026-08-05.
 - `sorriva-local-playback-arch.md` — why `x-file-cifs://` was chosen and what was ruled out.
 - `radio-service-integration.md` — per-service station identity.
 - `HANDOFF-playbackstore-design.md` — how resolved content is displayed once playing.
+
+---
+
+## 11. Favorites — the only local route to a closed service
+
+Measured 2026-08-10. **ContentDirectory `FV:2` lists the household's saved favorites,
+over plain UPnP on the LAN.** No cloud API, no developer programme, no quota approval.
+This is how a service whose catalogue is contractually closed still becomes playable.
+
+Tom's household: 42 favorites spanning SiriusXM, Spotify, Sonos Radio, iHeartRADIO
+and SomaFM.
+
+**Browse it like this** — note ContentDirectory takes NO `<InstanceID>`, which is why
+`tools/sonos.py`'s `soap()` helper cannot be used for it as written:
+
+```
+POST http://{host}:1400/MediaServer/ContentDirectory/Control
+SOAPACTION: "urn:schemas-upnp-org:service:ContentDirectory:1#Browse"
+  <ObjectID>FV:2</ObjectID>
+  <BrowseFlag>BrowseDirectChildren</BrowseFlag>
+  <Filter>*</Filter><StartingIndex>0</StartingIndex>
+  <RequestedCount>100</RequestedCount><SortCriteria></SortCriteria>
+```
+
+Each item carries four things that matter:
+
+| Field | Example | Why |
+|---|---|---|
+| `<res>` | `x-sonosapi-stream:channel-linear%3A2ea0…?sid=37` | the URI to play |
+| `<r:resMD>` | DIDL with `<desc id="cdudn">SA_RINCON9479_X_#Svc9479-…-Token</desc>` | **the household's service token — without it the URI will not play** |
+| `<upnp:albumArtURI>` | `https://ce-sonos.siriusxm.com/image/…png` | artwork; Sonos supplies none at playback |
+| `<r:description>` | `SiriusXM` | which service it belongs to |
+
+**Playing one is the metadata form of SetAVTransportURI, then Play:**
+
+```swift
+SonosCommands.setAVTransportURIWithMetadata(host:, streamURL: <res>, didl: <r:resMD>)
+SonosCommands.sendTransportAction(host:, action: "Play")
+```
+
+Verified on Workout at volume zero: PLAYING, with
+`r:streamContent = TYPE=SNG|TITLE White Wedding (83)|ARTIST Billy Idol`. The live-track
+format is identical to iHeart's, so the existing parser handles it unchanged.
+
+**THE URI IS REWRITTEN ON PLAYBACK.** `x-sonosapi-stream:` goes in;
+`x-sonosapi-hls:` comes back from `GetMediaInfo`. Any reverse lookup that identifies a
+playing station must survive that rewrite — this is a third case for
+`radio-service-integration.md` §3, alongside the app-vs-Sonos scheme differences.
+
+**What favorites are NOT.** They are not a service catalogue. There is no channel
+browser: `Browse('0')` returns exactly six containers — `A:` `S:` `SQ:` `R:` `FV:` `Q:`
+— and none of them is a music service's own listing. That needs SMAPI, which is
+partner-gated. A channel that was never favorited must be saved in the Sonos app first.
+
+### ContentDirectory does not answer on every speaker
+
+Living Room returned **500 to every ContentDirectory action**, including
+`GetSearchCapabilities`, while Office and Master Bedroom answered normally. Its
+`device_description.xml` is also incomplete — it omits AVTransport, which demonstrably
+works on that same speaker.
+
+Two rules follow, both learned the expensive way:
+
+1. **Do not treat `device_description.xml` as a map of what a speaker supports.**
+2. **Do not conclude a capability is absent because one speaker refuses.** An hour was
+   spent concluding favorites were unreachable, on the basis of a single speaker that
+   happens not to answer.

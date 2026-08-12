@@ -2882,6 +2882,19 @@
           "createdAt": "2026-08-10",
           "completedAt": null,
           "requires": []
+        },
+        {
+          "id": "fSonosFavoritesAsSource",
+          "name": "Sonos favorites as a library source — the route to SiriusXM, Spotify and any closed service",
+          "desc": "Sonos exposes the household's saved favorites over local UPnP at ContentDirectory FV:2, with no cloud API, developer programme or quota approval. Measured 2026-08-10: 42 favorites spanning SiriusXM, Spotify, Sonos Radio, iHeartRADIO and SomaFM. Each carries a playable URI, a <r:resMD> block containing the household's service token, artwork, and <r:description> naming the service.\n\nVERIFIED END TO END. A SiriusXM channel played on Workout at volume zero via SetAVTransportURI with the favorite's URI and its resMD, then Play — the shape SonosCommands.setAVTransportURIWithMetadata already sends. The speaker reached PLAYING and reported live track metadata as 'TYPE=SNG|TITLE ...|ARTIST ...', the same pipe-delimited format already parsed for iHeart.\n\nWHY THIS MATTERS BEYOND ONE SERVICE. Subscription services with closed catalogues publish no third-party access — SiriusXM none at all, and Spotify's Web API requires an approved business case rather than a registration, which a personal project does not clear. Favorites are the only route to either that does not depend on partner status.\n\nREQUIREMENT — BROWSE, THEN CURATE. Sorriva reads the full favorites list and presents it for selection. The user chooses which favorites belong in their library; the chosen ones are stored as stations with URI, resMD, artwork and service name, and play through the existing metadata command. Selection is the point: a household's favorites accumulate for every room and every listener, and the library should hold what this user actually wants, not all 42.\n\nGROUPING. Present by <r:description> so SiriusXM, Spotify and the rest appear as distinct services rather than one mixed list — both when selecting and in the library afterwards.\n\nRE-SYNCING. Favorites change in the Sonos app over time. The list must be re-readable so newly saved favorites can be added later, and selections must survive a favorite being removed upstream without stranding an unplayable station.\n\nSCOPE NOTE. This is the saved-favorites list, not a service catalogue — SMAPI remains partner-gated and no channel browser exists. Adding a channel that was never favorited is a one-time action in the Sonos app first.\n\nKNOWN WRINKLE. Sonos rewrites the URI on playback — x-sonosapi-stream: in, x-sonosapi-hls: back. The reverse lookup that identifies a playing station must survive that; a third case for section 3 of radio-service-integration.md.\n\nNOT VERIFIED. Spotify playlist favorites (x-rincon-cpcontainer:) use the same mechanism but were not played. Whether resMD tokens expire is an open question worth measuring before relying on them.\n\nONE MORE MEASURED FACT, because it cost an hour: ContentDirectory does NOT answer on every speaker. Living Room returned 500 to every ContentDirectory action including GetSearchCapabilities, while Office and Master Bedroom answered normally. Its advertised service list is also incomplete — the device description omits AVTransport, which demonstrably works. Do not treat device_description.xml as a map of what a speaker supports, and do not conclude a capability is absent from one speaker's refusal.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "priority_rank": 1,
+          "createdAt": "2026-08-10",
+          "completedAt": null,
+          "requires": []
         }
       ]
     },
