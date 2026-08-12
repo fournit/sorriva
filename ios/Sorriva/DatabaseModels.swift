@@ -102,10 +102,21 @@ struct Station: Codable, FetchableRecord, PersistableRecord, Identifiable {
     static let databaseTableName = "stations"
 
     var id: Int
-    var source: String
+    /// Which service this station belongs to — FK into `services`. Replaced `source`
+    /// in v24; same values, but the library now enumerates services from the table
+    /// rather than naming them literally in 22 places.
+    var serviceId: String
     var name: String
     var logoURL: String?
     var streamURL: String?
+    /// Sonos favorite metadata, verbatim. Non-nil only for stations imported from
+    /// FV:2 — it carries the service token that makes a closed service playable and is
+    /// handed back to the speaker exactly as read. See sonos-playback-contract.md §11.
+    var resMD: String?
+    /// The household this favorite was read from. NOT decoration: a refresh may only
+    /// reconcile stations belonging to the household it just read, or refreshing at one
+    /// location would delete the stations that exist only at another.
+    var householdId: String?
     var isFavorite: Bool = false
     var cume: Int = 0       // iHeart cumulative audience — used for popularity sort
     var lastFetched: Int
@@ -113,7 +124,9 @@ struct Station: Codable, FetchableRecord, PersistableRecord, Identifiable {
 
     enum Columns {
         static let id = Column(CodingKeys.id)
-        static let source = Column(CodingKeys.source)
+        static let serviceId = Column(CodingKeys.serviceId)
+        static let resMD = Column(CodingKeys.resMD)
+        static let householdId = Column(CodingKeys.householdId)
         static let name = Column(CodingKeys.name)
         static let logoURL = Column(CodingKeys.logoURL)
         static let streamURL = Column(CodingKeys.streamURL)
@@ -195,6 +208,25 @@ struct Genre: Codable, FetchableRecord, PersistableRecord {
 // MARK: - StationGenre
 // Many-to-many between stations and genres.
 // A station can belong to multiple genres (e.g. "Classic Hits" → pop-rock + decades).
+
+/// A music service. Rows for iHeart and SomaFM are seeded; rows for services arriving
+/// via Sonos favorites are created on demand from the favorite's `sid` and
+/// `<r:description>`.
+struct Service: Codable, FetchableRecord, PersistableRecord, Identifiable {
+    static let databaseTableName = "services"
+
+    var id: String              // machine key — "siriusxm", "iheart"
+    var name: String            // display — "SiriusXM"
+    var logoURL: String?        // null until supplied; the UI falls back to the name
+    var sonosServiceId: Int?    // Sonos's sid — how an incoming favorite finds its service
+    var updatedAt: Int
+
+    enum Columns {
+        static let id = Column(CodingKeys.id)
+        static let name = Column(CodingKeys.name)
+        static let sonosServiceId = Column(CodingKeys.sonosServiceId)
+    }
+}
 
 struct StationGenre: Codable, FetchableRecord, PersistableRecord {
     static let databaseTableName = "station_genres"

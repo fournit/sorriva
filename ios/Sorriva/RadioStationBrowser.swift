@@ -21,7 +21,7 @@ struct RadioStation: Identifiable {
         self.logoURL = station.logoURL ?? ""
         self.streamURL = station.streamURL
         self.isFavorite = station.isFavorite
-        self.source = station.source
+        self.source = station.serviceId
         self.cume = station.cume
     }
 

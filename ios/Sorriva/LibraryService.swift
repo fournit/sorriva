@@ -63,12 +63,12 @@ final class LibraryService {
 
     // MARK: - Stations
 
-    func allStations(source: String) -> [Station] {
-        (try? repository.allStations(source: source)) ?? []
+    func allStations(serviceId: String) -> [Station] {
+        (try? repository.allStations(serviceId: serviceId)) ?? []
     }
 
     func favoriteStationIDs(sources: [String]) -> Set<Int> {
-        let all = sources.flatMap { allStations(source: $0) }
+        let all = sources.flatMap { allStations(serviceId: $0) }
         return Set(all.filter { $0.isFavorite }.map { $0.id })
     }
 

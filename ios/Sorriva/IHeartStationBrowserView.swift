@@ -257,7 +257,7 @@ struct IHeartStationBrowserView: View {
     // MARK: - Setup
 
     private func loadExistingStations() {
-        existingIDs = Set((try? SorrivaDatabase.shared.allStations())?.map { $0.id } ?? [])
+        existingIDs = Set((try? SorrivaDatabase.shared.allStations(serviceId: "iheart"))?.map { $0.id } ?? [])
     }
 
     private func loadGenreChips() {
@@ -389,7 +389,7 @@ struct IHeartStationBrowserView: View {
                     let id: Int = row["id"]
                     let genreIDStr: String = row["genreIDs"]
                     try? SorrivaDatabase.shared.upsertStation(
-                        id: id, source: "iheart",
+                        id: id, serviceId: "iheart",
                         name: row["name"],
                         logoURL: (row["logoURL"] as String?)?.isEmpty == false ? row["logoURL"] : nil,
                         streamURL: row["streamURL"],

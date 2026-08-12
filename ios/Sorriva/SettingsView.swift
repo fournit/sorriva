@@ -515,8 +515,8 @@ struct ServicesView: View {
     }
 
     private func refreshCounts() {
-        iHeartStationCount = (try? SorrivaDatabase.shared.allStations(source: "iheart"))?.count ?? 0
-        somaFMStationCount = (try? SorrivaDatabase.shared.allStations(source: "somafm"))?.count ?? 0
+        iHeartStationCount = (try? SorrivaDatabase.shared.allStations(serviceId: "iheart"))?.count ?? 0
+        somaFMStationCount = (try? SorrivaDatabase.shared.allStations(serviceId: "somafm"))?.count ?? 0
     }
 }
 

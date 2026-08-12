@@ -169,7 +169,7 @@ struct SomaFMServiceView: View {
     }
 
     private func loadStations() {
-        stations = (try? SorrivaDatabase.shared.allStations(source: "somafm")) ?? []
+        stations = (try? SorrivaDatabase.shared.allStations(serviceId: "somafm")) ?? []
     }
 }
 
@@ -407,7 +407,7 @@ struct SomaFMBrowserView: View {
             }
         }
         .onAppear {
-            existingIDs = Set((try? SorrivaDatabase.shared.allStations(source: "somafm"))?.map { $0.id } ?? [])
+            existingIDs = Set((try? SorrivaDatabase.shared.allStations(serviceId: "somafm"))?.map { $0.id } ?? [])
             loadChannels()
         }
     }
@@ -446,7 +446,7 @@ struct SomaFMBrowserView: View {
             for channel in toSave {
                 try? SorrivaDatabase.shared.upsertStation(
                     id: channel.numericID,
-                    source: "somafm",
+                    serviceId: "somafm",
                     name: channel.title,
                     logoURL: channel.largeImage,
                     streamURL: channel.streamURL,

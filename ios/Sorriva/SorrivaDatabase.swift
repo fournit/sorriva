@@ -1151,6 +1151,57 @@ final class SorrivaDatabase {
             print("SORRIVA DB: v23 artwork source + rejected-score columns added")
         }
 
+        // v24 — services as a table, and favorites as a station source
+        migrator.registerMigration("v24_services_and_favorites") { db in
+            // WHY A TABLE RATHER THAN A STRING ON EVERY ROW. `source` held "iheart" or
+            // "somafm" and 22 call sites named one of those two literally. Sonos
+            // favorites bring SiriusXM, Sonos Radio and Spotify in one go
+            // (fSonosFavoritesAsSource), and adding them under the old shape meant 22
+            // sites growing another branch each — the same duplication that made
+            // ServiceHeaderCard necessary. A service is a thing now, so the library can
+            // ask "which services are there" instead of being told.
+            try db.create(table: "services", ifNotExists: true) { t in
+                t.column("id", .text).primaryKey()          // machine key: siriusxm, iheart
+                t.column("name", .text).notNull()           // display: "SiriusXM"
+                t.column("logoURL", .text)                  // null until Tom supplies marks
+                t.column("sonosServiceId", .integer)        // sid from a favorite URI: 37, 303
+                t.column("updatedAt", .integer).notNull()
+            }
+
+            let now = Int(Date().timeIntervalSince1970)
+            // Seeded, not discovered: these two predate favorites and are played from
+            // real stream URLs through Sorriva's own adapters, so no favorite will ever
+            // create them. sid values are Sonos's, recorded for matching an incoming
+            // favorite of the same service.
+            for (id, name, sid) in [("iheart", "iHeartRADIO", 6), ("somafm", "SomaFM", 516)] {
+                try db.execute(sql: """
+                    INSERT OR IGNORE INTO services (id, name, logoURL, sonosServiceId, updatedAt)
+                    VALUES (?, ?, NULL, ?, ?)
+                    """, arguments: [id, name, sid, now])
+            }
+
+            try db.alter(table: "stations") { t in
+                t.add(column: "serviceId", .text)
+                t.add(column: "resMD", .text)        // favorites only — the metadata that carries the service token
+                t.add(column: "householdId", .text)  // which household this favorite was read from
+            }
+
+            // Backfill before the old column goes. Values are identical, so this is a
+            // rename in all but name.
+            try db.execute(sql: "UPDATE stations SET serviceId = source")
+
+            // DROPPED, not left beside serviceId. Two columns answering one question is
+            // how the merge duplication started, and removing it makes the compiler find
+            // every one of the 22 readers rather than leaving me to hunt them.
+            try db.alter(table: "stations") { t in
+                t.drop(column: "source")
+            }
+
+            try db.create(index: "idx_stations_serviceId", on: "stations", columns: ["serviceId"], ifNotExists: true)
+            try db.create(index: "idx_stations_household", on: "stations", columns: ["householdId"], ifNotExists: true)
+            print("SORRIVA DB: v24 services table + favorites columns; source folded into serviceId")
+        }
+
         try migrator.migrate(dbQueue)
         print("SORRIVA DB: Migrations complete")
     }
@@ -1239,7 +1290,7 @@ final class SorrivaDatabase {
 
     // MARK: - Station operations
 
-    func upsertStation(id: Int, source: String, name: String,
+    func upsertStation(id: Int, serviceId: String, name: String,
                        logoURL: String?, streamURL: String?, cume: Int = 0) throws {
         let now = Int(Date().timeIntervalSince1970)
         try dbQueue.write { db in
@@ -1253,7 +1304,7 @@ final class SorrivaDatabase {
                 try existing.update(db)
             } else {
                 let station = Station(
-                    id: id, source: source, name: name,
+                    id: id, serviceId: serviceId, name: name,
                     logoURL: logoURL, streamURL: streamURL,
                     isFavorite: false, cume: cume, lastFetched: now, updatedAt: now
                 )
@@ -1293,9 +1344,12 @@ final class SorrivaDatabase {
         try dbQueue.read { db in try Station.fetchOne(db, key: id) }
     }
 
-    func allStations(source: String = "iheart") throws -> [Station] {
+    /// Stations for one service. The default is gone deliberately — v24 made the
+    /// service a first-class thing, and a default here is what let 22 call sites name
+    /// a service literally instead of asking which ones exist. See `services()`.
+    func allStations(serviceId: String) throws -> [Station] {
         try dbQueue.read { db in
-            try Station.filter(Station.Columns.source == source).fetchAll(db)
+            try Station.filter(Station.Columns.serviceId == serviceId).fetchAll(db)
         }
     }
 
@@ -1318,6 +1372,147 @@ final class SorrivaDatabase {
     /// outside Sorriva could be from any of them.
     func allStationsAnySource() throws -> [Station] {
         try dbQueue.read { db in try Station.fetchAll(db) }
+    }
+
+    // MARK: - Services (v24)
+
+    /// Every service that has at least one station, in display order.
+    ///
+    /// This is the call that replaces naming "iheart" and "somafm" literally. A new
+    /// service arriving through Sonos favorites appears here without a line of UI
+    /// changing, which is the entire point of the v24 migration.
+    func servicesWithStations() throws -> [Service] {
+        try dbQueue.read { db in
+            try Service.fetchAll(db, sql: """
+                SELECT s.* FROM services s
+                WHERE EXISTS (SELECT 1 FROM stations st WHERE st.serviceId = s.id)
+                ORDER BY s.name COLLATE NOCASE
+                """)
+        }
+    }
+
+    func allServices() throws -> [Service] {
+        try dbQueue.read { db in
+            try Service.order(sql: "name COLLATE NOCASE").fetchAll(db)
+        }
+    }
+
+    /// Find the service a Sonos favorite belongs to, creating it if this is the first
+    /// one seen. `sid` is Sonos's own service number and is the reliable key;
+    /// `displayName` comes from the favorite's <r:description> and is what the user sees.
+    @discardableResult
+    func serviceForSonosId(_ sid: Int, displayName: String) throws -> Service {
+        let now = Int(Date().timeIntervalSince1970)
+        return try dbQueue.write { db in
+            if let existing = try Service.filter(Service.Columns.sonosServiceId == sid).fetchOne(db) {
+                return existing
+            }
+            // Key derived from the display name rather than the sid, so the stored id
+            // reads as something ("siriusxm") rather than a number nobody can place.
+            let key = displayName.lowercased().filter { $0.isLetter || $0.isNumber }
+            var svc = Service(id: key.isEmpty ? "sonos\(sid)" : key,
+                              name: displayName, logoURL: nil,
+                              sonosServiceId: sid, updatedAt: now)
+            // A service could already exist under this key with no sid recorded — the
+            // seeded rows have sids, but a hand-made row might not.
+            if var clash = try Service.fetchOne(db, key: svc.id) {
+                clash.sonosServiceId = sid
+                clash.name = displayName
+                clash.updatedAt = now
+                try clash.update(db)
+                svc = clash
+            } else {
+                try svc.insert(db)
+            }
+            return svc
+        }
+    }
+
+    /// Store one chosen favorite as a station.
+    ///
+    /// IDS ARE NEGATIVE for favorites, and that is deliberate. `stations.id` is an Int
+    /// carrying iHeart's own numeric station ids, which are positive; a favorite has no
+    /// natural number, and hashing a URI into the same space risks a collision with a
+    /// real iHeart station. Negative ids are disjoint by construction, so the two can
+    /// never meet.
+    ///
+    /// Matched on re-import by (householdId, streamURL) rather than by title — the user
+    /// can rename a favorite in the Sonos app and it is still the same station.
+    @discardableResult
+    func upsertFavoriteStation(uri: String, metadata: String, title: String,
+                               artURL: String?, serviceId: String,
+                               householdId: String) throws -> Int {
+        let now = Int(Date().timeIntervalSince1970)
+        return try dbQueue.write { db in
+            if var existing = try Station
+                .filter(Station.Columns.householdId == householdId)
+                .filter(Station.Columns.streamURL == uri)
+                .fetchOne(db) {
+                existing.name = title
+                existing.logoURL = artURL ?? existing.logoURL
+                existing.resMD = metadata       // refreshed: a token could be reissued
+                existing.serviceId = serviceId
+                existing.lastFetched = now
+                existing.updatedAt = now
+                try existing.update(db)
+                return existing.id
+            }
+            let lowest = try Int.fetchOne(db, sql: "SELECT MIN(id) FROM stations") ?? 0
+            let newId = min(lowest, 0) - 1
+            let station = Station(id: newId, serviceId: serviceId, name: title,
+                                  logoURL: artURL, streamURL: uri,
+                                  resMD: metadata, householdId: householdId,
+                                  isFavorite: false, cume: 0,
+                                  lastFetched: now, updatedAt: now)
+            try station.insert(db)
+            return newId
+        }
+    }
+
+    /// Import the favorites the user selected, creating service rows as needed.
+    ///
+    /// Returns how many stations were written. Services arrive from the favorite
+    /// itself — `sid` where present, the display name otherwise — so a service nobody
+    /// anticipated appears in the library without a line of code changing.
+    @discardableResult
+    func importFavorites(_ favorites: [SonosFavorite], householdId: String) throws -> Int {
+        var written = 0
+        for fav in favorites {
+            let service: Service
+            if let sid = fav.sonosServiceId {
+                service = try serviceForSonosId(sid, displayName: fav.serviceName)
+            } else {
+                // No sid — key off the display name. Sonos Radio browse items and a few
+                // others arrive this way.
+                let key = fav.serviceName.lowercased().filter { $0.isLetter || $0.isNumber }
+                let id = key.isEmpty ? "sonos" : key
+                let now = Int(Date().timeIntervalSince1970)
+                if let existing = try dbQueue.read({ db in try Service.fetchOne(db, key: id) }) {
+                    service = existing
+                } else {
+                    let created = Service(id: id, name: fav.serviceName, logoURL: nil,
+                                          sonosServiceId: nil, updatedAt: now)
+                    try dbQueue.write { db in try created.insert(db) }
+                    service = created
+                }
+            }
+            try upsertFavoriteStation(uri: fav.uri, metadata: fav.metadata, title: fav.title,
+                                      artURL: fav.artURL, serviceId: service.id,
+                                      householdId: householdId)
+            written += 1
+        }
+        sLog("FAVORITES: imported \(written) station(s) for household \(householdId)")
+        return written
+    }
+
+    /// Stations imported from favorites for one household, keyed by their stored URI.
+    /// This is what a refresh reconciles against — see the household-scoping rule in
+    /// fSonosFavoritesAsSource: a refresh may only prune what the household it just
+    /// read can see, never stations belonging to another location.
+    func favoriteStations(householdId: String) throws -> [Station] {
+        try dbQueue.read { db in
+            try Station.filter(Station.Columns.householdId == householdId).fetchAll(db)
+        }
     }
 
     func cachedStreamURL(stationId: Int) throws -> String? {

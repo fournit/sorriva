@@ -22,7 +22,7 @@ import Foundation
 // See engineering/radio-service-integration.md for the integration checklist.
 
 protocol RadioServiceAdapter {
-    /// The `stations.source` value this adapter owns.
+    /// The `stations.serviceId` value this adapter owns.
     var source: String { get }
 
     /// The canonical station identifier within this service, or nil when the URI does
@@ -155,7 +155,7 @@ enum RadioServiceRegistry {
         else { return nil }
 
         return stations.first { station in
-            guard station.source == source,
+            guard station.serviceId == source,
                   let stored = station.streamURL, !stored.isEmpty
             else { return false }
             return adapter.stationKey(for: stored) == key

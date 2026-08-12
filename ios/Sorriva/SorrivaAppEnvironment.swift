@@ -98,8 +98,8 @@ final class SorrivaAppEnvironment: ObservableObject {
 
     private func prefetchStationLogos() {
         Task.detached(priority: .background) { [database] in
-            let iheart = (try? database.allStations(source: "iheart")) ?? []
-            let somafm = (try? database.allStations(source: "somafm")) ?? []
+            let iheart = (try? database.allStations(serviceId: "iheart")) ?? []
+            let somafm = (try? database.allStations(serviceId: "somafm")) ?? []
             let urls = (iheart + somafm)
                 .compactMap { $0.logoURL }
                 .compactMap { URL(string: $0) }

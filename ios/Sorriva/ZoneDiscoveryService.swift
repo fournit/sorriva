@@ -813,7 +813,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                 // never reports a station name for these streams, so without this a
                 // station first seen by playing it has no way to be identified again.
                 try SorrivaDatabase.shared.upsertStation(
-                    id: stationId, source: "iheart",
+                    id: stationId, serviceId: "iheart",
                     name: stationName, logoURL: logoURL,
                     streamURL: streamURL.isEmpty ? nil : streamURL
                 )

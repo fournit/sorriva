@@ -13,7 +13,7 @@ protocol LibraryRepository {
     func album(id: String) throws -> Album?
     func tracks(albumId: String) throws -> [Track]
     func albums(artistId: String) throws -> [Album]
-    func allStations(source: String) throws -> [Station]
+    func allStations(serviceId: String) throws -> [Station]
 
     // MARK: - Delete
     func removeAlbum(id: String) throws

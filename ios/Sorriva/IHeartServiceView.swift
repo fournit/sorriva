@@ -200,7 +200,7 @@ struct IHeartServiceView: View {
     }
 
     private func loadStations() {
-        stations = (try? SorrivaDatabase.shared.allStations(source: "iheart")) ?? []
+        stations = (try? SorrivaDatabase.shared.allStations(serviceId: "iheart")) ?? []
     }
 }
 

@@ -320,7 +320,7 @@ final class PlaybackContextService: ObservableObject {
                 let identity = RadioServiceRegistry.identify(uri: uri)
                     .map { "\($0.source):\($0.key)" } ?? "unclaimed by any adapter"
                 let nearby = withURLs
-                    .filter { $0.source == RadioServiceRegistry.identify(uri: uri)?.source }
+                    .filter { $0.serviceId == RadioServiceRegistry.identify(uri: uri)?.source }
                     .prefix(3)
                     .map { "\($0.name)→'\(RadioServiceRegistry.identify(uri: $0.streamURL!)?.key ?? "?")'" }
                 sLog("CONTEXT: no station matches '\(key)' [\(identity)] — "

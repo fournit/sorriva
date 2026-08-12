@@ -40,8 +40,8 @@ final class GRDBLibraryRepository: LibraryRepository {
         try database.albums(artistId: artistId)
     }
 
-    func allStations(source: String) throws -> [Station] {
-        try database.allStations(source: source)
+    func allStations(serviceId: String) throws -> [Station] {
+        try database.allStations(serviceId: serviceId)
     }
 
     // MARK: - Delete
