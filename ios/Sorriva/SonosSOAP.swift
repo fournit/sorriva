@@ -32,12 +32,14 @@ enum SonosService {
     case avTransport
     case renderingControl
     case contentDirectory
+    case deviceProperties
 
     var path: String {
         switch self {
         case .avTransport:      return "/MediaRenderer/AVTransport/Control"
         case .renderingControl: return "/MediaRenderer/RenderingControl/Control"
         case .contentDirectory: return "/MediaServer/ContentDirectory/Control"
+        case .deviceProperties: return "/DeviceProperties/Control"
         }
     }
 
@@ -46,6 +48,7 @@ enum SonosService {
         case .avTransport:      return "urn:schemas-upnp-org:service:AVTransport:1"
         case .renderingControl: return "urn:schemas-upnp-org:service:RenderingControl:1"
         case .contentDirectory: return "urn:schemas-upnp-org:service:ContentDirectory:1"
+        case .deviceProperties: return "urn:schemas-upnp-org:service:DeviceProperties:1"
         }
     }
 }

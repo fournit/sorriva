@@ -1391,6 +1391,12 @@ final class SorrivaDatabase {
         }
     }
 
+    /// Display name for a service id, falling back to the id itself so a missing row
+    /// shows something honest rather than nothing.
+    func serviceName(for id: String) -> String {
+        (try? dbQueue.read { db in try Service.fetchOne(db, key: id) })??.name ?? id
+    }
+
     func allServices() throws -> [Service] {
         try dbQueue.read { db in
             try Service.order(sql: "name COLLATE NOCASE").fetchAll(db)
@@ -1444,10 +1450,18 @@ final class SorrivaDatabase {
                                householdId: String) throws -> Int {
         let now = Int(Date().timeIntervalSince1970)
         return try dbQueue.write { db in
-            if var existing = try Station
-                .filter(Station.Columns.householdId == householdId)
-                .filter(Station.Columns.streamURL == uri)
-                .fetchOne(db) {
+            // Matched on CHANNEL IDENTITY across every household, not on the full URI
+            // within one. The query string is the account handle and differs between
+            // houses; the channel does not. Matching on the full URI produced two rows
+            // for one channel saved in two places, differing only in an `sn` the
+            // speaker ignores.
+            let identity = SonosFavorites.channelIdentity(of: uri)
+            let candidates = try Station
+                .filter(Station.Columns.serviceId == serviceId)
+                .fetchAll(db)
+            if var existing = candidates.first(where: {
+                SonosFavorites.channelIdentity(of: $0.streamURL ?? "") == identity
+            }) {
                 existing.name = title
                 existing.logoURL = artURL ?? existing.logoURL
                 existing.resMD = metadata       // refreshed: a token could be reissued
@@ -1503,6 +1517,39 @@ final class SorrivaDatabase {
         }
         sLog("FAVORITES: imported \(written) station(s) for household \(householdId)")
         return written
+    }
+
+    /// Drop favorite-sourced stations the user has deselected.
+    ///
+    /// SCOPED TO ONE SERVICE AND ONE HOUSEHOLD, deliberately. A user curating their
+    /// SiriusXM list at one location must not lose the Sonos Radio stations they picked,
+    /// nor anything chosen at another house — those favorites are invisible to this
+    /// read, and invisible is not the same as removed.
+    /// SCOPED TO WHAT WAS ON SCREEN. `offered` is every channel this household's
+    /// favorites contained; `keeping` is what the user left ticked. A station is only
+    /// removed if it was offered AND deselected.
+    ///
+    /// Removing everything not in `keeping` would be wrong now that identity is global:
+    /// a channel favorited only at another house is absent from this list, and absent is
+    /// not deselected. That would quietly delete the other location's choices — the
+    /// exact failure Tom raised on 2026-08-11.
+    @discardableResult
+    func removeDeselectedFavorites(serviceId: String,
+                                   offered: Set<String>,
+                                   keeping: Set<String>) throws -> Int {
+        let offeredIds = Set(offered.map { SonosFavorites.channelIdentity(of: $0) })
+        let keptIds = Set(keeping.map { SonosFavorites.channelIdentity(of: $0) })
+        return try dbQueue.write { db in
+            let doomed = try Station
+                .filter(Station.Columns.serviceId == serviceId)
+                .fetchAll(db)
+                .filter { station in
+                    let id = SonosFavorites.channelIdentity(of: station.streamURL ?? "")
+                    return offeredIds.contains(id) && !keptIds.contains(id)
+                }
+            for station in doomed { try station.delete(db) }
+            return doomed.count
+        }
     }
 
     /// Stations imported from favorites for one household, keyed by their stored URI.

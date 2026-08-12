@@ -395,9 +395,25 @@ struct ServicesView: View {
     @State private var iHeartStationCount: Int = 0
     @State private var somaFMStationCount: Int = 0
 
+    /// Station counts for the services Sorriva reaches through Sonos favorites,
+    /// keyed by services.id. CONNECTED versus AVAILABLE is derived from these rather
+    /// than written into the view: a service with saved content is connected, one
+    /// without is still on offer. Tom's rule, 2026-08-12.
+    @State private var favoriteCounts: [String: Int] = [:]
+
+    private func count(_ d: FavoriteServiceDescriptor) -> Int { favoriteCounts[d.id] ?? 0 }
+    private var connectedFavoriteServices: [FavoriteServiceDescriptor] {
+        FavoriteServiceDescriptor.all.filter { count($0) > 0 }
+    }
+    private var availableFavoriteServices: [FavoriteServiceDescriptor] {
+        FavoriteServiceDescriptor.all.filter { count($0) == 0 }
+    }
+
     private var isIHeartConnected: Bool { iHeartStationCount > 0 }
     private var isSomaFMConnected: Bool { somaFMStationCount > 0 }
-    private var hasAnyConnected: Bool { isIHeartConnected || isSomaFMConnected }
+    private var hasAnyConnected: Bool {
+        isIHeartConnected || isSomaFMConnected || !connectedFavoriteServices.isEmpty
+    }
     private var allRadioConnected: Bool { isIHeartConnected && isSomaFMConnected }
 
     var body: some View {
@@ -447,6 +463,20 @@ struct ServicesView: View {
                                 }
                                 .buttonStyle(.plain)
                             }
+
+                            // Services reached through Sonos favorites, once they have
+                            // content. One row each — a card per service is a design
+                            // decision; which section it lands in is data.
+                            ForEach(connectedFavoriteServices) { d in
+                                NavigationLink(destination: SonosFavoriteServiceView(
+                                    descriptor: d, discovery: discovery
+                                )) {
+                                    ConnectedServiceRow(
+                                        icon: d.icon, iconColor: d.color, name: d.name,
+                                        detail: "\(count(d)) station\(count(d) == 1 ? "" : "s")")
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                         .padding(.horizontal, 16)
                     }
@@ -491,11 +521,36 @@ struct ServicesView: View {
                         .padding(.horizontal, 16)
                     }
 
+                    // AVAILABLE — favorites-backed services with nothing chosen yet.
+                    // Shown even when the household has no such favorites: the detail
+                    // screen is where "you need to save some in the Sonos app first"
+                    // gets explained, and hiding the service entirely would leave no
+                    // way to discover that it is possible at all.
+                    if !availableFavoriteServices.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            SettingsSectionLabel(title: "From your Sonos favorites")
+                            ForEach(availableFavoriteServices) { d in
+                                NavigationLink(destination: SonosFavoriteServiceView(
+                                    descriptor: d, discovery: discovery
+                                )) {
+                                    AvailableServiceRow(
+                                        icon: d.icon, iconColor: d.color,
+                                        name: d.name, description: d.blurb)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+
                     // COMING SOON section
                     VStack(alignment: .leading, spacing: 8) {
                         SettingsSectionLabel(title: "Coming Soon")
                         VStack(spacing: 8) {
-                            ComingSoonRow(name: "Spotify",                   iconColor: Color(hex: "#1DB954"))
+                            // Spotify left this list on 2026-08-12. Coming Soon means
+                            // nothing is built; Spotify playlists saved as Sonos
+                            // favorites are now reachable by the same route as SiriusXM,
+                            // so leaving it here would advertise less than the app does.
                             ComingSoonRow(name: "Apple Music",               iconColor: Color(hex: "#FC3C44"))
                             ComingSoonRow(name: "Qobuz",                     iconColor: Color(hex: "#1A56DB"))
                         }
@@ -517,6 +572,9 @@ struct ServicesView: View {
     private func refreshCounts() {
         iHeartStationCount = (try? SorrivaDatabase.shared.allStations(serviceId: "iheart"))?.count ?? 0
         somaFMStationCount = (try? SorrivaDatabase.shared.allStations(serviceId: "somafm"))?.count ?? 0
+        for d in FavoriteServiceDescriptor.all {
+            favoriteCounts[d.id] = (try? SorrivaDatabase.shared.allStations(serviceId: d.id))?.count ?? 0
+        }
     }
 }
 

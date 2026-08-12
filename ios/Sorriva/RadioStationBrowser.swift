@@ -13,6 +13,15 @@ struct RadioStation: Identifiable {
     var isFavorite: Bool
     var source: String
     var cume: Int           // iHeart cumulative audience — used for popularity sort
+    /// Sonos favorite metadata, verbatim, for services Sorriva cannot address
+    /// directly. Nil for iHeart and SomaFM, which play from real stream URLs.
+    ///
+    /// THIS MUST REACH THE SPEAKER UNCHANGED. It carries the `<desc id="cdudn">`
+    /// service token that is the household's entitlement to a closed service —
+    /// SiriusXM returns 200 and then plays nothing without it. Synthesising DIDL from
+    /// the station name instead is exactly the bug found 2026-08-12, where Sonos Radio
+    /// played and SiriusXM did not.
+    var resMD: String?
 
     init(from station: Station, description: String = "") {
         self.id = station.id
@@ -23,6 +32,7 @@ struct RadioStation: Identifiable {
         self.isFavorite = station.isFavorite
         self.source = station.serviceId
         self.cume = station.cume
+        self.resMD = station.resMD
     }
 
     init(id: Int, name: String, description: String, logoURL: String,
@@ -35,6 +45,7 @@ struct RadioStation: Identifiable {
         self.isFavorite = false
         self.source = "iheart"
         self.cume = cume
+        self.resMD = nil
     }
 }
 

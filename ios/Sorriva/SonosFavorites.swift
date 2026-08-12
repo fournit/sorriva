@@ -79,6 +79,22 @@ enum SonosFavorites {
         return out
     }
 
+    /// The channel this favorite points at, independent of which household saved it.
+    ///
+    /// Everything before the `?` was byte-identical across two Sonos systems — measured
+    /// 2026-08-11 on `CH 15 - Yacht Rock Radio`, where the same
+    /// `channel-linear:9150cc82-…` carried `?sid=37&sn=4` at one house and
+    /// `?sid=37&flags=8260&sn=3` at the other. The query string is the ACCOUNT HANDLE,
+    /// and the handle is ignored by the speaker.
+    ///
+    /// So this is the library's identity for a station: match on it and the same channel
+    /// saved in two houses is one row, not two that differ only in a number that does
+    /// not matter. The full URI is still what gets played.
+    static func channelIdentity(of uri: String) -> String {
+        guard let q = uri.firstIndex(of: "?") else { return uri }
+        return String(uri[uri.startIndex..<q])
+    }
+
     /// `sid=37` out of `x-sonosapi-stream:channel-linear%3A…?sid=37&flags=8260&sn=3`.
     /// Absent on some favorites, which is why it is optional rather than defaulted.
     static func sonosServiceId(from uri: String) -> Int? {
@@ -112,6 +128,37 @@ enum SonosFavorites {
             timeout: SonosTimeout.action)
         guard reply.ok else { return [] }
         return parse(reply.body)
+    }
+
+    /// The result of trying to read favorites, which the UI must distinguish.
+    ///
+    /// "You have no SiriusXM favorites saved" and "we could not reach your Sonos
+    /// system" look identical if both return an empty list, and telling someone to go
+    /// save favorites they already have is the worse of the two mistakes.
+    enum ReadResult {
+        case ok([SonosFavorite], householdId: String?)
+        case noSpeakerAnswered
+    }
+
+    /// Try each host until one answers, because not every speaker will.
+    ///
+    /// Measured 2026-08-10: one zone returned 500 to every ContentDirectory action —
+    /// including GetSearchCapabilities — while others in the same household answered
+    /// normally, and its device description omits services that demonstrably work on
+    /// it. Asking a single speaker and believing its refusal is what produced the
+    /// conclusion that favorites were unreachable, which nearly ended the feature.
+    static func read(hosts: [String]) async -> ReadResult {
+        for host in hosts {
+            guard let favorites = try? await fetch(host: host), !favorites.isEmpty else { continue }
+            let household = await SonosCommands.householdId(host: host)
+            return .ok(favorites, householdId: household)
+        }
+        // Every host either failed or returned nothing. One more pass to tell those
+        // apart: a household with genuinely zero favorites is a real, reportable state.
+        for host in hosts where (try? await fetch(host: host)) != nil {
+            return .ok([], householdId: await SonosCommands.householdId(host: host))
+        }
+        return .noSpeakerAnswered
     }
 
     // MARK: - Helpers

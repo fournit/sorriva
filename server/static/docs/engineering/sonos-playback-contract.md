@@ -461,3 +461,38 @@ favorite that simply does not play.
 **Not every favorite is playable.** Sonos Radio browse shortcuts — `Discover Sonos
 Radio`, `Sonos Presents`, `Trending Now` — carry no `<res>` at all. Some carry no
 `sid`/`sn`/`flags`, with a token account of `0`. Filter rather than assume.
+
+### Playing a favorite — two shapes, and the escaping that decides both
+
+Measured 2026-08-12, all of it the hard way.
+
+**A stream favorite** — SiriusXM, Sonos Radio. `SetAVTransportURI` with the favorite's
+`<res>` and its `<r:resMD>`, then `Play`.
+
+**A container favorite** — Spotify playlists, `x-rincon-cpcontainer:`. **Cannot be
+pointed at.** `SetAVTransportURI` returns **500, errorCode 714**, and the `Play` that
+follows returns **200 while the speaker resumes whatever was already in the queue** —
+a success code playing the wrong content. Containers expand into the QUEUE exactly as
+local files do (§3):
+
+```swift
+sendTransportAction(host, "Stop")
+removeAllTracksFromQueue(host)
+addURIToQueue(host, uri: containerURI, didl: resMD)   // expanded to 50 tracks
+setAVTransportURIWithMetadata(host, "x-rincon-queue:\(zoneUUID)#0", didl: "")
+sendTransportAction(host, "Play")
+```
+
+**METADATA MUST BE XML-ESCAPED BEFORE IT ENTERS THE ENVELOPE.** `resMD` is XML
+travelling inside an XML element. Interpolated raw it malforms the envelope and the
+speaker rejects the command — SiriusXM returns 200 and plays nothing.
+
+This was invisible in Sorriva for months because every caller of
+`setAVTransportURIWithMetadata` and `addURIToQueue` passed an empty DIDL. A favorite's
+`resMD` was the first real content those paths ever carried.
+
+**And it is why "proven from `tools/`" is not "proven in the app."** The script that
+demonstrated favorites playing on 2026-08-10 escaped the metadata; the app did not.
+Same URI, same speaker, same household — one played and one did not, and the only
+difference was four `replacingOccurrences` calls. When a capability is proven with
+`tools/sonos.py`, the remaining question is never whether Sonos accepts it.

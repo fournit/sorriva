@@ -98,9 +98,10 @@ final class SorrivaAppEnvironment: ObservableObject {
 
     private func prefetchStationLogos() {
         Task.detached(priority: .background) { [database] in
-            let iheart = (try? database.allStations(serviceId: "iheart")) ?? []
-            let somafm = (try? database.allStations(serviceId: "somafm")) ?? []
-            let urls = (iheart + somafm)
+            // Every service. Favorites-backed stations carry the service's own artwork
+            // and it is often the ONLY image available for them — Sonos supplies none at
+            // playback — so leaving them out of the prefetch is worse than for iHeart.
+            let urls = ((try? database.allStationsAnySource()) ?? [])
                 .compactMap { $0.logoURL }
                 .compactMap { URL(string: $0) }
 

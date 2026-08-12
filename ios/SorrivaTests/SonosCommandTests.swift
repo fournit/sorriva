@@ -148,6 +148,48 @@ final class SonosCommandTests: XCTestCase {
         XCTAssertTrue(fake.lastSend("SetAVTransportURI")!.innerXML.contains("x-rincon-queue:RINCON_ABC123#0"))
     }
 
+    // MARK: - Metadata escaping
+    //
+    // The bug this guards was invisible for months because every caller passed an empty
+    // DIDL. The first real content — a Sonos favorite's resMD — broke the envelope and
+    // SiriusXM silently would not play, while the tools script that escaped the same
+    // string worked. Found 2026-08-12.
+
+    private var sampleDIDL: String {
+        "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\">"
+        + "<item id=\"1\"><dc:title>CH 8 - 80s on 8</dc:title>"
+        + "<desc id=\"cdudn\">SA_RINCON9479_X_#Svc9479-db2b2c51-Token</desc></item></DIDL-Lite>"
+    }
+
+    func testMetadataIsEscapedBeforeItEntersTheEnvelope() async {
+        await SonosCommands.setAVTransportURIWithMetadata(
+            host: "10.0.0.9", streamURL: "x-sonosapi-stream:foo?sid=37", didl: sampleDIDL)
+        let xml = fake.lastSend("SetAVTransportURI")!.innerXML
+        XCTAssertTrue(xml.contains("&lt;DIDL-Lite"),
+                      "raw XML inside CurrentURIMetaData breaks the envelope — the speaker rejects it")
+        XCTAssertFalse(xml.contains("<DIDL-Lite"),
+                       "metadata went in unescaped")
+        XCTAssertTrue(xml.contains("SA_RINCON9479"), "the service token must survive escaping")
+    }
+
+    func testQueuedMetadataIsEscapedToo() async {
+        await SonosCommands.addURIToQueue(
+            host: "10.0.0.9", uri: "x-rincon-cpcontainer:abc", didl: sampleDIDL)
+        let xml = fake.lastSend("AddURIToQueue")!.innerXML
+        XCTAssertTrue(xml.contains("&lt;DIDL-Lite"))
+        XCTAssertFalse(xml.contains("<DIDL-Lite"))
+    }
+
+    /// setAVTransportURI builds its OWN DIDL already escaped. Running that through the
+    /// escaper too would double-encode it and the speaker would see literal "&lt;".
+    func testSelfBuiltMetadataIsNotDoubleEscaped() async {
+        await SonosCommands.setAVTransportURI(
+            host: "10.0.0.9", streamURL: "http://example.com/s", stationName: "Jazz & Blues")
+        let xml = fake.lastSend("SetAVTransportURI")!.innerXML
+        XCTAssertTrue(xml.contains("&lt;DIDL-Lite"), "expected the pre-escaped form")
+        XCTAssertFalse(xml.contains("&amp;lt;"), "double-encoded — the speaker sees literal markup")
+    }
+
     // MARK: - Grouping
     //
     // §6. A member joins by being told to point at the coordinator, and the command

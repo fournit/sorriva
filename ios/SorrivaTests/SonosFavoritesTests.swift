@@ -113,6 +113,41 @@ final class SonosFavoritesTests: XCTestCase {
         }
     }
 
+    // MARK: - Channel identity
+    //
+    // The library holds one row per CHANNEL, not one per household. Measured
+    // 2026-08-11: the same channel carried ?sid=37&sn=4 at one house and
+    // ?sid=37&flags=8260&sn=3 at another, identical before the "?". Matching on the
+    // full URI produced two rows for one channel.
+
+    func testChannelIdentityIgnoresTheAccountHandle() {
+        let home = "x-sonosapi-stream:channel-linear%3A9150cc82-af5c-3be3-d170-0e81d87375a8?sid=37&sn=4"
+        let away = "x-sonosapi-stream:channel-linear%3A9150cc82-af5c-3be3-d170-0e81d87375a8?sid=37&flags=8260&sn=3"
+        XCTAssertEqual(SonosFavorites.channelIdentity(of: home),
+                       SonosFavorites.channelIdentity(of: away),
+                       "same channel, two households — must be one station")
+        XCTAssertEqual(SonosFavorites.channelIdentity(of: home),
+                       "x-sonosapi-stream:channel-linear%3A9150cc82-af5c-3be3-d170-0e81d87375a8")
+    }
+
+    func testDifferentChannelsRemainDistinct() {
+        let a = "x-sonosapi-stream:channel-linear%3Aaaaa?sid=37&sn=3"
+        let b = "x-sonosapi-stream:channel-linear%3Abbbb?sid=37&sn=3"
+        XCTAssertNotEqual(SonosFavorites.channelIdentity(of: a), SonosFavorites.channelIdentity(of: b))
+    }
+
+    func testIdentityOfAURIWithNoQueryIsItself() {
+        let plain = "x-rincon-mp3radio://ice2.somafm.com/groovesalad"
+        XCTAssertEqual(SonosFavorites.channelIdentity(of: plain), plain)
+    }
+
+    /// Every favorite in the fixture must produce a distinct identity — if two
+    /// collapsed together, importing them would silently drop one.
+    func testFixtureFavoritesAllHaveDistinctIdentities() throws {
+        let ids = try favorites().map { SonosFavorites.channelIdentity(of: $0.uri) }
+        XCTAssertEqual(Set(ids).count, ids.count, "two favorites share an identity")
+    }
+
     func testGarbageParsesToNothingRatherThanCrashing() {
         XCTAssertTrue(SonosFavorites.parse(Data()).isEmpty)
         XCTAssertTrue(SonosFavorites.parse(Data("not xml".utf8)).isEmpty)

@@ -30,6 +30,27 @@ import Foundation
 
 enum SonosCommands {
 
+    /// DIDL metadata is XML travelling INSIDE an XML element, so it must be escaped or
+    /// the envelope is malformed and the speaker rejects the command.
+    ///
+    /// Found 2026-08-12: `setAVTransportURIWithMetadata` and `addURIToQueue` both
+    /// interpolated their `didl` argument raw. Nothing caught it because every caller
+    /// passed an empty string — the first real content sent through was a Sonos
+    /// favorite's resMD, and SiriusXM would not play. The tools script that proved
+    /// favorites work on 2026-08-10 escaped it; the app did not, and that is the entire
+    /// difference between that success and this failure.
+    ///
+    /// NOT used by `setAVTransportURI`, which builds its own DIDL pre-escaped —
+    /// running it through here would double-encode.
+    ///
+    /// `&` FIRST, or ampersands introduced by the later replacements get re-escaped.
+    static func escapingXML(_ s: String) -> String {
+        s.replacingOccurrences(of: "&", with: "&amp;")
+         .replacingOccurrences(of: "<", with: "&lt;")
+         .replacingOccurrences(of: ">", with: "&gt;")
+         .replacingOccurrences(of: "\"", with: "&quot;")
+    }
+
     /// Swap this in a test to assert what a command sends without a speaker.
     /// See SonosSOAP.swift for why it is a static var rather than a parameter.
     nonisolated(unsafe) static var soap: SonosSOAPTransport = LiveSonosSOAP()
@@ -93,9 +114,46 @@ enum SonosCommands {
         return (name: stationName, artURL: artURL)
     }
 
-    static func playStationURL(streamURL: String, on zone: SonosZone, stationName: String = "", artURL: String = "") async {
-        print("SORRIVA: Playing \(streamURL) on \(zone.name)")
-        await setAVTransportURI(host: zone.host, streamURL: streamURL, stationName: stationName, artURL: artURL)
+    /// Start a station on a zone.
+    ///
+    /// TWO PATHS, and which one is taken decides whether a closed service plays at all.
+    ///
+    /// `resMD` present — a station that came from a Sonos favorite. Its metadata is sent
+    /// VERBATIM, because it carries the `<desc id="cdudn">` service token that is the
+    /// household's entitlement. Synthesising DIDL from the station name instead is the
+    /// 2026-08-12 bug: Sonos Radio played (its own service, token account 0) while
+    /// SiriusXM returned 200 and sat silent. A 200 is not success — contract §0.
+    ///
+    /// `resMD` nil — iHeart and SomaFM, which Sorriva addresses directly with real
+    /// stream URLs. Generic DIDL is correct for them and is left untouched.
+    static func playStationURL(streamURL: String, on zone: SonosZone,
+                               stationName: String = "", artURL: String = "",
+                               resMD: String? = nil) async {
+        print("SORRIVA: Playing \(streamURL) on \(zone.name)\(resMD == nil ? "" : " [favorite metadata]")")
+        // A CONTAINER IS NOT A STREAM. Spotify playlists arrive as
+        // x-rincon-cpcontainer: and cannot be pointed at with SetAVTransportURI —
+        // measured 2026-08-12: 500 with errorCode 714, after which Play returns 200 and
+        // the speaker resumes whatever was ALREADY in the queue. A 200 that plays the
+        // wrong thing is the worst answer available (contract §0).
+        //
+        // Containers expand INTO the queue, exactly as local files do (§3). Enqueuing
+        // this playlist produced 50 tracks and played correctly.
+        if streamURL.hasPrefix("x-rincon-cpcontainer:") {
+            await sendTransportAction(host: zone.host, action: "Stop")
+            await removeAllTracksFromQueue(host: zone.host)
+            await addURIToQueue(host: zone.host, uri: streamURL, didl: resMD ?? "")
+            await setAVTransportURIWithMetadata(host: zone.host,
+                                                streamURL: "x-rincon-queue:\(zone.id)#0",
+                                                didl: "")
+            await sendTransportAction(host: zone.host, action: "Play")
+            return
+        }
+        if let resMD, !resMD.isEmpty {
+            await setAVTransportURIWithMetadata(host: zone.host, streamURL: streamURL, didl: resMD)
+        } else {
+            await setAVTransportURI(host: zone.host, streamURL: streamURL,
+                                    stationName: stationName, artURL: artURL)
+        }
         await sendTransportAction(host: zone.host, action: "Play")
     }
 
@@ -138,7 +196,7 @@ enum SonosCommands {
                                             innerXML: """
               <InstanceID>0</InstanceID>
               <CurrentURI>\(escapedURL)</CurrentURI>
-              <CurrentURIMetaData>\(didl)</CurrentURIMetaData>
+              <CurrentURIMetaData>\(escapingXML(didl))</CurrentURIMetaData>
             """, timeout: SonosTimeout.action)
             let status = reply.status
             sLog("LOCALPLAY: SetAVTransportURIWithMetadata \(host) status=\(status) url=\(streamURL.prefix(60))")
@@ -201,7 +259,7 @@ enum SonosCommands {
                                             innerXML: """
               <InstanceID>0</InstanceID>
               <EnqueuedURI>\(escapedURI)</EnqueuedURI>
-              <EnqueuedURIMetaData>\(didl)</EnqueuedURIMetaData>
+              <EnqueuedURIMetaData>\(escapingXML(didl))</EnqueuedURIMetaData>
               <DesiredFirstTrackNumberEnqueued>0</DesiredFirstTrackNumberEnqueued>
               <EnqueueAsNext>0</EnqueueAsNext>
             """, timeout: SonosTimeout.action)
@@ -238,6 +296,28 @@ enum SonosCommands {
             sLog("SONOS: CreateObject error: \(error.localizedDescription)")
         }
         _ = encodedPath // suppress unused warning
+    }
+
+    /// Which Sonos household this speaker belongs to.
+    ///
+    /// Favorites are household property, not account property — measured 2026-08-11
+    /// across two systems sharing one Sonos account: 42 favorites at one, 10 at the
+    /// other. So anything stored from a favorite records the household it came from,
+    /// and a refresh may only reconcile what that household can see.
+    static func householdId(host: String) async -> String? {
+        do {
+            let reply = try await soap.send(host: host, service: .deviceProperties,
+                                            action: "GetHouseholdID", innerXML: "",
+                                            timeout: SonosTimeout.quick)
+            guard reply.ok else { return nil }
+            let text = reply.text
+            guard let open = text.range(of: "<CurrentHouseholdID>"),
+                  let close = text.range(of: "</CurrentHouseholdID>") else { return nil }
+            return String(text[open.upperBound..<close.lowerBound])
+        } catch {
+            sLog("SONOS: GetHouseholdID failed for \(host): \(error.localizedDescription)")
+            return nil
+        }
     }
 
     static func sendTransportAction(host: String, action: String) async {

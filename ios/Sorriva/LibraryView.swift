@@ -162,9 +162,10 @@ struct LibraryView: View {
     }
 
     private func loadFavorites() {
-        let iheart = (try? SorrivaDatabase.shared.allStations(serviceId: "iheart")) ?? []
-        let somafm = (try? SorrivaDatabase.shared.allStations(serviceId: "somafm")) ?? []
-        favoriteIDs = Set((iheart + somafm).filter { $0.isFavorite }.map { $0.id })
+        // EVERY service, not two named ones. Naming them is what made SiriusXM and
+        // Sonos Radio stations import correctly and then stay invisible here.
+        let all = (try? SorrivaDatabase.shared.allStationsAnySource()) ?? []
+        favoriteIDs = Set(all.filter { $0.isFavorite }.map { $0.id })
     }
 
     private func toggleFavorite(id: Int, isFav: Bool) {
@@ -271,9 +272,7 @@ struct FavoritesRow: View {
     }
 
     private func loadFromDB() {
-        let iheart = (try? SorrivaDatabase.shared.allStations(serviceId: "iheart")) ?? []
-        let somafm = (try? SorrivaDatabase.shared.allStations(serviceId: "somafm")) ?? []
-        dbStations = iheart + somafm
+        dbStations = (try? SorrivaDatabase.shared.allStationsAnySource()) ?? []
         for s in dbStations {
             if let logo = s.logoURL { loadedLogos[s.id] = logo }
         }
@@ -349,10 +348,10 @@ struct RadioRow: View {
     }
 
     func loadFromDB() {
-        // Load stations from all radio sources
-        let iheart = (try? SorrivaDatabase.shared.allStations(serviceId: "iheart")) ?? []
-        let somafm = (try? SorrivaDatabase.shared.allStations(serviceId: "somafm")) ?? []
-        dbStations = (iheart + somafm).sorted { $0.name < $1.name }
+        // Load stations from all radio sources — the comment said "all" while the code
+        // named two. Now it is true.
+        dbStations = ((try? SorrivaDatabase.shared.allStationsAnySource()) ?? [])
+            .sorted { $0.name < $1.name }
         for s in dbStations {
             if let logo = s.logoURL { loadedLogos[s.id] = logo }
         }
@@ -469,7 +468,7 @@ struct MediaCard: View {
         .sheet(item: $zonePickerStation) { rs in
             ZonePickerSheet(
                 title: rs.name,
-                subtitle: "iHeartRADIO",
+                subtitle: SorrivaDatabase.shared.serviceName(for: rs.source),
                 discovery: discovery,
                 store: PlaybackStore.shared,
                 onPick: { zone in
@@ -480,17 +479,25 @@ struct MediaCard: View {
 
                     Task {
                         var streamURL = try? SorrivaDatabase.shared.cachedStreamURL(stationId: stationId)
-                        if streamURL == nil {
+                        // The iHeart lookup is for iHeart ONLY. Favorites-backed stations
+                        // carry negative ids and their URI is already stored; asking
+                        // iHeart's API about one would either fail or, worse, return a
+                        // URL for an unrelated station.
+                        if streamURL == nil, rs.source == "iheart" {
                             streamURL = await IHeartAPI.fetchStreamURL(streamID: stationId)
                         }
 
-                        guard let url = streamURL else { return }
+                        guard let url = streamURL else {
+                            sLog("PLAY: no stream URL for \(stationName) [\(rs.source)] — nothing sent")
+                            return
+                        }
 
                         await SonosCommands.playStationURL(
                             streamURL: url,
                             on: zone,
                             stationName: stationName,
-                            artURL: artURL
+                            artURL: artURL,
+                            resMD: rs.resMD
                         )
                         discovery.persistStationPlay(
                             zone: zone,
@@ -771,9 +778,8 @@ struct MediaGridView: View {
     }
 
     private func loadFromDB() {
-        let iheart = (try? SorrivaDatabase.shared.allStations(serviceId: "iheart")) ?? []
-        let somafm = (try? SorrivaDatabase.shared.allStations(serviceId: "somafm")) ?? []
-        allStations = (iheart + somafm).sorted { $0.name < $1.name }
+        allStations = ((try? SorrivaDatabase.shared.allStationsAnySource()) ?? [])
+            .sorted { $0.name < $1.name }
         for s in allStations {
             if let logo = s.logoURL { loadedLogos[s.id] = logo }
         }
