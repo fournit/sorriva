@@ -126,7 +126,13 @@ enum SonosFavorites {
                   <SortCriteria></SortCriteria>
             """,
             timeout: SonosTimeout.action)
-        guard reply.ok else { return [] }
+        // THROWS on a refusal rather than returning an empty list. A speaker that will
+        // not answer and a household with nothing saved are different answers, and
+        // collapsing them into [] is what let `read` report "reachable, nothing saved"
+        // when nothing had answered at all — the app would then tell the user to save
+        // favorites they already have. Caught by a unit test on 2026-08-12, not by
+        // anyone using it.
+        guard reply.ok else { throw SonosSOAPError.badHost("\(host) refused Browse (\(reply.status))") }
         return parse(reply.body)
     }
 

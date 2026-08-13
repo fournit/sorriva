@@ -36,6 +36,14 @@ final class SorrivaTabBarState: ObservableObject {
     @Published var isVisible: Bool = true
     @Published var selectedTab: SorrivaTab = .zones
 
+    /// Set by screens where the tab bar cannot hide itself.
+    ///
+    /// The bar normally hides on scroll. A screen with a fixed frame and internally
+    /// scrolling panes never scrolls, so it would sit over the lower pane forever.
+    /// The MINI PLAYER IS UNAFFECTED and stays visible everywhere. App-wide chrome
+    /// behaviour belongs to the UI redesign; this is only the local switch.
+    @Published var chromeSuppressed: Bool = false
+
     func show() {
         withAnimation(.easeOut(duration: 0.2)) { isVisible = true }
     }

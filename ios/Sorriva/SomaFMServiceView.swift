@@ -549,3 +549,65 @@ struct SomaFMChannelCell: View {
         }
     }
 }
+
+// MARK: - SomaFM as a setup source
+//
+// SomaFM adopting the shared two-pane setup screen (fServiceSetupScreens). Its
+// catalogue is ~46 channels from a public API, so everything is presented at once
+// and search alone is enough — no genre chips, unlike iHeart.
+//
+// `numericID` is the identity, not the slug: it is a stable djb2 hash already used as
+// the database primary key, deliberately ranged to avoid colliding with iHeart's ids.
+
+@MainActor
+struct SomaFMSetupSource: ServiceSetupSource {
+
+    var serviceName: String { "SomaFM" }
+    var icon: String { "antenna.radiowaves.left.and.right" }
+    var color: Color { Color(hex: "#2C3E50") }
+    var emptyMessage: String { "SomaFM's channel list could not be loaded. Check your connection and try again." }
+    /// SomaFM publishes a live listener count per channel.
+    var supportsPopularity: Bool { true }
+
+    private static var byID: [String: SomaFMChannel] = [:]
+
+    /// SomaFM has no categories worth filtering by — 46 channels fit on a few screens.
+    var chips: [ServiceSetupChip] { get async { [] } }
+
+    func load(query: String, chip: String?) async throws -> (available: [ServiceSetupItem], inLibrary: Set<String>) {
+        let channels = await SomaFMAPI.fetchChannels()
+        guard !channels.isEmpty else {
+            // An empty catalogue from a public API means the fetch failed, not that
+            // SomaFM has no channels. Throwing surfaces it as unreachable rather than
+            // as "you have nothing", which would be a lie.
+            throw SonosSOAPError.badHost("somafm catalogue empty")
+        }
+        for c in channels { Self.byID[String(c.numericID)] = c }
+
+        // Filtered here rather than in the screen: iHeart filters in SQL and the
+        // protocol is shared, so every source answers a query.
+        let matched = query.isEmpty ? channels
+            : channels.filter { $0.title.localizedCaseInsensitiveContains(query) }
+        let items = matched.map {
+            ServiceSetupItem(id: String($0.numericID),
+                             title: $0.title,
+                             subtitle: $0.description,
+                             artURL: $0.largeImage,
+                             popularity: $0.listeners)
+        }
+        let stored = (try? SorrivaDatabase.shared.allStations(serviceId: "somafm")) ?? []
+        return (items, Set(stored.map { String($0.id) }))
+    }
+
+    func add(_ item: ServiceSetupItem) async throws {
+        guard let c = Self.byID[item.id] else { return }
+        try SorrivaDatabase.shared.upsertStation(
+            id: c.numericID, serviceId: "somafm", name: c.title,
+            logoURL: c.largeImage, streamURL: c.streamURL, cume: c.listeners)
+    }
+
+    func remove(_ item: ServiceSetupItem) async throws {
+        guard let id = Int(item.id) else { return }
+        try SorrivaDatabase.shared.deleteStation(id: id)
+    }
+}

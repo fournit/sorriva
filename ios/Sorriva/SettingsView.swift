@@ -433,11 +433,7 @@ struct ServicesView: View {
                             SettingsSectionLabel(title: "Connected")
 
                             if isIHeartConnected {
-                                NavigationLink(destination: IHeartServiceView(
-                                    discovery: discovery,
-                                    onPlayStation: onPlayStation,
-                                    onNavigateToZone: onNavigateToZone
-                                )) {
+                                NavigationLink(destination: ServiceSetupView(source: IHeartSetupSource())) {
                                     ConnectedServiceRow(
                                         icon: "radio",
                                         iconColor: Color(hex: "#CC2027"),
@@ -449,11 +445,7 @@ struct ServicesView: View {
                             }
 
                             if isSomaFMConnected {
-                                NavigationLink(destination: SomaFMServiceView(
-                                    discovery: discovery,
-                                    onPlayStation: onPlayStation,
-                                    onNavigateToZone: onNavigateToZone
-                                )) {
+                                NavigationLink(destination: ServiceSetupView(source: SomaFMSetupSource())) {
                                     ConnectedServiceRow(
                                         icon: "antenna.radiowaves.left.and.right",
                                         iconColor: Color(hex: "#2C3E50"),
@@ -468,8 +460,8 @@ struct ServicesView: View {
                             // content. One row each — a card per service is a design
                             // decision; which section it lands in is data.
                             ForEach(connectedFavoriteServices) { d in
-                                NavigationLink(destination: SonosFavoriteServiceView(
-                                    descriptor: d, discovery: discovery
+                                NavigationLink(destination: ServiceSetupView(
+                                    source: SonosFavoritesSetupSource(descriptor: d, discovery: discovery)
                                 )) {
                                     ConnectedServiceRow(
                                         icon: d.icon, iconColor: d.color, name: d.name,
@@ -487,11 +479,7 @@ struct ServicesView: View {
                             SettingsSectionLabel(title: "Available")
 
                             if !isIHeartConnected {
-                                NavigationLink(destination: IHeartServiceView(
-                                    discovery: discovery,
-                                    onPlayStation: onPlayStation,
-                                    onNavigateToZone: onNavigateToZone
-                                )) {
+                                NavigationLink(destination: ServiceSetupView(source: IHeartSetupSource())) {
                                     AvailableServiceRow(
                                         icon: "radio",
                                         iconColor: Color(hex: "#CC2027"),
@@ -503,11 +491,7 @@ struct ServicesView: View {
                             }
 
                             if !isSomaFMConnected {
-                                NavigationLink(destination: SomaFMServiceView(
-                                    discovery: discovery,
-                                    onPlayStation: onPlayStation,
-                                    onNavigateToZone: onNavigateToZone
-                                )) {
+                                NavigationLink(destination: ServiceSetupView(source: SomaFMSetupSource())) {
                                     AvailableServiceRow(
                                         icon: "antenna.radiowaves.left.and.right",
                                         iconColor: Color(hex: "#2C3E50"),
@@ -530,8 +514,8 @@ struct ServicesView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             SettingsSectionLabel(title: "From your Sonos favorites")
                             ForEach(availableFavoriteServices) { d in
-                                NavigationLink(destination: SonosFavoriteServiceView(
-                                    descriptor: d, discovery: discovery
+                                NavigationLink(destination: ServiceSetupView(
+                                    source: SonosFavoritesSetupSource(descriptor: d, discovery: discovery)
                                 )) {
                                     AvailableServiceRow(
                                         icon: d.icon, iconColor: d.color,

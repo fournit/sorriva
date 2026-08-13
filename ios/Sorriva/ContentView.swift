@@ -112,8 +112,10 @@ struct ContentView: View {
             .ignoresSafeArea(edges: .bottom)
 
             // MARK: — Floating tab bar (floats over content above mini player)
-            SorrivaTabBar(state: tabState)
-                .padding(.bottom, miniPlayerHeight + 8)
+            if !tabState.chromeSuppressed {
+                SorrivaTabBar(state: tabState)
+                    .padding(.bottom, miniPlayerHeight + 8)
+            }
         }
         .ignoresSafeArea(edges: .bottom)
         .preferredColorScheme(.dark)

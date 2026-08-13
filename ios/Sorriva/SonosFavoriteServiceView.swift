@@ -220,3 +220,89 @@ struct SonosFavoriteServiceView: View {
         saving = false
     }
 }
+
+// MARK: - Favorites as a setup source
+//
+// The favorites-backed services adopting the shared setup screen. Everything
+// service-specific lives here; the screen itself knows nothing about SiriusXM.
+
+@MainActor
+struct SonosFavoritesSetupSource: ServiceSetupSource {
+
+    let descriptor: FavoriteServiceDescriptor
+    let discovery: ZoneDiscoveryService
+
+    var serviceName: String { descriptor.name }
+    var icon: String { descriptor.icon }
+    var color: Color { descriptor.color }
+
+    /// Sonos favorites carry no audience figure, so the list is always alphabetical.
+    var supportsPopularity: Bool { false }
+
+    var emptyMessage: String {
+        "Save \(descriptor.name) content as a favorite in the Sonos app, then come back. "
+        + "Sorriva plays what your household has saved, but cannot browse \(descriptor.name) itself."
+    }
+
+    /// Keyed by CHANNEL IDENTITY so a favorite saved at another house matches the row
+    /// already in the library — the URIs differ by an account handle the speaker ignores.
+    private static var byIdentity: [String: SonosFavorite] = [:]
+
+    /// A household's favorites for one service are a short list; nothing to filter by.
+    var chips: [ServiceSetupChip] { get async { [] } }
+
+    func load(query: String, chip: String?) async throws -> (available: [ServiceSetupItem], inLibrary: Set<String>) {
+        let hosts = discovery.zones.map(\.host)
+        guard !hosts.isEmpty else { throw SonosSOAPError.badHost("no zones discovered") }
+
+        switch await SonosFavorites.read(hosts: hosts) {
+        case .noSpeakerAnswered:
+            // Distinct from an empty household: telling someone to go save favorites
+            // they already have is the worse mistake.
+            throw SonosSOAPError.badHost("no speaker answered")
+
+        case .ok(let all, _):
+            var mine = all.filter { $0.sonosServiceId == descriptor.sonosServiceId }
+            if !query.isEmpty {
+                mine = mine.filter { $0.title.localizedCaseInsensitiveContains(query) }
+            }
+            for f in mine { Self.byIdentity[SonosFavorites.channelIdentity(of: f.uri)] = f }
+
+            let items = mine.map {
+                ServiceSetupItem(id: SonosFavorites.channelIdentity(of: $0.uri),
+                                 title: $0.title,
+                                 subtitle: descriptor.name,
+                                 artURL: $0.artURL,
+                                 popularity: nil)
+            }
+            let stored = (try? SorrivaDatabase.shared.allStations(serviceId: descriptor.id)) ?? []
+            let library = Set(stored.compactMap { $0.streamURL }
+                                    .map(SonosFavorites.channelIdentity(of:)))
+            return (items, library)
+        }
+    }
+
+    func add(_ item: ServiceSetupItem) async throws {
+        guard let fav = Self.byIdentity[item.id] else { return }
+        let hosts = discovery.zones.map(\.host)
+        let household = await hosts.firstNonNilHouseholdId() ?? "unknown"
+        try SorrivaDatabase.shared.importFavorites([fav], householdId: household)
+    }
+
+    func remove(_ item: ServiceSetupItem) async throws {
+        // Scoped to this one channel. Removing "everything not selected" would delete
+        // channels favorited only at another location — absent is not deselected.
+        try SorrivaDatabase.shared.removeDeselectedFavorites(
+            serviceId: descriptor.id, offered: [item.id], keeping: [])
+    }
+}
+
+private extension Array where Element == String {
+    /// First host that will tell us its household. Not every speaker answers.
+    func firstNonNilHouseholdId() async -> String? {
+        for host in self {
+            if let id = await SonosCommands.householdId(host: host) { return id }
+        }
+        return nil
+    }
+}
