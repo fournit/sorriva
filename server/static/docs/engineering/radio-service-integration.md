@@ -46,6 +46,82 @@ over `dc:title` by design, which makes the validator's blind spots harmless.
 
 ---
 
+## 2a. Which field carries now-playing is the SERVICE'S decision
+
+Added 2026-08-13 after `bSonosRadioTitleShownAsStation`. Section 2's table describes
+iHeart and SomaFM. **Sonos Radio inverts it**, and reading either layout globally breaks
+the other:
+
+| Field | iHeart / SomaFM | Sonos Radio |
+|---|---|---|
+| `r:streamContent` | ✅ the song | ❌ **absent entirely** |
+| `dc:title` | ❌ filename / slug | ✅ the song — `My Hood` |
+| `dc:creator` | — | ✅ the artist — `RAY BLK` |
+| `upnp:albumArtURI` | ❌ absent / station logo | ✅ **per-track cover**, sonosradio.imgix.net |
+
+Both mistakes have shipped. Reading `dc:title` globally put `hls.m3u8` on a zone card;
+deleting that read left Sonos Radio with no track, no artist and no artwork at all.
+
+So `NowPlayingSource` is declared per adapter — `.streamContent` or `.trackMetadata` —
+and defaults to `.streamContent`, which means **a service nobody has taught us about
+keeps the behaviour that shipped rather than getting a new guess.**
+
+Two rules that fall out of this:
+
+- **Artwork is not held on a miss.** Track and artist ARE held when Sonos reports an
+  empty title between songs, because blanking flickers the card once per track. Artwork
+  is cleared, because a cover that outlives its song is worse than no cover — the
+  station logo behind it is at least true of what is playing.
+- **Per-track art outranks the station logo** everywhere, including in the async
+  resolver's completion. A station logo is only ever a stand-in for artwork we could not
+  get.
+
+---
+
+## 2b. Identity is what is LOADED, not what is playing
+
+`GetPositionInfo.TrackURI` is the TRACK. `GetMediaInfo.CurrentURI` is the STATION. For
+iHeart and SomaFM they are the same string, which is why nothing needed this for months:
+
+```
+Sonos Radio, Office, 2026-08-13
+  CurrentURI  x-sonosapi-radio:sonos%3a158291?sid=303&flags=0&sn=1     ← the station
+  TrackURI    x-sonos-http:sonos%3a4375c80b…-DZR%3a28%3a…              ← changes per song
+```
+
+Matching a station against `TrackURI` therefore missed on **every song, forever**, and
+the no-blank rule held whatever Sorriva last played — a zone playing Brit Soul reported
+Cocktail Hour indefinitely. Always match on `SonosZone.stationIdentityURI`.
+
+**Order matters in the poll:** `GetMediaInfo` runs BEFORE `GetPositionInfo`, because the
+now-playing parse asks which service is loaded before deciding where the song title
+lives.
+
+**One channel, two spellings.** The stored favorite and the live URI differ in the case
+of the percent-encoded colon AND in `flags`, for the same station:
+
+```
+stored  x-sonosapi-radio:sonos%3A158291?sid=303&flags=28780&sn=1
+live    x-sonosapi-radio:sonos%3a158291?sid=303&flags=0&sn=1
+```
+
+Identity is the channel: lowercase, and discard everything from `?` onward.
+
+---
+
+## 2c. When nothing matches, say so
+
+A zone whose loaded URI resolves to nothing shows **Unknown** — or `"<Service> ·
+Unknown"` where an adapter claims the URI — never the last thing Sorriva played. Track,
+artist and artwork still come from the stream; only identity is withheld.
+
+This requires three states, not two. `pending` (asked, no answer yet) must hold the
+current display or the card flashes on every station change; `unidentified` (asked,
+nothing matched) is what says Unknown. Collapsing them into "empty name" is what made
+holding stale content the only safe response.
+
+---
+
 ## 3. URI schemes differ by who started playback
 
 The *same station* arrives under different schemes depending on origin:

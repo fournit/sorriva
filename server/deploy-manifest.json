@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.73 — one Manage Stations screen for every service",
-  "version": "0.0.73",
+  "message": "v0.0.74 — a zone reports what Sonos is playing, or says Unknown",
+  "version": "0.0.74",
   "db_migrate": false
 }

@@ -62,6 +62,24 @@ enum SonosCommands {
             """, timeout: SonosTimeout.quick).body
     }
 
+    /// Raw GetMediaInfo, for the one field that matters: CurrentURI.
+    ///
+    /// Separate from `fetchMediaInfo` below, which resolves a station NAME and artwork
+    /// and is a different job entirely. This exists because the poll needs to know WHAT
+    /// a zone has loaded — Sonos Radio and SiriusXM keep that only here, while TrackURI
+    /// changes with every song.
+    static func fetchMediaData(host: String) async -> Data? {
+        do {
+            let reply = try await soap.send(host: host, service: .avTransport,
+                                            action: "GetMediaInfo",
+                                            innerXML: "      <InstanceID>0</InstanceID>",
+                                            timeout: SonosTimeout.quick)
+            return reply.ok ? reply.body : nil
+        } catch {
+            return nil
+        }
+    }
+
     static func fetchMediaInfo(host: String) async -> (name: String, artURL: String)? {
         guard let reply = try? await soap.send(host: host, service: .avTransport, action: "GetMediaInfo",
                                               innerXML: """

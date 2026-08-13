@@ -354,6 +354,190 @@ final class ZonePollingTests: XCTestCase {
                       "a zone parked on its TV input is still on its TV input when silent")
     }
 
+    // MARK: - Station identity (GetMediaInfo)
+    //
+    // Sonos Radio reports a PER-TRACK TrackURI while the station lives only in
+    // CurrentURI. Matching a station on the track URI missed every time, the no-blank
+    // rule held the previous content, and a zone playing Brit Soul went on claiming
+    // Lost 80s. Measured 2026-08-13 against a live speaker.
+
+    private func mediaInfo(currentURI: String) -> Data {
+        Data("""
+        <?xml version="1.0"?><s:Envelope><s:Body><u:GetMediaInfoResponse>
+        <NrTracks>1</NrTracks><CurrentURI>\(currentURI)</CurrentURI>
+        <CurrentURIMetaData></CurrentURIMetaData></u:GetMediaInfoResponse></s:Body></s:Envelope>
+        """.utf8)
+    }
+
+    func testLoadedURIIsReadFromMediaInfo() {
+        let zone = SonosTopology.applyMediaInfo(
+            to: testZone("Z1"),
+            data: mediaInfo(currentURI: "x-sonosapi-radio:sonos%3a158291?sid=303&amp;flags=0&amp;sn=1"))
+        XCTAssertEqual(zone.currentStationURI,
+                       "x-sonosapi-radio:sonos%3a158291?sid=303&flags=0&sn=1",
+                       "entities must be decoded — the query is part of the stored URI")
+    }
+
+    /// THE FIX. A station lookup must use what is LOADED, never which track is playing.
+    func testIdentityPrefersTheLoadedURIOverTheTrackURI() {
+        var zone = testZone("Z1")
+        zone.currentTrackURI = "x-sonos-http:sonos%3a4375c80bc6059732560f2c94d4eaaa20-DZR%3a28"
+        XCTAssertEqual(zone.stationIdentityURI, zone.currentTrackURI,
+                       "with nothing loaded reported, the track URI is all there is")
+
+        zone = SonosTopology.applyMediaInfo(
+            to: zone, data: mediaInfo(currentURI: "x-sonosapi-radio:sonos%3a158291?sid=303"))
+        XCTAssertEqual(zone.stationIdentityURI, "x-sonosapi-radio:sonos%3a158291?sid=303",
+                       "once Sonos names what is loaded, that is the station's identity")
+    }
+
+    /// iHeart and SomaFM report the same URI in both places, which is why this went
+    /// unnoticed for months — those services keep working unchanged.
+    func testDirectlyAddressedServicesAreUnaffected() {
+        var zone = testZone("Z1")
+        let stream = "x-rincon-mp3radio://ice2.somafm.com/groovesalad-128-aac"
+        zone.currentTrackURI = stream
+        zone = SonosTopology.applyMediaInfo(to: zone, data: mediaInfo(currentURI: stream))
+        XCTAssertEqual(zone.stationIdentityURI, stream)
+    }
+
+    func testMediaInfoWithoutACurrentURILeavesTheZoneAlone() {
+        var zone = testZone("Z1")
+        zone.currentTrackURI = "x-file-cifs://nas/a.flac"
+        let after = SonosTopology.applyMediaInfo(to: zone, data: Data("garbage".utf8))
+        XCTAssertEqual(after.currentStationURI, "")
+        XCTAssertEqual(after.stationIdentityURI, "x-file-cifs://nas/a.flac")
+    }
+
+    /// A topology refresh must not wipe it — same rule as every other transport fact.
+    func testMergePreservesTheLoadedURI() {
+        var live = testZone("Z1")
+        live = SonosTopology.applyMediaInfo(
+            to: live, data: mediaInfo(currentURI: "x-sonosapi-radio:sonos%3a158291"))
+        let fresh = SonosZone(id: "Z1", name: "Test Room", host: "10.0.0.9",
+                              isPlaying: false, volume: 20)
+        let merged = SonosTopology.merge(parsed: [fresh], into: [live])
+        XCTAssertEqual(merged.first?.currentStationURI, "x-sonosapi-radio:sonos%3a158291")
+    }
+
+    // MARK: - Per-service now-playing
+    //
+    // Sonos Radio leaves r:streamContent EMPTY and publishes the song, the artist and a
+    // per-track cover in the DIDL track metadata. iHeart and SomaFM do the opposite, and
+    // put a filename or a channel slug in dc:title — which is why reading dc:title
+    // globally once put "hls.m3u8" on a zone card. The service decides. Measured against
+    // the Office speaker 2026-08-13.
+
+    private func sonosRadioPosition(title: String = "My Hood",
+                                    creator: String = "RAY BLK",
+                                    art: String = "https://sonosradio.imgix.net/station-images/78208e79") -> Data {
+        Data("""
+        <?xml version="1.0"?><s:Envelope><s:Body><u:GetPositionInfoResponse>
+        <Track>1</Track><TrackDuration>0:00:00</TrackDuration>
+        <TrackMetaData>&lt;DIDL-Lite&gt;&lt;item&gt;&lt;dc:title&gt;\(title)&lt;/dc:title&gt;
+        &lt;dc:creator&gt;\(creator)&lt;/dc:creator&gt;
+        &lt;upnp:albumArtURI&gt;\(art)&lt;/upnp:albumArtURI&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</TrackMetaData>
+        <TrackURI>x-sonos-http:sonos%3a4375c80bc6059732560f2c94d4eaaa20-DZR%3a28</TrackURI>
+        <RelTime>0:01:23</RelTime></u:GetPositionInfoResponse></s:Body></s:Envelope>
+        """.utf8)
+    }
+
+    private func sonosRadioZone() -> SonosZone {
+        var zone = testZone("Z1")
+        zone.currentStationURI = "x-sonosapi-radio:sonos%3a158291?sid=303&flags=0&sn=1"
+        return zone
+    }
+
+    func testSonosRadioReportsTrackArtistAndPerTrackArt() {
+        let zone = SonosTopology.applyPositionInfo(to: sonosRadioZone(), data: sonosRadioPosition())
+        XCTAssertEqual(zone.currentTrack, "My Hood")
+        XCTAssertEqual(zone.currentArtist, "RAY BLK")
+        XCTAssertEqual(zone.currentTrackArtURL,
+                       "https://sonosradio.imgix.net/station-images/78208e79",
+                       "the per-song cover is the whole point — a station logo is a stand-in")
+    }
+
+    /// THE REGRESSION GUARD. dc:title for iHeart is the manifest filename.
+    func testStreamContentServicesStillIgnoreTrackMetadata() {
+        var zone = testZone("Z1")
+        zone.currentStationURI = "hls-radio://http://stream.revma.ihrhls.com/zc7934/hls.m3u8"
+        let data = Data("""
+        <?xml version="1.0"?><s:Envelope><s:Body><u:GetPositionInfoResponse>
+        <TrackMetaData>&lt;DIDL-Lite&gt;&lt;item&gt;&lt;dc:title&gt;hls.m3u8&lt;/dc:title&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</TrackMetaData>
+        <r:streamContent>TITLE Sweet Dreams|ARTIST Eurythmics</r:streamContent>
+        </u:GetPositionInfoResponse></s:Body></s:Envelope>
+        """.utf8)
+        let after = SonosTopology.applyPositionInfo(to: zone, data: data)
+        XCTAssertEqual(after.currentTrack, "Sweet Dreams", "must come from r:streamContent")
+        XCTAssertNotEqual(after.currentTrack, "hls.m3u8")
+        XCTAssertTrue(after.currentTrackArtURL.isEmpty, "iHeart publishes no per-track art")
+    }
+
+    /// A cover must not outlive the service that supplied it.
+    func testSwitchingToAStreamContentServiceClearsPerTrackArt() {
+        var zone = SonosTopology.applyPositionInfo(to: sonosRadioZone(), data: sonosRadioPosition())
+        XCTAssertFalse(zone.currentTrackArtURL.isEmpty)
+
+        zone.currentStationURI = "x-rincon-mp3radio://ice2.somafm.com/groovesalad-128-aac"
+        zone = SonosTopology.applyPositionInfo(to: zone, data: Data("""
+        <s:Envelope><s:Body><u:GetPositionInfoResponse>
+        <r:streamContent>Nine Inch Nails - La Mer</r:streamContent>
+        </u:GetPositionInfoResponse></s:Body></s:Envelope>
+        """.utf8))
+        XCTAssertTrue(zone.currentTrackArtURL.isEmpty,
+                      "Sonos Radio's cover must not survive onto a SomaFM stream")
+    }
+
+    /// Sonos reports an empty title between songs; blanking on that flickers the card.
+    func testAnEmptyTitleBetweenSongsHoldsThePreviousTrack() {
+        var zone = SonosTopology.applyPositionInfo(to: sonosRadioZone(), data: sonosRadioPosition())
+        zone = SonosTopology.applyPositionInfo(
+            to: zone, data: sonosRadioPosition(title: "", creator: "", art: ""))
+        XCTAssertEqual(zone.currentTrack, "My Hood")
+        XCTAssertEqual(zone.currentArtist, "RAY BLK")
+        XCTAssertTrue(zone.currentTrackArtURL.isEmpty,
+                      "artwork is NOT held — a cover outliving its song is worse than none")
+    }
+
+    func testMergePreservesPerTrackArt() {
+        let live = SonosTopology.applyPositionInfo(to: sonosRadioZone(), data: sonosRadioPosition())
+        let fresh = SonosZone(id: "Z1", name: "Test Room", host: "10.0.0.9",
+                              isPlaying: false, volume: 20)
+        let merged = SonosTopology.merge(parsed: [fresh], into: [live])
+        XCTAssertEqual(merged.first?.currentTrackArtURL,
+                       "https://sonosradio.imgix.net/station-images/78208e79")
+    }
+
+    // MARK: - Sonos Radio adapter
+
+    func testSonosRadioAdapterMatchesAcrossCaseAndFlags() {
+        let adapter = SonosRadioAdapter()
+        let stored = adapter.stationKey(for: "x-sonosapi-radio:sonos%3A158291?sid=303&flags=28780&sn=1")
+        let live   = adapter.stationKey(for: "x-sonosapi-radio:sonos%3a158291?sid=303&flags=0&sn=1")
+        XCTAssertEqual(stored, "158291")
+        XCTAssertEqual(stored, live, "case and flags differ for the same station — measured")
+    }
+
+    /// SiriusXM ALSO reports x-sonosapi-radio: URIs. Claiming them would make this adapter
+    /// answer for a service it knows nothing about.
+    func testSonosRadioAdapterDoesNotClaimSiriusXM() {
+        let adapter = SonosRadioAdapter()
+        XCTAssertNil(adapter.stationKey(
+            for: "x-sonosapi-radio:channel-xtra%3a282bae89-735a-c222-526d-d217cc615681?sid=37"))
+        XCTAssertNil(adapter.stationKey(
+            for: "x-sonosapi-stream:channel-linear%3A7a642de7-c33f-a628-efb2-3d94a829d17b?sid=37"))
+    }
+
+    func testNowPlayingSourceIsPerServiceAndDefaultsSafely() {
+        XCTAssertEqual(RadioServiceRegistry.nowPlayingSource(
+            forLoadedURI: "x-sonosapi-radio:sonos%3a158291?sid=303"), .trackMetadata)
+        XCTAssertEqual(RadioServiceRegistry.nowPlayingSource(
+            forLoadedURI: "hls-radio://http://stream.revma.ihrhls.com/zc7934/hls.m3u8"), .streamContent)
+        // An unclaimed URI keeps the behaviour that shipped, rather than a new guess.
+        XCTAssertEqual(RadioServiceRegistry.nowPlayingSource(
+            forLoadedURI: "x-sonosapi-hls:something-nobody-has-taught-us"), .streamContent)
+    }
+
     // testPositionInfoForAnUnknownZoneIsIgnored moved to ZoneServiceLookupTests on
     // 2026-08-08. It asserts on the zone LOOKUP, which stayed in ZoneDiscoveryService
     // when the parsing moved to SonosTopology — so it needs a live service and cannot

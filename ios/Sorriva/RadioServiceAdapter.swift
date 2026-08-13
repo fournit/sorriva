@@ -21,6 +21,34 @@ import Foundation
 // Adding a provider means writing one adapter and leaving every other service alone.
 // See engineering/radio-service-integration.md for the integration checklist.
 
+/// Where a service publishes the song playing right now.
+///
+/// There is no universal answer, and guessing produced three different meanings for one
+/// field. iHeart and SomaFM fill `r:streamContent` — a flat "TITLE x|ARTIST y" string —
+/// and put a filename or a channel slug in `dc:title`. Sonos Radio does the opposite:
+/// `r:streamContent` is absent entirely and the real song, artist and per-track artwork
+/// live in the DIDL track metadata. Reading `dc:title` globally is what once put
+/// "hls.m3u8" on a zone card; NOT reading it is why Sonos Radio showed no track at all.
+/// So the service decides, and a service nobody has taught us about keeps the old
+/// behaviour rather than a new guess.
+enum NowPlayingSource {
+    /// `r:streamContent`. No artwork — these services supply none per song.
+    case streamContent
+    /// `dc:title`, `dc:creator`, `upnp:albumArtURI` from the track metadata block.
+    case trackMetadata
+}
+
+/// The minimum a matcher needs to know about a stored station.
+///
+/// Declared here, and satisfied by the database's `Station`, so that this file stays
+/// clear of the database layer. The adapters are pure URI logic; naming the concrete
+/// GRDB record here would pull the whole persistence stack into the fast test package,
+/// which exists precisely to run without it.
+protocol StationLike {
+    var serviceId: String { get }
+    var streamURL: String? { get }
+}
+
 protocol RadioServiceAdapter {
     /// The `stations.serviceId` value this adapter owns.
     var source: String { get }
@@ -31,6 +59,14 @@ protocol RadioServiceAdapter {
     /// Must return the same key for every URI shape the service produces — the URI
     /// Sonos reports during playback and the URL we stored at browse time alike.
     func stationKey(for uri: String) -> String?
+
+    /// Where this service's now-playing comes from. Defaulted, so adding an adapter
+    /// does not force a decision about metadata before it has been measured.
+    var nowPlaying: NowPlayingSource { get }
+}
+
+extension RadioServiceAdapter {
+    var nowPlaying: NowPlayingSource { .streamContent }
 }
 
 // MARK: - Shared URI helpers
@@ -124,6 +160,46 @@ struct SomaFMAdapter: RadioServiceAdapter {
     }
 }
 
+// MARK: - Sonos Radio
+
+/// Sonos Radio, reached through the household's saved favorites.
+///
+/// Unlike iHeart and SomaFM, nothing here is an HTTP stream URL — there is no host and
+/// no path, so the shared `RadioURI` helpers do not apply. A station is a numeric id
+/// inside the scheme itself:
+///
+///     x-sonosapi-radio:sonos%3A158291?sid=303&flags=28780&sn=1   (stored favorite)
+///     x-sonosapi-radio:sonos%3a158291?sid=303&flags=0&sn=1       (reported at playback)
+///
+/// Measured 2026-08-13 on the Office speaker: those two forms differ in the case of the
+/// percent-encoded colon AND in `flags` (28780 vs 0), for the same station. Only the id
+/// is identity; everything after `?` is the account handle, which the speaker ignores.
+///
+/// THE PAYLOAD PREFIX IS LOAD-BEARING, not decoration. SiriusXM also reports `x-sonosapi-radio:` URIs,
+/// with a `channel-xtra%3a<uuid>` payload — so matching the scheme alone would make this
+/// adapter claim SiriusXM's streams and answer for a service it knows nothing about.
+struct SonosRadioAdapter: RadioServiceAdapter {
+    let source = "sonosradio"
+
+    /// Sonos Radio leaves `r:streamContent` empty and puts the song, the artist and a
+    /// per-track image in the track metadata instead. Verified against a live stream:
+    /// dc:title "My Hood", dc:creator "RAY BLK", art on sonosradio.imgix.net.
+    var nowPlaying: NowPlayingSource { .trackMetadata }
+
+    private static let scheme = "x-sonosapi-radio:"
+    private static let payloadPrefix = "sonos%3a"
+
+    func stationKey(for uri: String) -> String? {
+        let lower = uri.lowercased()
+        guard lower.hasPrefix(Self.scheme) else { return nil }
+        var body = String(lower.dropFirst(Self.scheme.count))
+        if let query = body.firstIndex(of: "?") { body = String(body[..<query]) }
+        guard body.hasPrefix(Self.payloadPrefix) else { return nil }
+        let id = String(body.dropFirst(Self.payloadPrefix.count))
+        return id.isEmpty ? nil : id
+    }
+}
+
 // MARK: - Registry
 
 enum RadioServiceRegistry {
@@ -132,7 +208,22 @@ enum RadioServiceRegistry {
     static let adapters: [RadioServiceAdapter] = [
         IHeartRadioAdapter(),
         SomaFMAdapter(),
+        SonosRadioAdapter(),
     ]
+
+    /// Where to read now-playing for whatever is LOADED on a zone.
+    ///
+    /// Asked of the loaded URI, never the track URI: for Sonos Radio the track URI is a
+    /// per-song `x-sonos-http:` address that identifies no service at all.
+    ///
+    /// Falls back to `r:streamContent` for anything unclaimed, so a service without an
+    /// adapter behaves exactly as it did before this existed.
+    static func nowPlayingSource(forLoadedURI uri: String) -> NowPlayingSource {
+        for adapter in adapters where adapter.stationKey(for: uri) != nil {
+            return adapter.nowPlaying
+        }
+        return .streamContent
+    }
 
     /// Which service owns this URI, and its station key within that service.
     static func identify(uri: String) -> (source: String, key: String)? {
@@ -149,7 +240,7 @@ enum RadioServiceRegistry {
     /// Both sides are reduced to canonical keys by the same adapter, so a mirror
     /// change, a different transport scheme, or a rotated session token cannot
     /// prevent a match — and two different stations cannot accidentally match.
-    static func matchStation(uri: String, in stations: [Station]) -> Station? {
+    static func matchStation<S: StationLike>(uri: String, in stations: [S]) -> S? {
         guard let (source, key) = identify(uri: uri),
               let adapter = adapters.first(where: { $0.source == source })
         else { return nil }

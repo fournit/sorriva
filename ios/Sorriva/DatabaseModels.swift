@@ -98,6 +98,10 @@ struct Device: Codable, FetchableRecord, PersistableRecord {
 // MARK: - Station
 // Radio station catalog — iHeart for now, source-agnostic schema.
 
+/// `StationLike` conformance is declared here rather than in RadioServiceAdapter.swift,
+/// which must stay free of the persistence layer — see the protocol's own note.
+extension Station: StationLike {}
+
 struct Station: Codable, FetchableRecord, PersistableRecord, Identifiable {
     static let databaseTableName = "stations"
 

@@ -40,8 +40,10 @@ struct SonosZone: Identifiable, Equatable {
         lhs.volume == rhs.volume &&
         lhs.currentTrack == rhs.currentTrack &&
         lhs.currentArtist == rhs.currentArtist &&
+        lhs.currentTrackArtURL == rhs.currentTrackArtURL &&
         lhs.isHDMI == rhs.isHDMI &&
         lhs.currentTrackURI == rhs.currentTrackURI &&
+        lhs.currentStationURI == rhs.currentStationURI &&
         lhs.elapsedSeconds == rhs.elapsedSeconds &&
         lhs.durationSeconds == rhs.durationSeconds &&
         lhs.idleState == rhs.idleState &&
@@ -63,8 +65,32 @@ struct SonosZone: Identifiable, Equatable {
     // construction rather than by vigilance.
     var currentTrack: String = ""
     var currentArtist: String = ""
+    /// Artwork for the SONG playing right now, when the service supplies one.
+    ///
+    /// Distinct from a station's logo, which is ours and lives in the stations table.
+    /// Sonos Radio and Spotify publish a cover per track; iHeart and SomaFM publish
+    /// none, and leave this empty. It outranks the station logo when present — a
+    /// station's logo is a stand-in for the artwork we could not get.
+    var currentTrackArtURL: String = ""
     var isHDMI: Bool = false        // TV/HDMI source — Arc/Beam specific
     var currentTrackURI: String = ""   // x-file-cifs URI — used by PlaybackContextService
+    /// WHAT IS LOADED, as opposed to which track is playing — Sonos's `CurrentURI` from
+    /// GetMediaInfo.
+    ///
+    /// For iHeart and SomaFM these are the same thing, which is why nothing needed this
+    /// until now. Sonos Radio reports a PER-TRACK `TrackURI`
+    /// (`x-sonos-http:sonos%3a4375c80b…`, different every song) while the station lives
+    /// only here (`x-sonosapi-radio:sonos%3a158291`). Matching a station against the
+    /// track URI therefore always missed, the no-blank rule held the previous content,
+    /// and a zone playing Brit Soul went on claiming Lost 80s indefinitely. Measured
+    /// 2026-08-13.
+    var currentStationURI: String = ""
+
+    /// What a station lookup should match on: the loaded thing if Sonos named one,
+    /// otherwise the track. Never use `currentTrackURI` directly for station identity.
+    var stationIdentityURI: String {
+        currentStationURI.isEmpty ? currentTrackURI : currentStationURI
+    }
     var elapsedSeconds: Int = 0        // Playback position from GetPositionInfo
     var durationSeconds: Int = 0       // Track duration from GetPositionInfo
     var idleState: Bool = false     // IdleState from topology — true = idle even if transport says PLAYING
@@ -238,7 +264,9 @@ enum SonosTopology {
             merged.volume          = prior.volume
             merged.currentTrack    = prior.currentTrack
             merged.currentArtist   = prior.currentArtist
+            merged.currentTrackArtURL = prior.currentTrackArtURL
             merged.currentTrackURI = prior.currentTrackURI
+            merged.currentStationURI = prior.currentStationURI
             merged.isHDMI          = prior.isHDMI
             merged.elapsedSeconds  = prior.elapsedSeconds
             merged.durationSeconds = prior.durationSeconds
@@ -338,6 +366,20 @@ enum SonosTopology {
         // song playing right now on a stream, which the app cannot know, and the reducer
         // reads it directly (bStationTrackFrozenByDeclaration).
 
+        // WHICH FIELD CARRIES THE SONG IS THE SERVICE'S DECISION, not a guess made here.
+        // The dc:title block below was deleted once precisely because reading it globally
+        // put "hls.m3u8" and "groovesalad-128-aac" on zone cards; it comes back gated on
+        // the service that is actually loaded, so iHeart and SomaFM keep using
+        // r:streamContent exactly as before. See RadioServiceRegistry.nowPlayingSource.
+        if case .trackMetadata =
+            RadioServiceRegistry.nowPlayingSource(forLoadedURI: zone.stationIdentityURI) {
+            return applyTrackMetadata(to: zone, decoded: decoded)
+        }
+
+        // Anything else: no per-track artwork exists, so a stale one must not survive a
+        // switch away from a service that had one.
+        zone.currentTrackArtURL = ""
+
         if let scStart = decoded.range(of: "<r:streamContent>"),
            let scEnd = decoded.range(of: "</r:streamContent>") {
             let content = String(decoded[scStart.upperBound..<scEnd.lowerBound])
@@ -371,6 +413,54 @@ enum SonosTopology {
             // If raw metadata detected, preserve last known track/artist (or clear if never set)
         }
 
+        return zone
+    }
+
+    /// GetMediaInfo response in, an updated zone out.
+    ///
+    /// Only `CurrentURI` is taken. The station NAME and ARTWORK also live in this
+    /// response and are deliberately ignored: the name is `dc:title`, which is a
+    /// filename for iHeart ("hls.m3u8") and a slug for SomaFM ("groovesalad-128-aac"),
+    /// and copying it into the zone is what produced three different meanings for one
+    /// field. Identity comes from here; naming comes from the stations table.
+    /// Now-playing for services that publish it in the DIDL track metadata rather than
+    /// in `r:streamContent` — Sonos Radio, and expected to cover Spotify.
+    ///
+    /// Each field is applied only when the speaker actually sent one. Sonos reports an
+    /// empty title in the gap between songs, and blanking on that would make the card
+    /// flicker once per track; holding the previous value is the same no-blank discipline
+    /// the streamContent path already uses.
+    private static func applyTrackMetadata(to zone: SonosZone, decoded: String) -> SonosZone {
+        var zone = zone
+        if let title = tagValue("dc:title", in: decoded), !title.isEmpty {
+            zone.currentTrack = title
+        }
+        if let artist = tagValue("dc:creator", in: decoded), !artist.isEmpty {
+            zone.currentArtist = artist
+        }
+        // Artwork is NOT held on a miss. A cover that outlives its song is worse than
+        // none: the station logo behind it is at least true of what is playing.
+        zone.currentTrackArtURL = tagValue("upnp:albumArtURI", in: decoded) ?? ""
+        return zone
+    }
+
+    private static func tagValue(_ name: String, in xml: String) -> String? {
+        guard let start = xml.range(of: "<\(name)>"),
+              let end = xml.range(of: "</\(name)>", range: start.upperBound..<xml.endIndex)
+        else { return nil }
+        return String(xml[start.upperBound..<end.lowerBound])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func applyMediaInfo(to zone: SonosZone, data: Data) -> SonosZone {
+        var zone = zone
+        guard let raw = String(data: data, encoding: .utf8) else { return zone }
+        guard let start = raw.range(of: "<CurrentURI>"),
+              let end = raw.range(of: "</CurrentURI>") else { return zone }
+        let uri = String(raw[start.upperBound..<end.lowerBound])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "&amp;", with: "&")
+        zone.currentStationURI = uri
         return zone
     }
 

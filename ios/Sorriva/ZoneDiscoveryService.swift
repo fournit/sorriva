@@ -503,6 +503,55 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             }
         }
 
+        // ORDER IS LOAD-BEARING: identity first, now-playing second.
+        // applyPositionInfo asks which service is loaded before deciding where the song
+        // title lives, so the loaded URI must already be on the zone when it runs. With
+        // the old order every metadata parse used the PREVIOUS poll's identity, which is
+        // wrong for exactly one poll after every station change.
+
+        // WHAT IS LOADED, which GetPositionInfo does not report. Sonos Radio and
+        // SiriusXM put a per-track URI in TrackURI and keep the station only in
+        // CurrentURI, so without this a station started from the Sonos app can never be
+        // identified and the no-blank rule holds whatever Sorriva last played.
+        //
+        // Fetched for playing zones, and for any zone that has never reported one — an
+        // idle zone's loaded URI does not change while it sits there, so re-asking every
+        // poll would double the traffic for nothing.
+        let needsMedia = zones.filter { $0.isPlaying || $0.currentStationURI.isEmpty }
+        let mediaResults: [(String, Data?)] = await withTaskGroup(of: (String, Data?).self) { group in
+            for zone in needsMedia {
+                let id = zone.id, host = zone.host
+                group.addTask { (id, await SonosCommands.fetchMediaData(host: host)) }
+            }
+            var collected: [(String, Data?)] = []
+            for await result in group { collected.append(result) }
+            return collected
+        }
+        for (id, data) in mediaResults {
+            guard let idx = zones.firstIndex(where: { $0.id == id }) else { continue }
+            // DIAGNOSTIC (fSonosRadioStationIdentity). This is the field every station
+            // lookup now matches on, and when it is empty the lookup silently falls back
+            // to the per-track URI — which for Sonos Radio and SiriusXM can never match a
+            // stored station. That failure is invisible downstream: the card simply keeps
+            // showing whatever played last, which is indistinguishable from the bug this
+            // was meant to fix. So both outcomes are logged at the point of truth.
+            //
+            // Logged on CHANGE, not every poll: a loaded URI changes when the listener
+            // changes station, roughly never, while the poll runs every 30s.
+            guard let data else {
+                sLog("ZONES: \(zones[idx].name) — GetMediaInfo returned nothing; "
+                   + "station identity falls back to the track URI")
+                continue
+            }
+            let before = zones[idx].currentStationURI
+            zones[idx] = SonosTopology.applyMediaInfo(to: zones[idx], data: data)
+            let after = zones[idx].currentStationURI
+            if after != before {
+                sLog("ZONES: \(zones[idx].name) loaded '\(after.isEmpty ? "(none reported)" : after)' "
+                   + "— track '\(zones[idx].currentTrackURI.prefix(70))'")
+            }
+        }
+
         // Fetch GetPositionInfo for ALL zones — playing AND idle
         // Idle zones need URI resolution to show last loaded content on launch
         let positionResults: [(String, Data)] = await withTaskGroup(of: (String, Data?).self) { group in

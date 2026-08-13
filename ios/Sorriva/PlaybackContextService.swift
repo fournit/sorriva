@@ -74,6 +74,12 @@ final class PlaybackContextService: ObservableObject {
     /// two zones can still race.
     private var resolvingStations: Set<String> = []
 
+    /// The per-track artwork each zone last reported, so the async station lookup does not
+    /// overwrite a live cover with the station logo when it completes. The lookup runs off
+    /// a zone id alone and cannot see the zone, and the logo is only ever a stand-in for
+    /// artwork we could not get.
+    private var trackArtByZone: [String: String] = [:]
+
     private var cancellables = Set<AnyCancellable>()
     private var observing = false
     private var previousZones: [String: SonosZone] = [:]
@@ -96,6 +102,7 @@ final class PlaybackContextService: ObservableObject {
     private func handleZoneUpdate(_ zones: [SonosZone]) {
         for zone in zones {
             let prev = previousZones[zone.id]
+            trackArtByZone[zone.id] = zone.currentTrackArtURL
 
             // Pure stateless derivation — no transition detection.
             // Derive context fresh from what Sonos reports right now.
@@ -114,29 +121,35 @@ final class PlaybackContextService: ObservableObject {
             }
 
             // Case 2: Idle with radio URI → show station
-            let uriIsRadio = !zone.currentTrackURI.isEmpty
-                && !zone.currentTrackURI.hasPrefix("x-rincon-queue:")
+            //
+            // Identity, not the track. A per-track URI never matches a station — see
+            // SonosZone.stationIdentityURI.
+            let uriIsRadio = !zone.stationIdentityURI.isEmpty
+                && !zone.stationIdentityURI.hasPrefix("x-rincon-queue:")
             if !zone.isPlaying && uriIsRadio {
                 // The URI is the only trigger now. This used to also watch stationName
                 // and stationLogoURL, which were raw poll fields on SonosZone; those are
                 // gone, and re-deriving on a URI change is the correct dependency anyway —
                 // a station's identity cannot change without its URI changing.
-                let uriChanged = zone.currentTrackURI != prev?.currentTrackURI
+                let uriChanged = zone.stationIdentityURI != prev?.stationIdentityURI
                 if uriChanged || contexts[zone.id] == nil {
-                    let display = stationDisplay(for: zone)
-                    // Don't clear an existing context when nothing resolved yet —
-                    // resolveStationFromURI patches it when the lookup completes, which
-                    // prevents a blank flash between transfer and DB lookup completion.
-                    if !display.name.isEmpty {
+                    switch stationResolution(for: zone) {
+                    case .resolved(let name, let art):
                         contexts[zone.id] = PlaybackContext(
-                            track: "",
-                            artist: "",
-                            albumName: display.name,
-                            duration: 0,
-                            artAlbum: nil,
-                            artURL: display.artURL.isEmpty ? nil : display.artURL,
-                            isLocal: false
-                        )
+                            track: "", artist: "", albumName: name, duration: 0,
+                            artAlbum: nil, artURL: art.isEmpty ? nil : art, isLocal: false)
+                    case .unidentified:
+                        // The speaker is parked on something real that we cannot name.
+                        // Saying so beats showing the last station this zone played.
+                        contexts[zone.id] = PlaybackContext(
+                            track: "", artist: "",
+                            albumName: unidentifiedLabel(for: zone.stationIdentityURI),
+                            duration: 0, artAlbum: nil, artURL: nil, isLocal: false)
+                    case .pending, .notAStation:
+                        // Nothing resolved YET. Hold what is on screen —
+                        // resolveStationFromURI patches it when the lookup lands, which
+                        // is what keeps a transfer from flashing blank.
+                        break
                     }
                 }
                 continue
@@ -148,25 +161,44 @@ final class PlaybackContextService: ObservableObject {
                 Date().timeIntervalSince($0) < 2.0
             } ?? false
             if zone.isPlaying && !inLocalGrace {
-                let display = stationDisplay(for: zone)
-                let displayStationName = display.name
-                let displayStationArt  = display.artURL
+                let existing = contexts[zone.id]
+                let stationName: String
+                let stationArt: String
+                switch stationResolution(for: zone) {
+                case .resolved(let name, let art):
+                    stationName = name
+                    stationArt  = art
+                case .unidentified:
+                    // What the speaker is playing is real; only its identity is missing.
+                    // The song, artist and cover below are still Sonos's and still true.
+                    stationName = unidentifiedLabel(for: zone.stationIdentityURI)
+                    stationArt  = ""
+                case .pending:
+                    stationName = existing?.albumName ?? ""
+                    stationArt  = existing?.artURL ?? ""
+                case .notAStation:
+                    stationName = ""
+                    stationArt  = ""
+                }
+
+                // THE STREAM OWNS NOW-PLAYING. A per-track cover outranks the station
+                // logo, which is only ever a stand-in for artwork we could not get.
+                let art = zone.currentTrackArtURL.isEmpty ? stationArt : zone.currentTrackArtURL
 
                 // Only overwrite if we have something meaningful to show
                 // Empty context during transition would wipe out good context
-                let hasContent = !zone.currentTrack.isEmpty || !displayStationName.isEmpty
+                let hasContent = !zone.currentTrack.isEmpty || !stationName.isEmpty
                 if hasContent {
                     contexts[zone.id] = PlaybackContext(
                         track: zone.currentTrack,
                         artist: zone.currentArtist,
-                        albumName: displayStationName,
+                        albumName: stationName,
                         duration: 0,
                         artAlbum: nil,
-                        artURL: displayStationArt.isEmpty ? nil : displayStationArt,
+                        artURL: art.isEmpty ? nil : art,
                         isLocal: false
                     )
-                } else {
-                    }
+                }
                 continue
             }
 
@@ -186,56 +218,76 @@ final class PlaybackContextService: ObservableObject {
 
     // MARK: - Station URI resolution
 
-    /// The station name and artwork to display for a zone, resolving it if not yet known.
-    ///
     /// Idle and playing zones ask the same question — "what station is this?" — so they
     /// must get the same answer. They used to have separate implementations that
-    /// disagreed: the idle one trusted Sonos's `dc:title` first and never consulted the
-    /// stations table when a name was present, and its fallback searched iHeart only. So
-    /// two zones parked on the same SomaFM stream displayed differently — one the curated
-    /// "Groove Salad", the other the raw slug "groovesalad-128-aac" — and every fix
-    /// applied to the playing path left the idle path broken.
+    /// disagreed: two zones parked on the same SomaFM stream displayed differently, one
+    /// the curated "Groove Salad" and the other the raw slug "groovesalad-128-aac", and
+    /// every fix applied to the playing path left the idle path broken. One function now.
     ///
-    /// Precedence: the stations table wins. Sonos's reported name is only a fallback,
-    /// because `dc:title` is whatever the stream advertises — a channel slug for SomaFM,
-    /// a filename ("hls.m3u8") for iHeart. And it counts as a fallback only while it
-    /// belongs to the URI Sonos is playing *now*: after a transfer brings new content to a
-    /// zone, the previous station's name lingers until a fresh one lands, and displaying
-    /// it would be simply wrong.
-    private func stationDisplay(for zone: SonosZone) -> (name: String, artURL: String) {
-        // Starts empty. There is no longer any raw-field fallback: SonosZone no longer
-        // carries stationName/stationLogoURL, so the stations table is the ONLY source of
-        // a station's identity. That fallback is what put "hls.m3u8" and
-        // "groovesalad-128-aac" on zone cards whenever the resolve cache missed — it made
-        // a cache miss look like a naming bug and hid the real one.
-        var name   = ""
-        var artURL = ""
+    /// Precedence: the stations table names a station, and nothing else does. SonosZone
+    /// no longer carries stationName/stationLogoURL — that raw-field fallback is what put
+    /// "hls.m3u8" on zone cards whenever the cache missed, making a cache miss look like a
+    /// naming bug and hiding the real one.
 
-        // `x-rincon:` (grouping) is excluded alongside queue and local URIs: it addresses
-        // a coordinator, not a stream, so it can never name a station. A transfer parks
-        // the destination on one for a couple of seconds while the zones are grouped, and
-        // asking the stations table about it only manufactures a miss.
-        let isRadioStream = !zone.currentTrackURI.isEmpty
-            && !zone.currentTrackURI.hasPrefix("x-rincon-queue:")
-            && !zone.currentTrackURI.hasPrefix("x-rincon:")
-            && !zone.currentTrackURI.hasPrefix("x-file-cifs://")
-        guard isRadioStream else { return (name, artURL) }
+    /// What Sorriva knows about the station on a zone — three distinct answers that used
+    /// to be collapsed into "a name, or the empty string".
+    ///
+    /// Collapsing them is what let the wrong content stay on screen. An empty name meant
+    /// both "still looking" and "looked, found nothing", so the only safe response was to
+    /// hold whatever was already there — which is correct for the first and wrong for the
+    /// second. Told apart, the second can say so.
+    enum StationResolution: Equatable {
+        /// Not a stream at all — a queue address, a group address, a local file.
+        case notAStation
+        /// A lookup has been started and has not come back. Hold the current display;
+        /// blanking here would flash on every station change.
+        case pending
+        /// Asked, and nothing in the library matches. The speaker is playing something
+        /// real that Sorriva cannot name — which is a fact worth showing, not hiding.
+        case unidentified
+        case resolved(name: String, artURL: String)
+    }
 
-        // The lookup runs for any radio URI and its result WINS, rather than being gated
-        // on Sonos having failed to supply something first. Gating on the validator's
-        // blind spots is whack-a-mole; the next service will invent another shape.
-        let key = normalizedStreamKey(zone.currentTrackURI)
-        let cached = resolvedStations[zone.id].flatMap { $0.uri == key ? $0 : nil }
-        if let cached, !cached.name.isEmpty {
-            name   = cached.name
-            artURL = cached.artURL ?? artURL
-        } else if cached == nil
-                    || Date().timeIntervalSince(cached!.at) >= Self.missRetryInterval {
-            // Unseen stream, or a miss old enough to be worth re-asking. Resolution is
-            // async and caches its own result, so this is a fire-and-forget nudge.
-            resolveStationFromURI(zone.currentTrackURI, zoneID: zone.id)
+    /// The station label for content Sorriva could not identify.
+    ///
+    /// Names the SERVICE when the URI belongs to one we know, because "Sonos Radio ·
+    /// Unknown" tells the listener where the audio is coming from and that we could not
+    /// name the channel, where a bare "Unknown" reads as a fault. A service with no
+    /// adapter yet — SiriusXM, Spotify — is honestly just Unknown.
+    private func unidentifiedLabel(for uri: String) -> String {
+        guard let source = RadioServiceRegistry.identify(uri: uri)?.source else { return "Unknown" }
+        let service = SorrivaDatabase.shared.serviceName(for: source)
+        return service == source ? "Unknown" : "\(service) · Unknown"
+    }
+
+    /// `x-rincon:` (grouping) is excluded alongside queue and local URIs: it addresses a
+    /// coordinator, not a stream, so it can never name a station. A transfer parks the
+    /// destination on one for a couple of seconds, and asking the stations table about
+    /// it only manufactures a miss.
+    private func stationResolution(for zone: SonosZone) -> StationResolution {
+        let identity = zone.stationIdentityURI
+        let isRadioStream = !identity.isEmpty
+            && !identity.hasPrefix("x-rincon-queue:")
+            && !identity.hasPrefix("x-rincon:")
+            && !identity.hasPrefix("x-file-cifs://")
+        guard isRadioStream else { return .notAStation }
+
+        let key = normalizedStreamKey(identity)
+        guard let cached = resolvedStations[zone.id], cached.uri == key else {
+            resolveStationFromURI(identity, zoneID: zone.id)
+            return .pending
         }
-        return (name, artURL)
+        if !cached.name.isEmpty {
+            return .resolved(name: cached.name, artURL: cached.artURL ?? "")
+        }
+        // A cached miss. Re-ask periodically — a station can be imported while it plays,
+        // which is exactly how Brit Soul corrected itself — but keep REPORTING
+        // unidentified while that runs. Flipping back to `.pending` on the retry would
+        // make the label oscillate between "Unknown" and the previous station every 30s.
+        if Date().timeIntervalSince(cached.at) >= Self.missRetryInterval {
+            resolveStationFromURI(identity, zoneID: zone.id)
+        }
+        return .unidentified
     }
 
     /// Reduce a stream URI to a stable identity for matching and caching.
@@ -343,7 +395,9 @@ final class PlaybackContextService: ObservableObject {
                 duration: 0, artAlbum: nil, artURL: nil, isLocal: false
             )
             current.albumName = station.name
-            current.artURL    = station.logoURL
+            // The song's own cover wins over the station logo, same rule as the poll path.
+            let liveArt = self.trackArtByZone[zoneID] ?? ""
+            current.artURL    = liveArt.isEmpty ? station.logoURL : liveArt
             current.artAlbum  = nil
             current.isLocal   = false
             self.contexts[zoneID] = current
