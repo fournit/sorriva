@@ -122,6 +122,38 @@ holding stale content the only safe response.
 
 ---
 
+## 2d. Queue-based services are identified by their TRACK URI
+
+Added 2026-08-16 (`fSpotifyNowPlaying`). Sections 2a–2c assume the loaded URI names a
+service. Spotify breaks that: a favorite is a **container**, and playing it expands into
+the Sonos queue, so what is loaded afterwards is
+
+```
+x-rincon-queue:RINCON_804AF2A73E9901400#0
+```
+
+— an address naming no service at all. Asking only the loaded URI meant Spotify fell
+through to `r:streamContent`, which it leaves **empty**, so the card showed nothing.
+
+**The rule:** ask the loaded URI first, and only when no adapter claims it, ask the track
+URI. Order matters — a station that IS identified must not be overridden by its own
+per-song address.
+
+Local albums also play from the queue. Nothing claims `x-file-cifs://`, so they keep the
+path they have always had. Any new adapter must not claim it either.
+
+## 2e. Artwork may be served by the speaker, not the service
+
+| Service | `upnp:albumArtURI` |
+|---|---|
+| Sonos Radio | `https://sonosradio.imgix.net/…` — absolute |
+| Spotify | `/getaa?s=1&u=x-sonos-spotify%3a…` — **relative**, served by the speaker on :1400 |
+
+Resolve relative paths against `http://<speaker-host>:1400`. Left alone it renders as a
+broken image, which reads as a metadata bug and sends you looking in the wrong place.
+
+---
+
 ## 3. URI schemes differ by who started playback
 
 The *same station* arrives under different schemes depending on origin:

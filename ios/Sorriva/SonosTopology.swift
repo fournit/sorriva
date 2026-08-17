@@ -371,8 +371,8 @@ enum SonosTopology {
         // put "hls.m3u8" and "groovesalad-128-aac" on zone cards; it comes back gated on
         // the service that is actually loaded, so iHeart and SomaFM keep using
         // r:streamContent exactly as before. See RadioServiceRegistry.nowPlayingSource.
-        if case .trackMetadata =
-            RadioServiceRegistry.nowPlayingSource(forLoadedURI: zone.stationIdentityURI) {
+        if case .trackMetadata = RadioServiceRegistry.nowPlayingSource(
+            forLoadedURI: zone.stationIdentityURI, trackURI: zone.currentTrackURI) {
             return applyTrackMetadata(to: zone, decoded: decoded)
         }
 
@@ -440,8 +440,22 @@ enum SonosTopology {
         }
         // Artwork is NOT held on a miss. A cover that outlives its song is worse than
         // none: the station logo behind it is at least true of what is playing.
-        zone.currentTrackArtURL = tagValue("upnp:albumArtURI", in: decoded) ?? ""
+        zone.currentTrackArtURL = absoluteArtURL(tagValue("upnp:albumArtURI", in: decoded) ?? "",
+                                                 host: zone.host)
         return zone
+    }
+
+    /// Cover art may be served by the SPEAKER rather than by the service.
+    ///
+    /// Sonos Radio returns an absolute URL (sonosradio.imgix.net). Spotify returns a
+    /// RELATIVE path — `/getaa?s=1&u=x-sonos-spotify%3a…` — which the speaker serves
+    /// itself on port 1400. Measured on Patio 2026-08-16. Left relative it is simply a
+    /// broken image, and one that would look like a metadata bug rather than a URL bug.
+    private static func absoluteArtURL(_ raw: String, host: String) -> String {
+        guard !raw.isEmpty else { return "" }
+        guard raw.hasPrefix("/") else { return raw }
+        guard !host.isEmpty else { return "" }
+        return "http://\(host):1400\(raw)"
     }
 
     private static func tagValue(_ name: String, in xml: String) -> String? {

@@ -538,6 +538,94 @@ final class ZonePollingTests: XCTestCase {
             forLoadedURI: "x-sonosapi-hls:something-nobody-has-taught-us"), .streamContent)
     }
 
+    // MARK: - Spotify
+    //
+    // Spotify is the first service that is not a stream. A favorite is a CONTAINER that
+    // expands into the Sonos queue, so what is LOADED afterwards is x-rincon-queue: —
+    // an address naming no service. Asking only the loaded URI meant Spotify fell through
+    // to r:streamContent, which it leaves EMPTY, so the card showed no song at all.
+    // Captured from Patio 2026-08-16.
+
+    private func spotifyPosition() -> Data {
+        Data("""
+        <?xml version="1.0"?><s:Envelope><s:Body><u:GetPositionInfoResponse>
+        <Track>2</Track><TrackDuration>0:04:53</TrackDuration>
+        <TrackMetaData>&lt;DIDL-Lite&gt;&lt;item&gt;
+        &lt;r:streamContent&gt;&lt;/r:streamContent&gt;
+        &lt;upnp:albumArtURI&gt;/getaa?s=1&amp;amp;u=x-sonos-spotify%3aspotify%253atrack%253a7J1uxwnxfQLu4APicE5Rnj&lt;/upnp:albumArtURI&gt;
+        &lt;dc:title&gt;Billie Jean&lt;/dc:title&gt;&lt;dc:creator&gt;Michael Jackson&lt;/dc:creator&gt;
+        &lt;upnp:album&gt;Thriller&lt;/upnp:album&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</TrackMetaData>
+        <TrackURI>x-sonos-spotify:spotify%3atrack%3a7J1uxwnxfQLu4APicE5Rnj?sid=12&amp;flags=8232&amp;sn=2</TrackURI>
+        <RelTime>0:03:05</RelTime></u:GetPositionInfoResponse></s:Body></s:Envelope>
+        """.utf8)
+    }
+
+    private func spotifyZone() -> SonosZone {
+        // host matters here: Spotify's cover is resolved against the speaker.
+        var zone = SonosZone(id: "Z1", name: "Test Room", host: "192.168.1.194",
+                             isPlaying: true, volume: 20)
+        zone.currentStationURI = "x-rincon-queue:RINCON_804AF2A73E9901400#0"
+        zone.currentTrackURI = "x-sonos-spotify:spotify%3atrack%3a7J1uxwnxfQLu4APicE5Rnj?sid=12"
+        return zone
+    }
+
+    func testSpotifyReportsTrackArtistFromTheTrackBlock() {
+        let zone = SonosTopology.applyPositionInfo(to: spotifyZone(), data: spotifyPosition())
+        XCTAssertEqual(zone.currentTrack, "Billie Jean")
+        XCTAssertEqual(zone.currentArtist, "Michael Jackson")
+    }
+
+    /// Spotify's cover is served by the SPEAKER, not the service — a relative path.
+    /// Left relative it is a broken image that looks like a metadata bug.
+    func testSpotifyRelativeArtIsResolvedAgainstTheSpeaker() {
+        let zone = SonosTopology.applyPositionInfo(to: spotifyZone(), data: spotifyPosition())
+        XCTAssertTrue(zone.currentTrackArtURL.hasPrefix("http://192.168.1.194:1400/getaa?"),
+                      "got \(zone.currentTrackArtURL)")
+    }
+
+    /// Sonos Radio's art is already absolute and must not be rewritten.
+    func testAbsoluteArtIsLeftAlone() {
+        let zone = SonosTopology.applyPositionInfo(to: sonosRadioZone(), data: sonosRadioPosition())
+        XCTAssertEqual(zone.currentTrackArtURL,
+                       "https://sonosradio.imgix.net/station-images/78208e79")
+    }
+
+    /// THE ROUTING RULE. The loaded URI wins; the track URI is only consulted when no
+    /// adapter claims what is loaded.
+    func testQueueContentIsIdentifiedByItsTrackURI() {
+        XCTAssertEqual(RadioServiceRegistry.nowPlayingSource(
+            forLoadedURI: "x-rincon-queue:RINCON_804AF2A73E9901400#0",
+            trackURI: "x-sonos-spotify:spotify%3atrack%3a7J1uxwnxfQLu4APicE5Rnj?sid=12"),
+            .trackMetadata)
+    }
+
+    /// Local albums play from the queue too. Nothing claims x-file-cifs://, so local
+    /// playback keeps the path it has always had.
+    func testLocalQueuePlaybackIsUnaffectedByTheTrackURIFallback() {
+        XCTAssertEqual(RadioServiceRegistry.nowPlayingSource(
+            forLoadedURI: "x-rincon-queue:RINCON_804AF2A73E9901400#0",
+            trackURI: "x-file-cifs://nas/Music/track.flac"),
+            .streamContent)
+    }
+
+    /// The fallback must not let a track URI override a station that IS identified.
+    func testTheLoadedURIOutranksTheTrackURI() {
+        XCTAssertEqual(RadioServiceRegistry.nowPlayingSource(
+            forLoadedURI: "hls-radio://http://stream.revma.ihrhls.com/zc7934/hls.m3u8",
+            trackURI: "x-sonos-spotify:spotify%3atrack%3aabc"),
+            .streamContent, "iHeart is loaded — its own field choice wins")
+    }
+
+    func testSpotifyAdapterClaimsBothTrackAndPlaylistShapes() {
+        let a = SpotifyAdapter()
+        XCTAssertEqual(a.stationKey(for: "x-sonos-spotify:spotify%3atrack%3a7J1uxwnxfQ?sid=12"),
+                       "7j1uxwnxfq")
+        XCTAssertEqual(a.stationKey(for: "x-rincon-cpcontainer:1006206cspotify%3Aplaylist%3A37i9dQZ?sid=12"),
+                       "37i9dqz")
+        XCTAssertNil(a.stationKey(for: "x-file-cifs://nas/Music/track.flac"))
+        XCTAssertNil(a.stationKey(for: "x-sonosapi-radio:sonos%3a158291?sid=303"))
+    }
+
     // testPositionInfoForAnUnknownZoneIsIgnored moved to ZoneServiceLookupTests on
     // 2026-08-08. It asserts on the zone LOOKUP, which stayed in ZoneDiscoveryService
     // when the parsing moved to SonosTopology — so it needs a live service and cannot

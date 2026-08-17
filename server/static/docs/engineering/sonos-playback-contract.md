@@ -496,3 +496,44 @@ demonstrated favorites playing on 2026-08-10 escaped the metadata; the app did n
 Same URI, same speaker, same household — one played and one did not, and the only
 difference was four `replacingOccurrences` calls. When a capability is proven with
 `tools/sonos.py`, the remaining question is never whether Sonos accepts it.
+
+---
+
+## 12. What a zone is playing — the fields, and which are event-only
+
+Measured 2026-08-16 on Patio (192.168.1.194). Section 11 covers *starting* favorites;
+this covers *reading back* what is playing, which is a different set of fields.
+
+**`GetPositionInfo`** — the track. `TrackURI`, and `TrackMetaData` carrying `dc:title`,
+`dc:creator`, `upnp:album`, `upnp:albumArtURI`. Which of these holds the song is
+per-service; see `radio-service-integration.md` §2a.
+
+**`GetMediaInfo`** — what is loaded. `CurrentURI` is the STATION for stream services and
+the QUEUE for container services. For Sonos Radio the two differ every song, which is why
+station lookups must never match on `TrackURI`.
+
+**`r:EnqueuedTransportURI` and `r:EnqueuedTransportURIMetaData` — EVENT ONLY.** These
+carry the URI *originally handed to the speaker* and the metadata that came with it, and
+they are the only place a queue's origin survives:
+
+```
+r:EnqueuedTransportURI
+  x-rincon-cpcontainer:1006206cspotify%3Aplaylist%3A37i9dQZF1DX3jWba5xiDhV?sid=12&…
+r:EnqueuedTransportURIMetaData
+  <dc:title>Italo Disco</dc:title>
+  <upnp:class>object.container.playlistContainer</upnp:class>
+```
+
+**There is no getter.** The speaker's own `AVTransport1.xml` lists 42 actions and none
+returns them; `GetMediaInfo` reports `CurrentURI=x-rincon-queue:…#0` with
+`CurrentURIMetaData` **empty**. They appear only in the `LastChange` event, which is how
+the Sonos app names a playlist it did not start. Reaching them requires a GENA SUBSCRIBE
+— see `fSonosEventSubscriptions`.
+
+Two parsing traps when you do subscribe: Sonos's own variables are **`r:`-prefixed** in
+`LastChange`, and the `val=` attributes are entity-encoded **twice**.
+
+**Why this matters beyond Spotify:** the enqueued URI is the favorite Sorriva imported, so
+it identifies content the playback URI cannot. That is the standing candidate for
+SiriusXM, whose stored `x-sonosapi-stream:channel-linear:…` and playing
+`x-sonosapi-hls:channel-linear:…` share no key today.

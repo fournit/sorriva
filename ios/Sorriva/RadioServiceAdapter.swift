@@ -200,6 +200,45 @@ struct SonosRadioAdapter: RadioServiceAdapter {
     }
 }
 
+// MARK: - Spotify
+
+/// Spotify, reached through the household's saved favorites.
+///
+/// THE ONLY SERVICE SO FAR THAT IS NOT A STREAM. A Spotify favorite is a CONTAINER
+/// (`x-rincon-cpcontainer:…spotify%3Aplaylist%3A…`) which expands into the Sonos queue
+/// when played, so what is LOADED afterwards is `x-rincon-queue:RINCON_…#0` — an address
+/// naming no service at all. The per-song URI is the only thing left that identifies
+/// Spotify, which is why the registry falls back to the track URI below.
+///
+/// Measured on Patio 2026-08-16:
+///
+///     TrackURI  x-sonos-spotify:spotify%3atrack%3a7J1uxwnxfQLu4APicE5Rnj?sid=12&…
+///     favorite  x-rincon-cpcontainer:1006206cspotify%3Aplaylist%3A37i9dQZF1DZ06evNZZ5dTG?…
+///
+/// Both shapes are claimed. The track id is the identity for now-playing; the playlist id
+/// is what a stored favorite matches on.
+struct SpotifyAdapter: RadioServiceAdapter {
+    let source = "spotify"
+
+    /// `r:streamContent` is present but EMPTY; the song, artist, album and cover are all
+    /// in the track metadata block. Measured: dc:title "Billie Jean", dc:creator
+    /// "Michael Jackson", upnp:album "Thriller".
+    var nowPlaying: NowPlayingSource { .trackMetadata }
+
+    func stationKey(for uri: String) -> String? {
+        let lower = uri.lowercased()
+        guard lower.contains("spotify") else { return nil }
+        var body = lower
+        if let query = body.firstIndex(of: "?") { body = String(body[..<query]) }
+        // The id follows the last encoded colon, whether the payload is a track or a
+        // playlist and however many times it has been percent-encoded (a container's
+        // albumArtURI nests the encoding twice).
+        guard let marker = body.range(of: "%3a", options: .backwards) else { return nil }
+        let id = String(body[marker.upperBound...])
+        return id.isEmpty ? nil : id
+    }
+}
+
 // MARK: - Registry
 
 enum RadioServiceRegistry {
@@ -209,17 +248,28 @@ enum RadioServiceRegistry {
         IHeartRadioAdapter(),
         SomaFMAdapter(),
         SonosRadioAdapter(),
+        SpotifyAdapter(),
     ]
 
-    /// Where to read now-playing for whatever is LOADED on a zone.
+    /// Where to read now-playing for what a zone is currently playing.
     ///
-    /// Asked of the loaded URI, never the track URI: for Sonos Radio the track URI is a
-    /// per-song `x-sonos-http:` address that identifies no service at all.
+    /// THE LOADED URI IS ASKED FIRST because it is the station, and for Sonos Radio the
+    /// track URI is a per-song `x-sonos-http:` address identifying no service at all.
+    ///
+    /// THE TRACK URI IS THE FALLBACK, for queue-based content. A Spotify playlist expands
+    /// into the queue, leaving `x-rincon-queue:RINCON_…#0` loaded — which names no
+    /// service, so asking only the loaded URI meant Spotify silently read `r:streamContent`
+    /// and showed no song at all. Local files also play from the queue, and their
+    /// `x-file-cifs://` track URI is claimed by nobody, so they keep the shipped path.
     ///
     /// Falls back to `r:streamContent` for anything unclaimed, so a service without an
     /// adapter behaves exactly as it did before this existed.
-    static func nowPlayingSource(forLoadedURI uri: String) -> NowPlayingSource {
-        for adapter in adapters where adapter.stationKey(for: uri) != nil {
+    static func nowPlayingSource(forLoadedURI loaded: String,
+                                 trackURI: String = "") -> NowPlayingSource {
+        for adapter in adapters where adapter.stationKey(for: loaded) != nil {
+            return adapter.nowPlaying
+        }
+        for adapter in adapters where !trackURI.isEmpty && adapter.stationKey(for: trackURI) != nil {
             return adapter.nowPlaying
         }
         return .streamContent

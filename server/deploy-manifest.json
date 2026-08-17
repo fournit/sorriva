@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.74 — a zone reports what Sonos is playing, or says Unknown",
-  "version": "0.0.74",
+  "message": "v0.0.75 — Spotify tells you what song is playing",
+  "version": "0.0.75",
   "db_migrate": false
 }
