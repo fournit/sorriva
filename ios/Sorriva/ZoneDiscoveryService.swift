@@ -82,6 +82,9 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
     //
     // Both are now established once in init().
     private var observersRegistered = false
+    /// When the app last came back to the foreground. Used only to keep the slow-pass
+    /// warning honest — a pass that spanned a suspension measured sleep, not work.
+    private var lastResumedAt = Date()
     private var lastPathSatisfied: Bool? = nil
     private var lastDiscoveryRestart: Date? = nil
     private let discoveryRestartFloor: TimeInterval = 10.0
@@ -167,6 +170,12 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         ) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in
+                // Stamped BEFORE the refresh: iOS freezes a backgrounded process
+                // mid-await, so a poll pass that straddles a suspension measures the
+                // sleep, not the work. Without this the slow-pass warning fired at 25s
+                // every time the app was put down and picked up — crying wolf in exactly
+                // the log we read to find the real thing.
+                self.lastResumedAt = Date()
                 // Use handleNetworkRestored which correctly distinguishes
                 // empty zones (full restart) from known zones (lightweight refresh)
                 self.handleNetworkRestored()
@@ -198,7 +207,21 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                     }
                     return
                 }
-                guard self.lastPathSatisfied != true else { return }
+                // RESTORATION IS DEFINED BY HISTORY, and at launch there is none.
+                //
+                // `lastPathSatisfied` is nil until the first callback arrives, and `nil
+                // != true` is true — so the very first satisfied path was read as a
+                // network that had just come back, on every single cold start. It then
+                // called handleNetworkRestored, which threw away the healthy poll
+                // discovery had just started and began a new one. Usually harmless;
+                // occasionally the replacement never ran, and every zone froze until
+                // relaunch (bPollGoesSilentAfterForegroundRestart).
+                //
+                // A network cannot be RESTORED unless it was previously seen DOWN. So
+                // only false — an observed loss — is a transition. nil means "first
+                // look, nothing to compare against": record it via the defer above and
+                // do nothing else.
+                guard self.lastPathSatisfied == false else { return }
                 sLog("ZONES: Network became reachable — triggering rediscovery")
                 self.handleNetworkRestored()
             }
@@ -243,6 +266,11 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         serviceBrowser = nil
         pendingServices.forEach { $0.stop() }
         pendingServices = []
+        // DIAGNOSTIC (bPollGoesSilentAfterForegroundRestart). stopDiscovery and
+        // startPolling both own this handle, and a stop landing last leaves no poll at
+        // all — silently, because nothing here has ever said so. If the heartbeat below
+        // stops and this line is the last thing before the silence, that is the answer.
+        if refreshTask != nil { sLog("POLL: cancelled by stopDiscovery") }
         refreshTask?.cancel()
         refreshTask = nil
         isDiscovering = false
@@ -681,11 +709,32 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
     // this was a SOAP round trip per zone in exchange for data that had to be defended
     // against downstream.
 
+    /// How long a single transport pass may take before it is worth saying so.
+    ///
+    /// Generous on purpose: 9 zones × 4 SOAP calls, each with its own timeout, is
+    /// normally well under a second. Anything past this is not slow, it is stuck, and a
+    /// stuck pass is invisible from outside — the loop simply never comes round again.
+    private static let slowPollWarning: TimeInterval = 10
+
+    /// How often the loop says it is alive. One line per 30s while polling.
+    private static let heartbeatInterval: TimeInterval = 30
+
     private func startPolling() {
+        // DIAGNOSTIC (bPollGoesSilentAfterForegroundRestart). Everything that touches
+        // refreshTask runs on the main actor, so these calls serialise rather than race —
+        // but which of them ran last, and whether a live task was replaced, has never
+        // been visible. On 2026-08-16 two of these landed six seconds apart and the poll
+        // was never heard from again.
+        sLog("POLL: starting\(refreshTask == nil ? "" : " — replacing a live task")")
         refreshTask?.cancel()
         var pollCount = 0
         var consecutiveFailures = 0
+        var lastHeartbeat = Date.distantPast
         refreshTask = Task {
+            // DIAGNOSTIC. "Never started" and "started and was cancelled immediately" are
+            // different bugs with different fixes, and from outside they look identical:
+            // no heartbeat either way. These two lines tell them apart.
+            sLog("POLL: task entered (cancelled at entry: \(Task.isCancelled))")
             while !Task.isCancelled {
                 let hasPlaying = zones.contains { $0.isPlaying && !$0.idleState }
                 let backingOff = consecutiveFailures >= 3
@@ -693,8 +742,31 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                                        : hasPlaying  ?  2_000_000_000
                                        :                 5_000_000_000
                 try? await Task.sleep(nanoseconds: intervalNs)
-                guard !Task.isCancelled else { break }
+                guard !Task.isCancelled else {
+                    sLog("POLL: exiting — cancelled during the \(intervalNs / 1_000_000_000)s sleep")
+                    break
+                }
+
+                // Heartbeat BEFORE the fetch, so a pass that never returns still leaves
+                // evidence that the loop reached it. Logging only afterwards would make a
+                // stuck fetch and a dead loop look identical, which is the exact
+                // ambiguity this exists to remove.
+                if Date().timeIntervalSince(lastHeartbeat) >= Self.heartbeatInterval {
+                    lastHeartbeat = Date()
+                    sLog("POLL: alive — \(zones.count) zone(s), "
+                       + "\(zones.filter(\.isPlaying).count) playing, interval \(intervalNs / 1_000_000_000)s")
+                }
+
+                let passStarted = Date()
                 await fetchTransportStates()
+                let elapsed = Date().timeIntervalSince(passStarted)
+                // Only a pass that ran entirely while the app was awake says anything
+                // about a stuck call. If we resumed after this pass began, the clock was
+                // measuring a suspension.
+                if elapsed >= Self.slowPollWarning, passStarted > lastResumedAt {
+                    sLog("POLL: transport pass took \(Int(elapsed))s — a call is not "
+                       + "returning; the loop cannot come round until it does")
+                }
                 if zones.isEmpty { consecutiveFailures += 1 } else { consecutiveFailures = 0 }
                 pollCount += 1
                 // Lightweight IdleState refresh every 15s
@@ -708,6 +780,9 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                     }
                 }
             }
+            // Reached only by the while-condition going false, i.e. cancellation observed
+            // at the top of an iteration rather than during the sleep.
+            sLog("POLL: loop ended (cancelled: \(Task.isCancelled))")
         }
     }
 

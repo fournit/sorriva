@@ -626,6 +626,171 @@ final class ZonePollingTests: XCTestCase {
         XCTAssertNil(a.stationKey(for: "x-sonosapi-radio:sonos%3a158291?sid=303"))
     }
 
+    // MARK: - SiriusXM
+    //
+    // One channel arrives under two unrelated identifiers depending on who started it.
+    // All three shapes captured from live speakers 2026-08-17.
+
+    private struct FakeStation: StationLike {
+        var serviceId: String
+        var streamURL: String?
+        var name: String
+    }
+
+    private let sxmStored = "x-sonosapi-stream:channel-linear%3A65f04311-3581-256c-97b9-279838d6ff5e?sid=37&flags=8260&sn=3"
+    private let sxmPlaying = "x-sonosapi-hls:channel-linear%3a65f04311-3581-256c-97b9-279838d6ff5e?sid=37&flags=8200&sn=4"
+    private let sxmAlexa = "hls-radio://https://live-ftc-prod-device.streaming.siriusxm.com/v1/763a31_1786065831/sec-0/AAC_Audio/classicrewind/classicrewind_variant_short_v4.m3u8"
+
+    /// THE FIX. Stored and playing differ by scheme, by the case of the encoded colon,
+    /// and by the account handle — and are the same channel.
+    func testSiriusXMChannelSurvivesTheSchemeChange() {
+        let a = SiriusXMAdapter()
+        XCTAssertEqual(a.stationKey(for: sxmStored), a.stationKey(for: sxmPlaying))
+        XCTAssertEqual(a.stationKey(for: sxmStored),
+                       "channel-linear:65f04311-3581-256c-97b9-279838d6ff5e")
+    }
+
+    func testSiriusXMMatchesAFavoriteStartedChannel() {
+        let station = FakeStation(serviceId: "siriusxm", streamURL: sxmStored, name: "1st Wave")
+        XCTAssertNotNil(RadioServiceRegistry.matchStation(uri: sxmPlaying, in: [station]))
+    }
+
+    /// Alexa hands the speaker a raw stream with NO channel id — only a slug in the path.
+    /// Matched against the station name instead, which is why the channel-number prefix
+    /// has to come off at import.
+    func testSiriusXMMatchesAnAlexaStartedStreamByName() {
+        let station = FakeStation(serviceId: "siriusxm",
+                                  streamURL: "x-sonosapi-stream:channel-linear%3A7a642de7-c33f?sid=37",
+                                  name: "Classic Rewind")
+        XCTAssertNotNil(RadioServiceRegistry.matchStation(uri: sxmAlexa, in: [station]),
+                        "slug 'classicrewind' should match the station name")
+
+        let prefixed = FakeStation(serviceId: "siriusxm",
+                                   streamURL: station.streamURL,
+                                   name: "CH 25 - Classic Rewind")
+        XCTAssertNil(RadioServiceRegistry.matchStation(uri: sxmAlexa, in: [prefixed]),
+                     "with the channel number still attached the name match cannot work")
+    }
+
+    /// The slug tier must not reach past its own service.
+    func testSiriusXMDoesNotClaimOtherServices() {
+        let a = SiriusXMAdapter()
+        XCTAssertNil(a.stationKey(for: "x-sonosapi-radio:sonos%3a158291?sid=303"))
+        XCTAssertNil(a.stationKey(for: "x-sonos-spotify:spotify%3atrack%3aabc?sid=12"))
+        XCTAssertNil(a.slug(for: "hls-radio://http://stream.revma.ihrhls.com/zc7934/hls.m3u8"))
+
+        let iheart = FakeStation(serviceId: "iheart",
+                                 streamURL: "hls-radio://http://stream.revma.ihrhls.com/zc7934/hls.m3u8",
+                                 name: "Classic Rewind")
+        XCTAssertNil(RadioServiceRegistry.matchStation(uri: sxmAlexa, in: [iheart]),
+                     "a same-named station on another service must not be claimed")
+    }
+
+    /// SiriusXM splits what every other service keeps together: the song text is in
+    /// r:streamContent and the COVER is in upnp:albumArtURI. Modelling those as one
+    /// choice meant picking streamContent and silently losing the artwork. Captured from
+    /// Garage playing 1st Wave, 2026-08-17.
+    func testSiriusXMTakesTextFromStreamContentAndArtFromTheMetadata() {
+        var zone = SonosZone(id: "Z1", name: "Garage", host: "192.168.1.137",
+                             isPlaying: true, volume: 0)
+        zone.currentStationURI = sxmPlaying
+        let data = Data("""
+        <?xml version="1.0"?><s:Envelope><s:Body><u:GetPositionInfoResponse>
+        <TrackMetaData>&lt;DIDL-Lite&gt;&lt;item&gt;
+        &lt;r:streamContent&gt;TYPE=SNG|TITLE No New Tale To Tell|ARTIST Love &amp;amp; Rockets|ALBUM Earth, Sun, Moon&lt;/r:streamContent&gt;
+        &lt;upnp:albumArtURI&gt;http://albumart.siriusxm.com/albumart/0130/WBCALT_NDCA-000099327-001_m.jpg&lt;/upnp:albumArtURI&gt;
+        &lt;/item&gt;&lt;/DIDL-Lite&gt;</TrackMetaData>
+        </u:GetPositionInfoResponse></s:Body></s:Envelope>
+        """.utf8)
+        zone = SonosTopology.applyPositionInfo(to: zone, data: data)
+        XCTAssertEqual(zone.currentTrack, "No New Tale To Tell", "text from r:streamContent")
+        XCTAssertEqual(zone.currentArtist, "Love & Rockets")
+        XCTAssertEqual(zone.currentTrackArtURL,
+                       "https://albumart.siriusxm.com/albumart/0130/WBCALT_NDCA-000099327-001_m.jpg",
+                       "art from upnp:albumArtURI in the SAME response, upgraded to TLS")
+    }
+
+    /// The default stays off. iHeart publishes no cover, and SomaFM's field has never
+    /// been checked — reading it blind could replace curated station art.
+    func testServicesWithoutMeasuredArtworkGetNone() {
+        var zone = testZone("Z1")
+        zone.currentStationURI = "hls-radio://http://stream.revma.ihrhls.com/zc7934/hls.m3u8"
+        let data = Data("""
+        <s:Envelope><s:Body><u:GetPositionInfoResponse><TrackMetaData>&lt;DIDL-Lite&gt;&lt;item&gt;
+        &lt;upnp:albumArtURI&gt;http://example.com/should-not-be-read.jpg&lt;/upnp:albumArtURI&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</TrackMetaData>
+        <r:streamContent>TITLE Sweet Dreams|ARTIST Eurythmics</r:streamContent>
+        </u:GetPositionInfoResponse></s:Body></s:Envelope>
+        """.utf8)
+        zone = SonosTopology.applyPositionInfo(to: zone, data: data)
+        XCTAssertEqual(zone.currentTrack, "Sweet Dreams")
+        XCTAssertTrue(zone.currentTrackArtURL.isEmpty,
+                      "iHeart is not declared as publishing per-song art")
+    }
+
+    /// REMOTE HTTP ARTWORK IS BLOCKED by App Transport Security and renders blank —
+    /// measured on Garage 2026-08-17, where the zone card lost its artwork entirely.
+    /// Upgraded to TLS rather than dropped: the same hosts answer over https with the
+    /// identical image.
+    func testRemoteHTTPArtworkIsUpgradedToHTTPS() {
+        var zone = SonosZone(id: "Z1", name: "Garage", host: "192.168.1.137",
+                             isPlaying: true, volume: 0)
+        zone.currentStationURI = sxmPlaying
+        let data = Data("""
+        <s:Envelope><s:Body><u:GetPositionInfoResponse><TrackMetaData>&lt;DIDL-Lite&gt;&lt;item&gt;
+        &lt;r:streamContent&gt;TITLE Song|ARTIST Band&lt;/r:streamContent&gt;
+        &lt;upnp:albumArtURI&gt;http://pri.art.prod.streaming.siriusxm.com/images/chan/45/x.jpg&lt;/upnp:albumArtURI&gt;
+        &lt;/item&gt;&lt;/DIDL-Lite&gt;</TrackMetaData></u:GetPositionInfoResponse></s:Body></s:Envelope>
+        """.utf8)
+        zone = SonosTopology.applyPositionInfo(to: zone, data: data)
+        XCTAssertEqual(zone.currentTrackArtURL,
+                       "https://pri.art.prod.streaming.siriusxm.com/images/chan/45/x.jpg")
+        XCTAssertEqual(zone.currentTrack, "Song", "the text is still good")
+    }
+
+    /// HTTPS from anywhere is fine, and so is HTTP from the speaker itself — that is how
+    /// Spotify's covers arrive and it is what the local-network exception is for.
+    func testHTTPSAnywhereAndHTTPFromTheSpeakerAreAccepted() {
+        XCTAssertEqual(
+            SonosTopology.applyPositionInfo(to: sonosRadioZone(), data: sonosRadioPosition())
+                .currentTrackArtURL,
+            "https://sonosradio.imgix.net/station-images/78208e79")
+
+        let spotify = SonosTopology.applyPositionInfo(to: spotifyZone(), data: spotifyPosition())
+        XCTAssertTrue(spotify.currentTrackArtURL.hasPrefix("http://192.168.1.194:1400/getaa?"),
+                      "the speaker's own art is local HTTP and must survive")
+    }
+
+    func testArtworkIsDeclaredPerService() {
+        XCTAssertTrue(RadioServiceRegistry.providesTrackArt(forLoadedURI: sxmPlaying))
+        XCTAssertTrue(RadioServiceRegistry.providesTrackArt(
+            forLoadedURI: "x-sonosapi-radio:sonos%3a158291?sid=303"))
+        XCTAssertFalse(RadioServiceRegistry.providesTrackArt(
+            forLoadedURI: "hls-radio://http://stream.revma.ihrhls.com/zc7934/hls.m3u8"))
+        XCTAssertFalse(RadioServiceRegistry.providesTrackArt(
+            forLoadedURI: "x-sonosapi-hls:something-nobody-has-taught-us"))
+    }
+
+    // MARK: - Channel numbers
+
+    func testChannelNumberIsStrippedFromSiriusXMNames() {
+        XCTAssertEqual(SonosFavorites.displayTitle("CH 33 - 1st Wave", serviceId: "siriusxm"), "1st Wave")
+        XCTAssertEqual(SonosFavorites.displayTitle("CH 25 - Classic Rewind", serviceId: "siriusxm"), "Classic Rewind")
+        XCTAssertEqual(SonosFavorites.displayTitle("Ch. 8 – 80s on 8", serviceId: "siriusxm"), "80s on 8")
+    }
+
+    /// Deliberately narrow. A name that merely begins with letters and digits is a name.
+    func testNamesThatOnlyLookLikeAChannelNumberSurvive() {
+        for name in ["Channel 5", "CH2 Radio", "1st Wave", "Chill 33"] {
+            XCTAssertEqual(SonosFavorites.displayTitle(name, serviceId: "siriusxm"), name)
+        }
+    }
+
+    /// Other services are not SiriusXM and must not be rewritten.
+    func testOnlySiriusXMNamesAreStripped() {
+        XCTAssertEqual(SonosFavorites.displayTitle("CH 33 - 1st Wave", serviceId: "sonosradio"),
+                       "CH 33 - 1st Wave")
+    }
+
     // testPositionInfoForAnUnknownZoneIsIgnored moved to ZoneServiceLookupTests on
     // 2026-08-08. It asserts on the zone LOOKUP, which stayed in ZoneDiscoveryService
     // when the parsing moved to SonosTopology — so it needs a live service and cannot

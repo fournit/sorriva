@@ -123,12 +123,21 @@ struct Station: Codable, FetchableRecord, PersistableRecord, Identifiable {
     var householdId: String?
     var isFavorite: Bool = false
     var cume: Int = 0       // iHeart cumulative audience — used for popularity sort
+    /// What KIND of thing this is — album, playlist, or an endless broadcast.
+    ///
+    /// Sonos has always told us, in the favorite's `upnp:class`, and we discarded it:
+    /// every row was a "station" regardless, so an album, a playlist and a radio channel
+    /// sat in one undifferentiated list while the Sonos app separated them properly.
+    /// Measured 2026-08-17 across 47 favorites. Stored as the raw enum value; see
+    /// `StationKind`.
+    var kind: String = StationKind.unknown.rawValue
     var lastFetched: Int
     var updatedAt: Int
 
     enum Columns {
         static let id = Column(CodingKeys.id)
         static let serviceId = Column(CodingKeys.serviceId)
+        static let kind = Column(CodingKeys.kind)
         static let resMD = Column(CodingKeys.resMD)
         static let householdId = Column(CodingKeys.householdId)
         static let name = Column(CodingKeys.name)

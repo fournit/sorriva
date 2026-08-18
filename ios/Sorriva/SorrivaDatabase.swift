@@ -1202,6 +1202,84 @@ final class SorrivaDatabase {
             print("SORRIVA DB: v24 services table + favorites columns; source folded into serviceId")
         }
 
+        // v25 — SiriusXM channel numbers out of stored names.
+        //
+        // Import strips them from here on, but rows saved before this stay prefixed, and
+        // a refresh only rewrites the ones the CURRENT household can see. Channels
+        // imported at another location would otherwise keep "CH 25 - " forever.
+        //
+        // The prefix also blocks the name-based match an Alexa-started stream depends on:
+        // "ch25classicrewind" can never equal the slug "classicrewind".
+        migrator.registerMigration("v25_siriusxm_names_without_channel_numbers") { db in
+            let rows = try Row.fetchAll(db, sql: "SELECT id, name FROM stations WHERE serviceId = 'siriusxm'")
+            var changed = 0
+            for row in rows {
+                let id: Int = row["id"]
+                let name: String = row["name"]
+                let stripped = SonosFavorites.displayTitle(name, serviceId: "siriusxm")
+                guard stripped != name else { continue }
+                try db.execute(sql: "UPDATE stations SET name = ? WHERE id = ?",
+                               arguments: [stripped, id])
+                changed += 1
+            }
+            print("SORRIVA DB: v25 stripped channel numbers from \(changed) SiriusXM station name(s)")
+        }
+
+        // v26 — what KIND of thing each favorite is.
+        //
+        // Sonos has always said so in upnp:class and we discarded it, so an album, a
+        // playlist and a radio channel were all "stations". Existing rows are backfilled
+        // from the resMD we already stored verbatim, so nothing needs re-importing.
+        migrator.registerMigration("v26_station_kind") { db in
+            try db.alter(table: "stations") { t in
+                t.add(column: "kind", .text).notNull().defaults(to: StationKind.unknown.rawValue)
+            }
+            let rows = try Row.fetchAll(db, sql: "SELECT id, resMD FROM stations WHERE resMD IS NOT NULL")
+            var classified = 0
+            for row in rows {
+                let id: Int = row["id"]
+                guard let md: String = row["resMD"] else { continue }
+                // Same rule as the parser: the LAST upnp:class is the one describing what
+                // the favorite points at, not the favorite wrapper around it.
+                let classes = md.components(separatedBy: "<upnp:class>").dropFirst()
+                    .compactMap { $0.components(separatedBy: "</upnp:class>").first }
+                guard let last = classes.last else { continue }
+                let kind = StationKind.fromUPnPClass(last)
+                guard kind != .unknown else { continue }
+                try db.execute(sql: "UPDATE stations SET kind = ? WHERE id = ?",
+                               arguments: [kind.rawValue, id])
+                classified += 1
+            }
+            print("SORRIVA DB: v26 station kind — classified \(classified) of \(rows.count) favorite(s)")
+        }
+
+        // v27 — re-run the kind backfill.
+        //
+        // v26 classified everything that existed when it ran. Rows imported AFTER it, in
+        // the window where the insert path was still dropping the kind, went in as
+        // `unknown` — two Spotify albums did exactly that. This catches them. Same logic
+        // as v26 deliberately: a second pass over the metadata we already hold is cheaper
+        // and safer than reasoning about which rows fell in the gap.
+        migrator.registerMigration("v27_station_kind_backfill_again") { db in
+            let rows = try Row.fetchAll(db, sql:
+                "SELECT id, resMD FROM stations WHERE resMD IS NOT NULL AND kind = ?",
+                arguments: [StationKind.unknown.rawValue])
+            var fixed = 0
+            for row in rows {
+                let id: Int = row["id"]
+                guard let md: String = row["resMD"] else { continue }
+                let classes = md.components(separatedBy: "<upnp:class>").dropFirst()
+                    .compactMap { $0.components(separatedBy: "</upnp:class>").first }
+                guard let last = classes.last else { continue }
+                let kind = StationKind.fromUPnPClass(last)
+                guard kind != .unknown else { continue }
+                try db.execute(sql: "UPDATE stations SET kind = ? WHERE id = ?",
+                               arguments: [kind.rawValue, id])
+                fixed += 1
+            }
+            print("SORRIVA DB: v27 reclassified \(fixed) station(s) the insert path had missed")
+        }
+
         try migrator.migrate(dbQueue)
         print("SORRIVA DB: Migrations complete")
     }
@@ -1447,7 +1525,8 @@ final class SorrivaDatabase {
     @discardableResult
     func upsertFavoriteStation(uri: String, metadata: String, title: String,
                                artURL: String?, serviceId: String,
-                               householdId: String) throws -> Int {
+                               householdId: String,
+                               kind: StationKind = .unknown) throws -> Int {
         let now = Int(Date().timeIntervalSince1970)
         return try dbQueue.write { db in
             // Matched on CHANNEL IDENTITY across every household, not on the full URI
@@ -1465,6 +1544,9 @@ final class SorrivaDatabase {
                 existing.name = title
                 existing.logoURL = artURL ?? existing.logoURL
                 existing.resMD = metadata       // refreshed: a token could be reissued
+                // Only ever upgraded. A refresh that cannot classify must not demote a
+                // row we already understood to "unknown".
+                if kind != .unknown { existing.kind = kind.rawValue }
                 existing.serviceId = serviceId
                 existing.lastFetched = now
                 existing.updatedAt = now
@@ -1473,10 +1555,15 @@ final class SorrivaDatabase {
             }
             let lowest = try Int.fetchOne(db, sql: "SELECT MIN(id) FROM stations") ?? 0
             let newId = min(lowest, 0) - 1
+            // `kind` HERE TOO, not only on the update path above. Omitting it took the
+            // struct default of `.unknown`, so a NEWLY imported album classified itself
+            // correctly and then stored nothing — while rows that already existed were
+            // backfilled by the migration and looked fine. Two Spotify albums imported
+            // 2026-08-17 landed as `unknown`, which is how this was found.
             let station = Station(id: newId, serviceId: serviceId, name: title,
                                   logoURL: artURL, streamURL: uri,
                                   resMD: metadata, householdId: householdId,
-                                  isFavorite: false, cume: 0,
+                                  isFavorite: false, cume: 0, kind: kind.rawValue,
                                   lastFetched: now, updatedAt: now)
             try station.insert(db)
             return newId
@@ -1510,9 +1597,16 @@ final class SorrivaDatabase {
                     service = created
                 }
             }
-            try upsertFavoriteStation(uri: fav.uri, metadata: fav.metadata, title: fav.title,
+            // Stored WITHOUT SiriusXM's channel-number prefix. Applied here rather than
+            // in upsertFavoriteStation's caller-agnostic body so it covers first import
+            // and every later refresh — the upsert rewrites `name` from the favorite each
+            // time, so stripping anywhere else would be undone by the next refresh.
+            // The uri and metadata below are still passed through untouched.
+            try upsertFavoriteStation(uri: fav.uri, metadata: fav.metadata,
+                                      title: SonosFavorites.displayTitle(fav.title,
+                                                                        serviceId: service.id),
                                       artURL: fav.artURL, serviceId: service.id,
-                                      householdId: householdId)
+                                      householdId: householdId, kind: fav.kind)
             written += 1
         }
         sLog("FAVORITES: imported \(written) station(s) for household \(householdId)")

@@ -148,6 +148,73 @@ final class SonosFavoritesTests: XCTestCase {
         XCTAssertEqual(Set(ids).count, ids.count, "two favorites share an identity")
     }
 
+    // MARK: - What kind of thing a favorite is
+    //
+    // Sonos says so in upnp:class and Sorriva discarded it, so an album, a playlist and
+    // a radio channel were all "stations". Classes measured across 47 favorites on
+    // 2026-08-17.
+
+    /// THE SUBTLE PART. Every favorite carries an OUTER class saying it is a Sonos
+    /// favorite; what it POINTS AT is in the nested resMD. Reading the first would
+    /// classify everything identically and classify nothing.
+    private func favorite(class inner: String, res: String) -> Data {
+        let didl = """
+        <item id="FV:2/1"><dc:title>Test</dc:title>
+        <upnp:class>object.item.sonos-favorite</upnp:class>
+        <res>\(res)</res>
+        <r:resMD>&lt;DIDL-Lite&gt;&lt;item&gt;&lt;upnp:class&gt;\(inner)&lt;/upnp:class&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</r:resMD>
+        </item>
+        """
+        let escaped = didl
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+        return Data("<s:Envelope><Result>\(escaped)</Result></s:Envelope>".utf8)
+    }
+
+    func testAnAlbumIsNotAPlaylist() {
+        let album = SonosFavorites.parse(favorite(
+            class: "object.container.album.musicAlbum",
+            res: "x-rincon-cpcontainer:1004204cspotify%3Aalbum%3A73ZRKdD3?sid=12"))
+        XCTAssertEqual(album.first?.kind, .album)
+
+        let playlist = SonosFavorites.parse(favorite(
+            class: "object.container.playlistContainer",
+            res: "x-rincon-cpcontainer:1006206cspotify%3Aplaylist%3A37i9dQ?sid=12"))
+        XCTAssertEqual(playlist.first?.kind, .playlist)
+    }
+
+    func testARadioChannelIsABroadcast() {
+        let sxm = SonosFavorites.parse(favorite(
+            class: "object.item.audioItem.audioBroadcast",
+            res: "x-sonosapi-stream:channel-linear%3A65f04311?sid=37"))
+        XCTAssertEqual(sxm.first?.kind, .broadcast)
+    }
+
+    /// A shape nobody has taught us about is left alone rather than guessed into a group.
+    func testAnUnrecognisedClassIsUnknown() {
+        let odd = SonosFavorites.parse(favorite(
+            class: "object.item.somethingEntirelyNew",
+            res: "x-sonosapi-stream:whatever?sid=99"))
+        XCTAssertEqual(odd.first?.kind, .unknown)
+    }
+
+    /// The real capture is all radio, and every item in it must classify — a fixture
+    /// full of `.unknown` would mean the nesting rule above is wrong.
+    func testEveryFavoriteInTheRealCaptureIsClassified() throws {
+        let kinds = try favorites().map(\.kind)
+        XCTAssertFalse(kinds.isEmpty)
+        XCTAssertFalse(kinds.contains(.unknown), "the fixture is SiriusXM and Sonos Radio — all broadcasts")
+    }
+
+    /// Only the label is user-facing, and a broadcast adds nothing to a service name.
+    func testOnlyAlbumsAndPlaylistsAreLabelled() {
+        XCTAssertEqual(StationKind.album.label, "Album")
+        XCTAssertEqual(StationKind.playlist.label, "Playlist")
+        XCTAssertTrue(StationKind.broadcast.label.isEmpty)
+        XCTAssertTrue(StationKind.unknown.label.isEmpty)
+    }
+
     func testGarbageParsesToNothingRatherThanCrashing() {
         XCTAssertTrue(SonosFavorites.parse(Data()).isEmpty)
         XCTAssertTrue(SonosFavorites.parse(Data("not xml".utf8)).isEmpty)

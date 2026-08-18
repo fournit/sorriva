@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.75 — Spotify tells you what song is playing",
-  "version": "0.0.75",
-  "db_migrate": false
+  "message": "v0.0.76 — SiriusXM knows what it is playing, and albums stop pretending to be radio",
+  "version": "0.0.76",
+  "db_migrate": true
 }

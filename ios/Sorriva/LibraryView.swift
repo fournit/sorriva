@@ -17,6 +17,7 @@ struct LibraryView: View {
     @State private var loadedLogos: [Int: String] = [:]
     @State private var showFavoritesGrid = false
     @State private var showRadioGrid = false
+    @State private var showPlaylistGrid = false
     @State private var showAlbums = false
     @State private var showArtists = false
     @State private var showTracks = false
@@ -66,16 +67,19 @@ struct LibraryView: View {
                     )
                 }
 
-                // Playlists — stub
-                LibraryRow(title: "Playlists", onSeeAll: {}) {
-                    HStack {
-                        Text("Create a playlist to get started")
-                            .font(.system(size: 13))
-                            .foregroundColor(.sTextMuted)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 12)
-                        Spacer()
-                    }
+                // Playlists — imported playlists live here, not under Radio.
+                LibraryRow(title: "Playlists", onSeeAll: { showPlaylistGrid = true }) {
+                    RadioRow(
+                        kinds: [.playlist],
+                        emptyTitle: "No playlists yet",
+                        emptyDetail: "Add playlists from your Sonos favorites in Settings → Services",
+                        favoriteIDs: $favoriteIDs,
+                        loadedLogos: $loadedLogos,
+                        discovery: discovery,
+                        onPlayStation: onPlayStation,
+                        onNavigateToZone: onNavigateToZone,
+                        onFavoriteToggled: { id, isFav in toggleFavorite(id: id, isFav: isFav) }
+                    )
                 }
 
                 // Albums
@@ -133,6 +137,18 @@ struct LibraryView: View {
             MediaGridView(
                 title: "Favorites",
                 filter: .favorites,
+                favoriteIDs: $favoriteIDs,
+                loadedLogos: $loadedLogos,
+                discovery: discovery,
+                onPlayStation: onPlayStation,
+                onNavigateToZone: onNavigateToZone,
+                onFavoriteToggled: { id, isFav in toggleFavorite(id: id, isFav: isFav) }
+            )
+        }
+        .navigationDestination(isPresented: $showPlaylistGrid) {
+            MediaGridView(
+                title: "Playlists",
+                filter: .playlists,
                 favoriteIDs: $favoriteIDs,
                 loadedLogos: $loadedLogos,
                 discovery: discovery,
@@ -287,6 +303,25 @@ struct FavoritesRow: View {
 // Empty state prompts user to go to Settings → Services to add stations.
 
 struct RadioRow: View {
+    /// WHICH KINDS THIS ROW SHOWS. Sonos separates albums, playlists and radio, and
+    /// Sorriva put all three under Radio because every imported favorite was a
+    /// "station". The row is now filtered rather than duplicated: Radio takes the
+    /// broadcasts, Playlists takes the playlists, and album-kind rows go to the Albums
+    /// section. `unknown` rides with the broadcasts — an unclassified row has to appear
+    /// SOMEWHERE, and disappearing is the one outcome that reads as data loss.
+    ///
+    /// `.album` RIDES HERE TEMPORARILY. Albums belong in the Albums section — Tom,
+    /// 2026-08-17 — but that section is built on local `Album` records with their own
+    /// sorting and detail screen, so putting service albums beside them is a model
+    /// change, not a filter change. Until that lands they stay visible in the wrong
+    /// place rather than vanishing from the library entirely, which is the one outcome
+    /// that reads as data loss. Remove `.album` here the moment the Albums section can
+    /// hold them.
+    var kinds: Set<StationKind> = [.broadcast, .unknown, .album]
+    /// Shown when the row has nothing. Radio's is a prompt to add services; a Playlists
+    /// row with nothing has a different thing to say.
+    var emptyTitle: String = "No stations yet"
+    var emptyDetail: String = "Add radio stations in Settings → Services"
     @Binding var favoriteIDs: Set<Int>
     @Binding var loadedLogos: [Int: String]
     @ObservedObject var discovery: ZoneDiscoveryService
@@ -297,7 +332,7 @@ struct RadioRow: View {
     @State private var dbStations: [Station] = []
 
     private var radioStations: [RadioStation] {
-        dbStations.map { RadioStation(from: $0) }
+        dbStations.map { RadioStation(from: $0) }.filter { kinds.contains($0.kind) }
     }
 
     var body: some View {
@@ -309,10 +344,10 @@ struct RadioRow: View {
                         .font(.system(size: 20))
                         .foregroundColor(.sTextMuted)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("No stations yet")
+                        Text(emptyTitle)
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(.sTextPrimary)
-                        Text("Add radio stations in Settings → Services")
+                        Text(emptyDetail)
                             .font(.system(size: 12))
                             .foregroundColor(.sTextMuted)
                     }
@@ -648,7 +683,15 @@ struct ActionRow: View {
 // Albums: 2-column grid (when implemented).
 // Genre chips show only genres present in the user's data.
 
-enum MediaFilter { case favorites, radio }
+enum MediaFilter {
+    case favorites
+    case radio
+    /// Playlists imported from a service. Its own case rather than a parameter on
+    /// `.radio`, so "See all" from the Playlists row cannot silently show broadcasts —
+    /// an item appearing on the dashboard and vanishing behind See All reads as a bug,
+    /// which is precisely what the first cut of this did.
+    case playlists
+}
 
 struct MediaGridView: View {
     let title: String
@@ -669,7 +712,7 @@ struct MediaGridView: View {
     // Columns per filter type
     private var columns: [GridItem] {
         switch filter {
-        case .radio, .favorites:
+        case .radio, .favorites, .playlists:
             return [
                 GridItem(.flexible(), spacing: 12),
                 GridItem(.flexible(), spacing: 12),
@@ -682,7 +725,16 @@ struct MediaGridView: View {
         var base = allStations
         switch filter {
         case .favorites: base = base.filter { favoriteIDs.contains($0.id) }
-        case .radio: break
+        case .radio:
+            // Mirrors RadioRow exactly, including `.album` riding along until the Albums
+            // section can hold service albums. The dashboard row and this grid MUST agree
+            // — an item on one and not the other is the bug Tom called out.
+            base = base.filter {
+                let k = StationKind(rawValue: $0.kind) ?? .unknown
+                return k == .broadcast || k == .unknown || k == .album
+            }
+        case .playlists:
+            base = base.filter { StationKind(rawValue: $0.kind) == .playlist }
         }
         if let genreID = selectedGenreID {
             let filtered = (try? SorrivaDatabase.shared.stations(inGenre: genreID)) ?? []

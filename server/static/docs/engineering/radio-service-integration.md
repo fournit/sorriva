@@ -154,6 +154,53 @@ broken image, which reads as a metadata bug and sends you looking in the wrong p
 
 ---
 
+## 2f. SiriusXM — one channel, two identifier spaces
+
+Added 2026-08-17. A channel arrives differently depending on **who started it**, and no key
+function can reconcile the two:
+
+```
+stored favorite   x-sonosapi-stream:channel-linear%3A65f04311-…?sid=37&flags=8260&sn=3
+Sonos app/Sorriva x-sonosapi-hls:channel-linear%3a65f04311-…?sid=37&flags=8200&sn=4
+Alexa             hls-radio://…/AAC_Audio/classicrewind/classicrewind_variant_short_v4.m3u8
+```
+
+The first two are one channel — same UUID, differing by scheme, colon case and the account
+handle. The third has **no id at all**, only a channel slug in the path.
+
+So `matches(uri:station:)` exists on the adapter protocol: the default compares canonical
+keys, and SiriusXM overrides it to fall back to **slug versus station name**. That name
+match is the reason the `CH 25 - ` prefix is stripped at import — `ch25classicrewind`
+can never equal `classicrewind`.
+
+**Never display this service's `dc:title`:** on an Alexa session it is
+`classicrewind_variant_short_v4.m3u8`, the same trap that once put `hls.m3u8` on a card.
+
+## 2g. Artwork is a separate question from song text
+
+`NowPlayingSource` answers only "where does the TEXT come from". Whether a service
+publishes a per-song cover is `providesTrackArt`, and it defaults to **false**.
+
+They were one either/or choice until 2026-08-17, and SiriusXM broke it: song text in
+`r:streamContent`, cover in `upnp:albumArtURI`. Forced to pick one, it lost the artwork.
+
+| service | text | per-song art |
+|---|---|---|
+| iHeart, SomaFM | `r:streamContent` | no |
+| Sonos Radio, Spotify | track metadata | yes |
+| **SiriusXM** | **`r:streamContent`** | **yes** |
+
+**Remote HTTP artwork is blocked** — App Transport Security permits HTTP only on the local
+network, so an internet `http://` image renders blank AND displaces the station logo that
+would otherwise show. Upgrade to `https` (verified: albumart.siriusxm.com serves the
+byte-identical image over TLS). If a service ever turns up whose art host has no TLS, drop
+its URL rather than weakening transport security.
+
+SiriusXM's metadata is also **intermittent** — 60s of polling can return no text and no
+art. Absence is normal; fall back to the station logo.
+
+---
+
 ## 3. URI schemes differ by who started playback
 
 The *same station* arrives under different schemes depending on origin:

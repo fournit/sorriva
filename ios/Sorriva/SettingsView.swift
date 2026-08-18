@@ -404,9 +404,73 @@ struct ServicesView: View {
     private func count(_ d: FavoriteServiceDescriptor) -> Int { favoriteCounts[d.id] ?? 0 }
     private var connectedFavoriteServices: [FavoriteServiceDescriptor] {
         FavoriteServiceDescriptor.all.filter { count($0) > 0 }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
     private var availableFavoriteServices: [FavoriteServiceDescriptor] {
         FavoriteServiceDescriptor.all.filter { count($0) == 0 }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// One service row, whatever kind of service it is.
+    ///
+    /// iHeart and SomaFM were written as hard-coded rows before the favorites-backed
+    /// services existed, and those were appended after them — so the list read
+    /// iHeartRADIO, SomaFM, SiriusXM, which is the order they were BUILT in rather than
+    /// any order a reader would expect. Erasing the destination lets all of them sort
+    /// together; their setup screens are different generic types, which is the only
+    /// reason they could not share a list before.
+    private struct ServiceEntry: Identifiable {
+        let id: String
+        let name: String
+        let icon: String
+        let color: Color
+        /// "3 stations" in Connected; the sales line in Available.
+        let detail: String
+        let destination: AnyView
+    }
+
+    private func sortedByName(_ entries: [ServiceEntry]) -> [ServiceEntry] {
+        entries.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private var iHeartEntry: ServiceEntry {
+        ServiceEntry(id: "iheart", name: "iHeartRADIO", icon: "radio",
+                     color: Color(hex: "#CC2027"),
+                     detail: isIHeartConnected
+                        ? "\(iHeartStationCount) station\(iHeartStationCount == 1 ? "" : "s")"
+                        : "Thousands of live radio stations, no account required",
+                     destination: AnyView(ServiceSetupView(source: IHeartSetupSource())))
+    }
+
+    private var somaFMEntry: ServiceEntry {
+        ServiceEntry(id: "somafm", name: "SomaFM", icon: "antenna.radiowaves.left.and.right",
+                     color: Color(hex: "#2C3E50"),
+                     detail: isSomaFMConnected
+                        ? "\(somaFMStationCount) channel\(somaFMStationCount == 1 ? "" : "s")"
+                        : "46 curated commercial-free channels, no account required",
+                     destination: AnyView(ServiceSetupView(source: SomaFMSetupSource())))
+    }
+
+    private func entry(for d: FavoriteServiceDescriptor) -> ServiceEntry {
+        ServiceEntry(id: d.id, name: d.name, icon: d.icon, color: d.color,
+                     detail: "\(count(d)) station\(count(d) == 1 ? "" : "s")",
+                     destination: AnyView(ServiceSetupView(
+                        source: SonosFavoritesSetupSource(descriptor: d, discovery: discovery))))
+    }
+
+    private var connectedServices: [ServiceEntry] {
+        var out: [ServiceEntry] = []
+        if isIHeartConnected { out.append(iHeartEntry) }
+        if isSomaFMConnected { out.append(somaFMEntry) }
+        out.append(contentsOf: connectedFavoriteServices.map(entry(for:)))
+        return sortedByName(out)
+    }
+
+    private var availableRadioServices: [ServiceEntry] {
+        var out: [ServiceEntry] = []
+        if !isIHeartConnected { out.append(iHeartEntry) }
+        if !isSomaFMConnected { out.append(somaFMEntry) }
+        return sortedByName(out)
     }
 
     private var isIHeartConnected: Bool { iHeartStationCount > 0 }
@@ -432,40 +496,13 @@ struct ServicesView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             SettingsSectionLabel(title: "Connected")
 
-                            if isIHeartConnected {
-                                NavigationLink(destination: ServiceSetupView(source: IHeartSetupSource())) {
-                                    ConnectedServiceRow(
-                                        icon: "radio",
-                                        iconColor: Color(hex: "#CC2027"),
-                                        name: "iHeartRADIO",
-                                        detail: "\(iHeartStationCount) station\(iHeartStationCount == 1 ? "" : "s")"
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                            }
-
-                            if isSomaFMConnected {
-                                NavigationLink(destination: ServiceSetupView(source: SomaFMSetupSource())) {
-                                    ConnectedServiceRow(
-                                        icon: "antenna.radiowaves.left.and.right",
-                                        iconColor: Color(hex: "#2C3E50"),
-                                        name: "SomaFM",
-                                        detail: "\(somaFMStationCount) channel\(somaFMStationCount == 1 ? "" : "s")"
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                            }
-
-                            // Services reached through Sonos favorites, once they have
-                            // content. One row each — a card per service is a design
-                            // decision; which section it lands in is data.
-                            ForEach(connectedFavoriteServices) { d in
-                                NavigationLink(destination: ServiceSetupView(
-                                    source: SonosFavoritesSetupSource(descriptor: d, discovery: discovery)
-                                )) {
-                                    ConnectedServiceRow(
-                                        icon: d.icon, iconColor: d.color, name: d.name,
-                                        detail: "\(count(d)) station\(count(d) == 1 ? "" : "s")")
+                            // ONE SORTED LIST. See ServiceEntry — these used to be two
+                            // hard-coded rows followed by a loop, which put SomaFM above
+                            // SiriusXM for no reason a reader could see.
+                            ForEach(connectedServices) { svc in
+                                NavigationLink(destination: svc.destination) {
+                                    ConnectedServiceRow(icon: svc.icon, iconColor: svc.color,
+                                                        name: svc.name, detail: svc.detail)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -478,26 +515,10 @@ struct ServicesView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             SettingsSectionLabel(title: "Available")
 
-                            if !isIHeartConnected {
-                                NavigationLink(destination: ServiceSetupView(source: IHeartSetupSource())) {
-                                    AvailableServiceRow(
-                                        icon: "radio",
-                                        iconColor: Color(hex: "#CC2027"),
-                                        name: "iHeartRADIO",
-                                        description: "Thousands of live radio stations, no account required"
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                            }
-
-                            if !isSomaFMConnected {
-                                NavigationLink(destination: ServiceSetupView(source: SomaFMSetupSource())) {
-                                    AvailableServiceRow(
-                                        icon: "antenna.radiowaves.left.and.right",
-                                        iconColor: Color(hex: "#2C3E50"),
-                                        name: "SomaFM",
-                                        description: "46 curated commercial-free channels, no account required"
-                                    )
+                            ForEach(availableRadioServices) { svc in
+                                NavigationLink(destination: svc.destination) {
+                                    AvailableServiceRow(icon: svc.icon, iconColor: svc.color,
+                                                        name: svc.name, description: svc.detail)
                                 }
                                 .buttonStyle(.plain)
                             }

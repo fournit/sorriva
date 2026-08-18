@@ -21,6 +21,48 @@ import Foundation
 // PARSING IS SEPARATE FROM FETCHING on purpose. `parse` is pure and has tests against a
 // real captured response; `fetch` is the thin part that talks to a speaker.
 
+/// What kind of thing a favorite is.
+///
+/// Sonos distinguishes these and Sorriva did not, so an album, a playlist and a radio
+/// channel were all "stations". The distinction is not cosmetic — an album has a fixed
+/// order and an end, a playlist is a set, a broadcast never finishes — but only the
+/// NAMING of it lands here. Behaviour that follows from the kind belongs with the queue
+/// work (fPlaybackConductor), not bolted on ahead of it.
+///
+/// Measured across 47 favorites on 2026-08-17:
+///   object.container.playlistContainer   → playlist   (Italo Disco, 80s Party)
+///   object.container.album.musicAlbum    → album      (Getz/Gilberto)
+///   object.item.audioItem.audioBroadcast → broadcast  (SiriusXM channels)
+enum StationKind: String, CaseIterable {
+    case album
+    case playlist
+    case broadcast
+    /// A shape nobody has taught us about. Deliberately not guessed at — an unknown kind
+    /// displays as it always did rather than being asserted into the wrong group.
+    case unknown
+
+    /// Sonos's `upnp:class` reduced to a kind. Matched on the meaningful SEGMENT rather
+    /// than the whole string: the classes nest (`object.container.album.musicAlbum`) and
+    /// providers append their own suffixes.
+    static func fromUPnPClass(_ raw: String) -> StationKind {
+        let s = raw.lowercased()
+        if s.contains("album") { return .album }
+        if s.contains("playlistcontainer") || s.contains("playlist") { return .playlist }
+        if s.contains("audiobroadcast") || s.contains("broadcast") { return .broadcast }
+        return .unknown
+    }
+
+    /// Shown beside the service name. Empty for a broadcast — "SiriusXM · Broadcast"
+    /// tells the reader nothing they cannot see, where "Spotify · Album" does.
+    var label: String {
+        switch self {
+        case .album:     return "Album"
+        case .playlist:  return "Playlist"
+        case .broadcast, .unknown: return ""
+        }
+    }
+}
+
 struct SonosFavorite: Equatable {
     /// What the user named it in the Sonos app — "CH 8 - 80s on 8".
     let title: String
@@ -38,6 +80,8 @@ struct SonosFavorite: Equatable {
     /// Sonos's own service number, parsed from `sid=` in the URI. The reliable key for
     /// matching a favorite to a service row; nil for favorites that carry no `sid`.
     let sonosServiceId: Int?
+    /// Album, playlist or endless broadcast — read from `upnp:class`. See StationKind.
+    let kind: StationKind
 }
 
 enum SonosFavorites {
@@ -68,13 +112,23 @@ enum SonosFavorites {
             guard let title = tag("dc:title", in: chunk) else { continue }
             guard let res = tag("res", in: chunk, attributed: true), !res.isEmpty else { continue }
             let md = tag("r:resMD", in: chunk) ?? ""
+            // READ FROM THE DECODED resMD, not from the chunk. Every favorite carries an
+            // OUTER `<upnp:class>object.item.sonos-favorite`, which is literal text and
+            // classifies nothing; the class saying what the favorite POINTS AT lives in
+            // the nested resMD and is entity-encoded, so a literal search over the chunk
+            // finds only the useless one. Decoding first is what makes the inner class
+            // reachable at all.
+            let decodedMD = md.decodingXMLEntities
+            let kind = lastTag("upnp:class", in: decodedMD)
+                .map { StationKind.fromUPnPClass($0) } ?? .unknown
             out.append(SonosFavorite(
                 title: title.decodingXMLEntities,
                 uri: res.decodingXMLEntities,
                 metadata: md.decodingXMLEntities,
                 artURL: tag("upnp:albumArtURI", in: chunk)?.decodingXMLEntities,
                 serviceName: (tag("r:description", in: chunk) ?? "Sonos").decodingXMLEntities,
-                sonosServiceId: sonosServiceId(from: res)))
+                sonosServiceId: sonosServiceId(from: res),
+                kind: kind))
         }
         return out
     }
@@ -93,6 +147,34 @@ enum SonosFavorites {
     static func channelIdentity(of uri: String) -> String {
         guard let q = uri.firstIndex(of: "?") else { return uri }
         return String(uri[uri.startIndex..<q])
+    }
+
+    /// The station name with SiriusXM's channel number removed.
+    ///
+    /// "CH 33 - 1st Wave" → "1st Wave". The number is Sonos's addition, not part of the
+    /// station: the same channel started by Alexa reports plainly "Classic Rewind", and
+    /// SiriusXM's own metadata carries no number either. Measured 2026-08-17 across a
+    /// favorite-started and an Alexa-started zone. Tom's call — no channel numbers in the
+    /// library or on screen.
+    ///
+    /// Applied wherever a favorite's title is STORED or DISPLAYED, so the two cannot
+    /// disagree; the setup screen builds its rows from live favorites rather than from
+    /// the library, so stripping in only one place would show the same station under two
+    /// names on two screens.
+    ///
+    /// TEXT ONLY. The URI carries no number, and the metadata blob is passed back to
+    /// Sonos byte for byte because it holds the service token — rewriting it is how a
+    /// speaker comes to return 200 and play silence.
+    ///
+    /// Deliberately narrow: "CH" or "CH." followed by digits and a separator. A name that
+    /// merely begins with letters and digits — "Channel 5", "CH2 Radio" — is untouched.
+    static func displayTitle(_ title: String, serviceId: String) -> String {
+        guard serviceId == "siriusxm" else { return title }
+        let pattern = "^ch\\.?\\s*[0-9]+\\s*[-–—]\\s*"
+        guard let r = title.range(of: pattern, options: [.regularExpression, .caseInsensitive])
+        else { return title }
+        let stripped = String(title[r.upperBound...]).trimmingCharacters(in: .whitespaces)
+        return stripped.isEmpty ? title : stripped
     }
 
     /// `sid=37` out of `x-sonosapi-stream:channel-linear%3A…?sid=37&flags=8260&sn=3`.
@@ -168,6 +250,19 @@ enum SonosFavorites {
     }
 
     // MARK: - Helpers
+
+    /// The LAST occurrence of a tag. Needed because a favorite nests a second DIDL item
+    /// inside its resMD, and the inner one is the meaningful one for `upnp:class`.
+    private static func lastTag(_ name: String, in xml: String) -> String? {
+        var result: String?
+        var searchFrom = xml.startIndex
+        while let open = xml.range(of: "<\(name)>", range: searchFrom..<xml.endIndex),
+              let close = xml.range(of: "</\(name)>", range: open.upperBound..<xml.endIndex) {
+            result = String(xml[open.upperBound..<close.lowerBound])
+            searchFrom = close.upperBound
+        }
+        return result
+    }
 
     private static func tag(_ name: String, in xml: String, attributed: Bool = false) -> String? {
         let openPattern = attributed ? "<\(name)" : "<\(name)>"

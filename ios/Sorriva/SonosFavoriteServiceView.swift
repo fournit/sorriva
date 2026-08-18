@@ -268,12 +268,21 @@ struct SonosFavoritesSetupSource: ServiceSetupSource {
             }
             for f in mine { Self.byIdentity[SonosFavorites.channelIdentity(of: f.uri)] = f }
 
-            let items = mine.map {
-                ServiceSetupItem(id: SonosFavorites.channelIdentity(of: $0.uri),
-                                 title: $0.title,
-                                 subtitle: descriptor.name,
-                                 artURL: $0.artURL,
-                                 popularity: nil)
+            // Stripped here as well as at import. These rows are built from LIVE
+            // favorites, not from the library, so a station already added would otherwise
+            // read "CH 33 - 1st Wave" on this screen and "1st Wave" everywhere else.
+            let items = mine.map { fav -> ServiceSetupItem in
+                // "Spotify · Album" versus "Spotify · Playlist". Sonos separates these
+                // and Sorriva showed them identically. A broadcast adds nothing — see
+                // StationKind.label — so SiriusXM rows read as they always did.
+                let kindLabel = fav.kind.label
+                return ServiceSetupItem(
+                    id: SonosFavorites.channelIdentity(of: fav.uri),
+                    title: SonosFavorites.displayTitle(fav.title, serviceId: descriptor.id),
+                    subtitle: kindLabel.isEmpty ? descriptor.name
+                                                : "\(descriptor.name) · \(kindLabel)",
+                    artURL: fav.artURL,
+                    popularity: nil)
             }
             let stored = (try? SorrivaDatabase.shared.allStations(serviceId: descriptor.id)) ?? []
             let library = Set(stored.compactMap { $0.streamURL }

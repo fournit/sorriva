@@ -22,6 +22,9 @@ struct RadioStation: Identifiable {
     /// the station name instead is exactly the bug found 2026-08-12, where Sonos Radio
     /// played and SiriusXM did not.
     var resMD: String?
+    /// Album, playlist or endless broadcast. Decides which LIBRARY SECTION this belongs
+    /// in — Sonos separates them and Sorriva put everything under Radio. See StationKind.
+    var kind: StationKind = .broadcast
 
     init(from station: Station, description: String = "") {
         self.id = station.id
@@ -33,6 +36,7 @@ struct RadioStation: Identifiable {
         self.source = station.serviceId
         self.cume = station.cume
         self.resMD = station.resMD
+        self.kind = StationKind(rawValue: station.kind) ?? .unknown
     }
 
     init(id: Int, name: String, description: String, logoURL: String,
@@ -46,6 +50,8 @@ struct RadioStation: Identifiable {
         self.source = "iheart"
         self.cume = cume
         self.resMD = nil
+        // A live iHeart search result is always a broadcast.
+        self.kind = .broadcast
     }
 }
 

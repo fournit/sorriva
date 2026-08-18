@@ -47,6 +47,9 @@ enum NowPlayingSource {
 protocol StationLike {
     var serviceId: String { get }
     var streamURL: String? { get }
+    /// Needed because one service — SiriusXM — can only be matched by name when the
+    /// stream was not started from a favorite. See `matches(uri:station:)`.
+    var name: String { get }
 }
 
 protocol RadioServiceAdapter {
@@ -60,13 +63,46 @@ protocol RadioServiceAdapter {
     /// Sonos reports during playback and the URL we stored at browse time alike.
     func stationKey(for uri: String) -> String?
 
-    /// Where this service's now-playing comes from. Defaulted, so adding an adapter
+    /// Where this service's now-playing TEXT comes from. Defaulted, so adding an adapter
     /// does not force a decision about metadata before it has been measured.
     var nowPlaying: NowPlayingSource { get }
+
+    /// Does this service publish a cover for the song currently playing?
+    ///
+    /// A SEPARATE QUESTION FROM `nowPlaying`, and it was a mistake to treat them as one.
+    /// Modelling the choice as either/or forced every service into one of two shapes,
+    /// and SiriusXM is neither: the song text is in `r:streamContent` while the artwork
+    /// is in `upnp:albumArtURI` in the metadata block. Picking `streamContent` for it
+    /// therefore threw the artwork away silently — measured on Garage 2026-08-17,
+    /// playing 1st Wave, where the cover was sitting in the same response the whole time.
+    ///
+    /// Defaults to false rather than reading the field for everyone: iHeart publishes
+    /// none, and SomaFM's has never been checked for whether it is a per-song cover or
+    /// its channel logo. Turning it on blind would quietly replace curated station art.
+    var providesTrackArt: Bool { get }
+
+    /// Does this playing URI refer to this stored station?
+    ///
+    /// The default — both sides reduced to the same key — is right whenever a service
+    /// names a channel the same way wherever it appears. SiriusXM does not: a favorite
+    /// carries a channel UUID, while a session started by Alexa hands the speaker a raw
+    /// stream whose only channel marker is a slug in the path. One channel, two
+    /// identifier spaces, so no key function can match them and the comparison has to
+    /// reach the station itself. Measured 2026-08-17; see SiriusXMAdapter.
+    func matches(uri: String, station: StationLike) -> Bool
 }
 
 extension RadioServiceAdapter {
     var nowPlaying: NowPlayingSource { .streamContent }
+    var providesTrackArt: Bool { false }
+
+    func matches(uri: String, station: StationLike) -> Bool {
+        guard station.serviceId == source,
+              let key = stationKey(for: uri),
+              let stored = station.streamURL, !stored.isEmpty
+        else { return false }
+        return stationKey(for: stored) == key
+    }
 }
 
 // MARK: - Shared URI helpers
@@ -185,6 +221,7 @@ struct SonosRadioAdapter: RadioServiceAdapter {
     /// per-track image in the track metadata instead. Verified against a live stream:
     /// dc:title "My Hood", dc:creator "RAY BLK", art on sonosradio.imgix.net.
     var nowPlaying: NowPlayingSource { .trackMetadata }
+    var providesTrackArt: Bool { true }
 
     private static let scheme = "x-sonosapi-radio:"
     private static let payloadPrefix = "sonos%3a"
@@ -224,6 +261,7 @@ struct SpotifyAdapter: RadioServiceAdapter {
     /// in the track metadata block. Measured: dc:title "Billie Jean", dc:creator
     /// "Michael Jackson", upnp:album "Thriller".
     var nowPlaying: NowPlayingSource { .trackMetadata }
+    var providesTrackArt: Bool { true }
 
     func stationKey(for uri: String) -> String? {
         let lower = uri.lowercased()
@@ -239,6 +277,98 @@ struct SpotifyAdapter: RadioServiceAdapter {
     }
 }
 
+// MARK: - SiriusXM
+
+/// SiriusXM, reached through the household's saved favorites.
+///
+/// THE HARDEST OF THE FAVORITES-BACKED SERVICES, because a channel arrives under two
+/// unrelated identifiers depending on who started it. Measured 2026-08-17 across three
+/// zones:
+///
+///     stored favorite   x-sonosapi-stream:channel-linear%3A65f04311-…?sid=37&flags=8260&sn=3
+///     Sonos app / app   x-sonosapi-hls:channel-linear%3a65f04311-…?sid=37&flags=8200&sn=4
+///     Alexa             hls-radio://…/AAC_Audio/classicrewind/classicrewind_variant_short_v4.m3u8
+///
+/// The first two are the SAME channel — same UUID, differing only in scheme, case and
+/// the account handle after `?`. That is a plain key match, and it is why this needed no
+/// event subscription in the end.
+///
+/// Alexa's is the awkward one: no UUID anywhere, just a channel SLUG in the path. It
+/// cannot be reduced to the same key as the favorite, so it is matched against the
+/// station's NAME instead — see `matches(uri:station:)`.
+///
+/// DO NOT DISPLAY THIS SERVICE'S `dc:title`. On an Alexa session it is
+/// `classicrewind_variant_short_v4.m3u8` — the manifest filename, the same trap that put
+/// `hls.m3u8` on a zone card. Names come from the stations table.
+struct SiriusXMAdapter: RadioServiceAdapter {
+    let source = "siriusxm"
+
+    /// THE SERVICE THAT BROKE THE EITHER/OR MODEL. Song text comes from
+    /// `r:streamContent` — "TYPE=SNG|TITLE No New Tale To Tell|ARTIST Love & Rockets|
+    /// ALBUM Earth, Sun, Moon" — so `nowPlaying` stays on the default, while the cover
+    /// arrives separately in `upnp:albumArtURI` (albumart.siriusxm.com). Measured on
+    /// Garage 2026-08-17.
+    ///
+    /// A session started by ALEXA carries no artwork at all, and no channel id either;
+    /// those fall back to the station logo from the imported favorite, which is correct.
+    var providesTrackArt: Bool { true }
+
+    /// The channel UUID, namespaced by which SiriusXM id space it came from so a linear
+    /// channel and an "xtra" channel sharing a UUID could never collide.
+    func stationKey(for uri: String) -> String? {
+        var body = uri.lowercased()
+        if let query = body.firstIndex(of: "?") { body = String(body[..<query]) }
+        for space in ["channel-linear", "channel-xtra"] {
+            guard let r = body.range(of: "\(space)%3a") else { continue }
+            let id = String(body[r.upperBound...])
+            return id.isEmpty ? nil : "\(space):\(id)"
+        }
+        return nil
+    }
+
+    /// The channel slug from a raw SiriusXM stream — the directory above the manifest.
+    ///
+    ///     …/AAC_Audio/classicrewind/classicrewind_variant_short_v4.m3u8  →  classicrewind
+    func slug(for uri: String) -> String? {
+        guard RadioURI.host(uri).contains("siriusxm.com") else { return nil }
+        let parts = RadioURI.pathComponents(uri)
+        guard let manifestIndex = parts.lastIndex(where: { $0.hasSuffix(".m3u8") }),
+              manifestIndex > 0 else { return nil }
+        let candidate = parts[manifestIndex - 1]
+        return candidate.isEmpty ? nil : candidate
+    }
+
+    /// Reduce a station name to the shape SiriusXM uses in its stream paths.
+    /// "Classic Rewind" → "classicrewind". Applied to BOTH sides so the comparison is
+    /// symmetric rather than a guess about their formatting.
+    static func nameKey(_ name: String) -> String {
+        name.lowercased().filter { $0.isLetter || $0.isNumber }
+    }
+
+    func matches(uri: String, station: StationLike) -> Bool {
+        guard station.serviceId == source else { return false }
+
+        // Tier 1 — the channel id. Exact, and covers everything started from a favorite.
+        if let key = stationKey(for: uri),
+           let stored = station.streamURL, !stored.isEmpty,
+           stationKey(for: stored) == key {
+            return true
+        }
+
+        // Tier 2 — a raw stream with only a slug. A heuristic, deliberately confined to
+        // this adapter: it compares the slug against the station's name, which is sound
+        // for SiriusXM because its channel names are unique, and would NOT be sound as a
+        // general rule (two iHeart stations already share a name).
+        //
+        // This is why the channel-number prefix is stripped at import: with "CH 25 - "
+        // still attached, "ch25classicrewind" could never equal "classicrewind".
+        if let slug = slug(for: uri), !slug.isEmpty {
+            return Self.nameKey(slug) == Self.nameKey(station.name)
+        }
+        return false
+    }
+}
+
 // MARK: - Registry
 
 enum RadioServiceRegistry {
@@ -249,6 +379,7 @@ enum RadioServiceRegistry {
         SomaFMAdapter(),
         SonosRadioAdapter(),
         SpotifyAdapter(),
+        SiriusXMAdapter(),
     ]
 
     /// Where to read now-playing for what a zone is currently playing.
@@ -266,13 +397,27 @@ enum RadioServiceRegistry {
     /// adapter behaves exactly as it did before this existed.
     static func nowPlayingSource(forLoadedURI loaded: String,
                                  trackURI: String = "") -> NowPlayingSource {
-        for adapter in adapters where adapter.stationKey(for: loaded) != nil {
-            return adapter.nowPlaying
-        }
+        adapter(forLoadedURI: loaded, trackURI: trackURI)?.nowPlaying ?? .streamContent
+    }
+
+    /// Whether the service playing here publishes a cover per song. Unknown services say
+    /// no, so nothing new appears on screen until an adapter has been measured.
+    static func providesTrackArt(forLoadedURI loaded: String, trackURI: String = "") -> Bool {
+        adapter(forLoadedURI: loaded, trackURI: trackURI)?.providesTrackArt ?? false
+    }
+
+    /// The adapter that owns what a zone is playing.
+    ///
+    /// The loaded URI is asked first because it is the station. The track URI is the
+    /// fallback for queue-based content, where the loaded address (`x-rincon-queue:`)
+    /// names no service at all — see the note on the two Spotify shapes.
+    static func adapter(forLoadedURI loaded: String,
+                        trackURI: String = "") -> RadioServiceAdapter? {
+        for adapter in adapters where adapter.stationKey(for: loaded) != nil { return adapter }
         for adapter in adapters where !trackURI.isEmpty && adapter.stationKey(for: trackURI) != nil {
-            return adapter.nowPlaying
+            return adapter
         }
-        return .streamContent
+        return nil
     }
 
     /// Which service owns this URI, and its station key within that service.
@@ -285,21 +430,27 @@ enum RadioServiceRegistry {
         return nil
     }
 
-    /// The station a URI refers to, matched exactly within its own service.
+    /// The station a URI refers to, decided by the service that owns it.
     ///
-    /// Both sides are reduced to canonical keys by the same adapter, so a mirror
-    /// change, a different transport scheme, or a rotated session token cannot
-    /// prevent a match — and two different stations cannot accidentally match.
+    /// Each adapter is ASKED rather than having a key extracted from it. For most
+    /// services that is the same thing — the default `matches` reduces both sides to one
+    /// key, so a mirror change, a nested scheme or a rotated token cannot prevent a
+    /// match, and two stations cannot accidentally collide.
+    ///
+    /// It stopped being the same thing with SiriusXM. This used to bail out whenever
+    /// `identify` produced no key, which is exactly the Alexa case: a raw stream URL with
+    /// no channel id in it at all. The adapter can still recognise it by other means, so
+    /// the decision belongs to the adapter rather than to a key this function extracts
+    /// on its behalf.
+    ///
+    /// Every adapter checks `serviceId` before answering, so asking all of them cannot
+    /// produce a cross-service match.
     static func matchStation<S: StationLike>(uri: String, in stations: [S]) -> S? {
-        guard let (source, key) = identify(uri: uri),
-              let adapter = adapters.first(where: { $0.source == source })
-        else { return nil }
-
-        return stations.first { station in
-            guard station.serviceId == source,
-                  let stored = station.streamURL, !stored.isEmpty
-            else { return false }
-            return adapter.stationKey(for: stored) == key
+        for adapter in adapters {
+            if let hit = stations.first(where: { adapter.matches(uri: uri, station: $0) }) {
+                return hit
+            }
         }
+        return nil
     }
 }

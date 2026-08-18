@@ -371,14 +371,25 @@ enum SonosTopology {
         // put "hls.m3u8" and "groovesalad-128-aac" on zone cards; it comes back gated on
         // the service that is actually loaded, so iHeart and SomaFM keep using
         // r:streamContent exactly as before. See RadioServiceRegistry.nowPlayingSource.
+        let loaded = zone.stationIdentityURI
+        let track = zone.currentTrackURI
+
+        // ARTWORK IS ASKED SEPARATELY FROM TEXT, because for SiriusXM they live in
+        // different fields: the song in `r:streamContent`, the cover in
+        // `upnp:albumArtURI`. Tying the two together meant choosing one and losing the
+        // other, which silently cost SiriusXM its artwork until 2026-08-17.
+        //
+        // Cleared for services that publish none, so a cover cannot survive a switch away
+        // from a service that had one.
+        zone.currentTrackArtURL = RadioServiceRegistry.providesTrackArt(
+            forLoadedURI: loaded, trackURI: track)
+            ? absoluteArtURL(tagValue("upnp:albumArtURI", in: decoded) ?? "", host: zone.host)
+            : ""
+
         if case .trackMetadata = RadioServiceRegistry.nowPlayingSource(
-            forLoadedURI: zone.stationIdentityURI, trackURI: zone.currentTrackURI) {
+            forLoadedURI: loaded, trackURI: track) {
             return applyTrackMetadata(to: zone, decoded: decoded)
         }
-
-        // Anything else: no per-track artwork exists, so a stale one must not survive a
-        // switch away from a service that had one.
-        zone.currentTrackArtURL = ""
 
         if let scStart = decoded.range(of: "<r:streamContent>"),
            let scEnd = decoded.range(of: "</r:streamContent>") {
@@ -438,10 +449,10 @@ enum SonosTopology {
         if let artist = tagValue("dc:creator", in: decoded), !artist.isEmpty {
             zone.currentArtist = artist
         }
-        // Artwork is NOT held on a miss. A cover that outlives its song is worse than
-        // none: the station logo behind it is at least true of what is playing.
-        zone.currentTrackArtURL = absoluteArtURL(tagValue("upnp:albumArtURI", in: decoded) ?? "",
-                                                 host: zone.host)
+        // Artwork is handled by the caller now, for every service that has any — see the
+        // note there. It is deliberately NOT held on a miss: a cover that outlives its
+        // song is worse than none, because the station logo behind it is at least true of
+        // what is playing.
         return zone
     }
 
@@ -453,9 +464,37 @@ enum SonosTopology {
     /// broken image, and one that would look like a metadata bug rather than a URL bug.
     private static func absoluteArtURL(_ raw: String, host: String) -> String {
         guard !raw.isEmpty else { return "" }
-        guard raw.hasPrefix("/") else { return raw }
-        guard !host.isEmpty else { return "" }
-        return "http://\(host):1400\(raw)"
+
+        // Relative — served by the speaker itself on the local network. Spotify's covers
+        // arrive this way, and App Transport Security permits local HTTP.
+        if raw.hasPrefix("/") {
+            guard !host.isEmpty else { return "" }
+            return "http://\(host):1400\(raw)"
+        }
+        if raw.hasPrefix("https://") { return raw }
+
+        // PLAIN HTTP FROM THE INTERNET IS BLOCKED. App Transport Security permits HTTP
+        // only on the local network, so a remote http:// image renders BLANK — and since
+        // per-song art outranks the station logo, accepting one throws away a logo that
+        // would have displayed. Measured on Garage 2026-08-17: SiriusXM publishes its
+        // covers over http and the zone card lost its artwork entirely.
+        //
+        // UPGRADED RATHER THAN DROPPED, because the same host answers over TLS with the
+        // identical image — verified against
+        // albumart.siriusxm.com/albumart/0130/WBCALT_NDCA-000099327-001_m.jpg, 24,806
+        // bytes either way. Dropping it would have been safe but would have thrown away
+        // the artwork this exists to deliver.
+        //
+        // RESIDUAL RISK, stated rather than hidden: a host that serves no TLS will fail
+        // to load and show blank. That is the same outcome as today, so this cannot make
+        // anything worse — but if a service turns up whose art host is HTTP-only, the
+        // answer is to drop its URL here, not to weaken the app's transport security.
+        if raw.hasPrefix("http://") {
+            let hostPart = raw.dropFirst("http://".count).prefix { $0 != "/" && $0 != ":" }
+            if hostPart == host { return raw }          // the speaker itself — allowed
+            return "https://" + raw.dropFirst("http://".count)
+        }
+        return raw
     }
 
     private static func tagValue(_ name: String, in xml: String) -> String? {
