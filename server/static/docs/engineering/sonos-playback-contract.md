@@ -537,3 +537,87 @@ Two parsing traps when you do subscribe: Sonos's own variables are **`r:`-prefix
 it identifies content the playback URI cannot. That is the standing candidate for
 SiriusXM, whose stored `x-sonosapi-stream:channel-linear:…` and playing
 `x-sonosapi-hls:channel-linear:…` share no key today.
+
+---
+
+## 13. Apple Music — Sorriva can construct what Sonos plays
+
+Measured 2026-08-18 on Garage and Workout. **This section reverses an earlier
+conclusion:** Apple Music does NOT require the phone in the audio path. Sonos fetches it
+directly, and Sorriva can build the addresses.
+
+### The shapes
+
+```
+song, catalogue     x-sonos-http:song%3a358211473.mp4?sid=204&flags=8232&sn=5
+song, library       x-sonos-http:librarytrack%3ai.MoxKqdpsDk4Mg.mp4?sid=204&flags=8232&sn=5
+playlist container  x-rincon-cpcontainer:00060000playlist%3apl.pm-20e9f373…?sid=204&flags=0&sn=5
+album, library      x-rincon-cpcontainer:00040000libraryalbum%3al.pcpSMTa?sid=204&flags=0&sn=5
+
+household token     SA_RINCON52231_X_#Svc52231-e60e984c-Token
+```
+
+`sid=204` is Apple Music. `sn=5` and `flags` are the account handle.
+
+### TWO IDENTIFIER SPACES, and this is the part that surprises
+
+Apple issues a **catalogue** id (numeric, global — `358211473`) and, for anything the user
+has added, a **library** id unique to that account (`l.` for containers, `i.` for tracks).
+The same album is `l.pcpSMTa` to one listener and something else to another. Both appeared
+on one speaker within the hour: a playlist's tracks came through as catalogue songs while
+an added album's tracks came through as library tracks.
+
+MusicKit returns both, so anything consuming it must handle both.
+
+### The sequence that works
+
+```
+Stop → RemoveAllTracksFromQueue → AddURIToQueue(uri, didl)
+     → SetAVTransportURI("x-rincon-queue:<UUID>#0") → Play
+```
+
+**The DIDL must contain a `<res protocolInfo>` element.** Omitting it returns
+**errorCode 800** on AddURIToQueue — the first attempt failed exactly there. Copy the shape
+Sonos itself puts in the queue rather than inventing one:
+
+```xml
+<item id="-1" parentID="-1" restricted="true">
+  <res protocolInfo="sonos.com-http:*:audio/mp4:*">x-sonos-http:song%3a…mp4?sid=204…</res>
+  <dc:title>…</dc:title>
+  <upnp:class>object.item.audioItem.musicTrack</upnp:class>
+  <desc id="cdudn" nameSpace="urn:schemas-rinconnetworks-com:metadata-1-0/">SA_RINCON52231_X_#Svc…</desc>
+</item>
+```
+
+### What is proven, and what is not
+
+**Proven, on hardware, muted:**
+- A **song** address built by us — a track the speaker had never been given — played.
+- A **container** address built by us expanded to **25 tracks** and played.
+
+**Not proven:**
+- ~~That MusicKit's ids are the same numbers.~~ **PROVEN 2026-08-18, and cheaply.** Apple's
+  public iTunes Search API returned `trackId=1387216792` for the Chuck Loeb track Sonos had
+  addressed as `song%3a1387216792` — an exact match. Then end to end: searched Apple's
+  catalogue for a track that had never touched the household ("Take Five", Dave Brubeck,
+  `157427932`), built the URI from that id alone, and the speaker played it. **Nothing in
+  that loop came from Sonos.** MusicKit returns ids from the same catalogue, so validating
+  this needed no entitlement work at all.
+  Corollary worth keeping: catalogue SEARCH needs no MusicKit. MusicKit is required for the
+  user's own LIBRARY and playlists, not for finding public content.
+- Whether the **cdudn token is required**. Both a with-token and a no-token item enqueued
+  successfully; only the with-token one demonstrably played.
+- Playback beyond a few seconds. Transport reported PLAYING with the clock advancing,
+  which is the real evidence (§0 — a 200 means nothing), but no full track was played.
+
+### Why it matters
+
+Individual songs are addressable, so a queue can mix local FLAC and Apple Music tracks —
+the thing `fPlaybackConductor` assumes and has never had a route to. And because Sonos
+does the fetching, playback survives the phone locking, leaving, or dying, which is the
+property that distinguishes Sorriva from a remote control.
+
+**Not a technical question but a real one:** this drives a service integration through an
+interface Sonos publishes for its own app. Worth a clear-eyed look before it ships, as
+opposed to before it is investigated.
+
