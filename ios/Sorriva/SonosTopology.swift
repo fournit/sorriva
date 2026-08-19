@@ -28,6 +28,8 @@ struct SonosGroupMember: Equatable {
     let name: String
     let host: String
     var volume: Int = 0
+    /// Sonos's own mute switch, INDEPENDENT of the volume level. See SonosZone.muted.
+    var muted: Bool = false
 }
 
 // MARK: - SonosZone
@@ -38,6 +40,7 @@ struct SonosZone: Identifiable, Equatable {
         lhs.id == rhs.id &&
         lhs.isPlaying == rhs.isPlaying &&
         lhs.volume == rhs.volume &&
+        lhs.muted == rhs.muted &&
         lhs.currentTrack == rhs.currentTrack &&
         lhs.currentArtist == rhs.currentArtist &&
         lhs.currentTrackArtURL == rhs.currentTrackArtURL &&
@@ -56,6 +59,14 @@ struct SonosZone: Identifiable, Equatable {
     let host: String        // IPv4 address of coordinator
     var isPlaying: Bool     // Transport state
     var volume: Int         // 0-100
+    /// Sonos's mute switch, which is INDEPENDENT of the volume level.
+    ///
+    /// A muted speaker keeps its volume — mute at 10 and unmute and it is 10 again, with
+    /// nobody having to remember the number. Sorriva had no field for this until
+    /// 2026-08-18, when the Living Room played in silence at a reported volume of 10 and
+    /// the app had no way to show why: all five speakers were muted, and Sorriva only
+    /// ever read GetVolume.
+    var muted: Bool = false
     // stationName / stationNameURI / stationLogoURL were removed here (phase E).
     //
     // They held a station's identity on the zone struct, where every poll path could
@@ -269,6 +280,7 @@ enum SonosTopology {
             var merged = fresh                 // identity, host, groupMembers, idleState
             merged.isPlaying       = prior.isPlaying
             merged.volume          = prior.volume
+            merged.muted           = prior.muted
             merged.currentTrack    = prior.currentTrack
             merged.currentArtist   = prior.currentArtist
             merged.currentTrackArtURL = prior.currentTrackArtURL
@@ -294,11 +306,17 @@ enum SonosTopology {
             //
             // Harmless before this merge ran on a timer, because a topology parse only
             // happened at launch and after Sorriva's own grouping commands.
-            let priorVolumes = Dictionary(prior.groupMembers.map { ($0.id, $0.volume) },
-                                          uniquingKeysWith: { a, _ in a })
+            // MUTE RIDES ALONG for the same reason: TopologyParser does not know it
+            // either, so a fresh member arrives unmuted and would flash the slash off a
+            // genuinely silenced speaker on every merge.
+            let priorLevels = Dictionary(prior.groupMembers.map { ($0.id, ($0.volume, $0.muted)) },
+                                         uniquingKeysWith: { a, _ in a })
             merged.groupMembers = fresh.groupMembers.map { m in
                 var m = m
-                if let known = priorVolumes[m.id] { m.volume = known }
+                if let known = priorLevels[m.id] {
+                    m.volume = known.0
+                    m.muted = known.1
+                }
                 return m
             }
             return merged

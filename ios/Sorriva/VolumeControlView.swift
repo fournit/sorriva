@@ -12,8 +12,6 @@ struct VolumeControlView: View {
     @ObservedObject var discovery: ZoneDiscoveryService
     @State private var isDragging = false
     @State private var dragVolume: Int? = nil
-    @State private var preMuteVolume: Int? = nil
-    @State private var preMuteGroupVolumes: [String: Int] = [:]
 
     private var volume: Int {
         if let mid = memberID {
@@ -30,7 +28,30 @@ struct VolumeControlView: View {
         return dragVolume ?? discovery.zones.first(where: { $0.id == zoneID })?.volume ?? 0
     }
 
-    private var isMuted: Bool { volume == 0 }
+    /// Sonos's mute switch, read from the speaker — NOT `volume == 0`.
+    ///
+    /// The old inference had it both ways wrong. A speaker muted at volume 10 drew as
+    /// unmuted at 10, which is exactly how the Living Room came to play in silence with
+    /// every screen insisting it was fine (2026-08-18). And a slider legitimately dragged
+    /// to 0 drew as muted, which it is not.
+    private var isMuted: Bool {
+        guard let zone = discovery.zones.first(where: { $0.id == zoneID }) else { return false }
+        if let mid = memberID, mid != zoneID {
+            return zone.groupMembers.first(where: { $0.id == mid })?.muted ?? false
+        }
+        return zone.muted
+    }
+
+    private func setMute(_ mute: Bool) {
+        if let mid = memberID, mid != zoneID {
+            discovery.setMemberMute(zoneID: zoneID, memberID: mid, mute: mute)
+        } else {
+            // Whole group, including the coordinator. Muting the coordinator alone leaves
+            // every other speaker in the group still playing, which is not what the
+            // control on a group card promises.
+            discovery.muteGroup(zoneID: zoneID, mute: mute)
+        }
+    }
 
     private func set(_ vol: Int) {
         let clamped = max(0, min(100, vol))
@@ -44,33 +65,9 @@ struct VolumeControlView: View {
     var body: some View {
         HStack(spacing: 10) {
 
-            // Mute button — group master mutes all members explicitly
-            Button(action: {
-                if isMuted {
-                    if memberID == nil {
-                        // Group master unmute — restore all pre-mute volumes
-                        discovery.muteGroup(zoneID: zoneID, mute: false, restoreVolumes: preMuteGroupVolumes)
-                        preMuteGroupVolumes = [:]
-                    } else {
-                        set(preMuteVolume ?? 15)
-                        preMuteVolume = nil
-                    }
-                } else {
-                    if memberID == nil {
-                        // Group master mute — capture all volumes first
-                        if let zone = discovery.zones.first(where: { $0.id == zoneID }) {
-                            preMuteGroupVolumes[zoneID] = zone.volume
-                            for member in zone.groupMembers {
-                                preMuteGroupVolumes[member.id] = member.volume
-                            }
-                        }
-                        discovery.muteGroup(zoneID: zoneID, mute: true)
-                    } else {
-                        preMuteVolume = volume
-                        set(0)
-                    }
-                }
-            }) {
+            // Mute button. Nothing is captured or restored — Sonos keeps the volume
+            // across a mute, so unmuting returns to the level on its own.
+            Button(action: { setMute(!isMuted) }) {
                 Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                     .font(.system(size: 14))
                     .foregroundColor(isMuted ? .sBrass : .sHighlight)

@@ -444,18 +444,22 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
     private func fetchTransportStates() async {
         let snapshot = zones
 
-        // Fetch transport state + volume for all zones concurrently
-        let results: [(String, Bool, Int)] = await withTaskGroup(of: (String, Bool, Int).self) { group in
+        // Fetch transport state + volume + mute for all zones concurrently.
+        // MUTE IS READ SEPARATELY FROM VOLUME because Sonos keeps them separately: a
+        // speaker muted at volume 10 reports 10, and reading only the volume is what let
+        // the Living Room sit silent while every screen said 10 (2026-08-18).
+        let results: [(String, Bool, Int, Bool)] = await withTaskGroup(of: (String, Bool, Int, Bool).self) { group in
             for zone in snapshot {
                 let id = zone.id
                 let host = zone.host
                 group.addTask {
                     async let playing = SonosCommands.transportInfo(host: host)
                     async let vol = SonosCommands.volumeInfo(host: host)
-                    return (id, await playing, await vol)
+                    async let muted = SonosCommands.muteInfo(host: host)
+                    return (id, await playing, await vol, await muted)
                 }
             }
-            var collected: [(String, Bool, Int)] = []
+            var collected: [(String, Bool, Int, Bool)] = []
             for await result in group { collected.append(result) }
             return collected
         }
@@ -463,7 +467,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         // Track which zones just started playing (idle → playing transition)
         var newlyPlayingZones: [SonosZone] = []
 
-        for (id, playing, vol) in results {
+        for (id, playing, vol, muted) in results {
             if let idx = zones.firstIndex(where: { $0.id == id }) {
                 let effectivePlaying = playing && !zones[idx].idleState
 
@@ -490,6 +494,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                 } ?? false
                 if !isDebouncing {
                     zones[idx].volume = vol
+                    zones[idx].muted = muted
                 } else {
                     sLog("ZONES: volume debounce active for \(zones[idx].name) — skipping poll update (cmd age: \(String(format: "%.1f", volumeCommandTimes[zid].map { Date().timeIntervalSince($0) } ?? -1))s)")
                 }
@@ -523,9 +528,12 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             for (memberIdx, member) in zone.groupMembers.enumerated() {
                 let host = member.host
                 Task { @MainActor in
-                    let vol = await SonosCommands.volumeInfo(host: host)
+                    async let volTask = SonosCommands.volumeInfo(host: host)
+                    async let mutedTask = SonosCommands.muteInfo(host: host)
+                    let (vol, muted) = await (volTask, mutedTask)
                     if zoneIdx < self.zones.count && memberIdx < self.zones[zoneIdx].groupMembers.count {
                         self.zones[zoneIdx].groupMembers[memberIdx].volume = vol
+                        self.zones[zoneIdx].groupMembers[memberIdx].muted = muted
                     }
                 }
             }
@@ -1045,33 +1053,36 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         Task { await SonosCommands.sendSetVolume(host: zone.host, volume: clamped) }
     }
 
-    func muteGroup(zoneID: String, mute: Bool, restoreVolumes: [String: Int] = [:]) {
-        guard let zone = zones.first(where: { $0.id == zoneID }) else { return }
-        if let idx = zones.firstIndex(where: { $0.id == zoneID }) {
-            if mute {
-                // Mute all — set coordinator and all members to 0
-                zones[idx].volume = 0
-                Task { await SonosCommands.sendSetVolume(host: zone.host, volume: 0) }
-                for memberIdx in zones[idx].groupMembers.indices {
-                    zones[idx].groupMembers[memberIdx].volume = 0
-                    let host = zones[idx].groupMembers[memberIdx].host
-                    Task { await SonosCommands.sendSetVolume(host: host, volume: 0) }
-                }
-            } else {
-                // Restore coordinator
-                let coordVol = restoreVolumes[zoneID] ?? 15
-                zones[idx].volume = coordVol
-                Task { await SonosCommands.sendSetVolume(host: zone.host, volume: coordVol) }
-                // Restore members
-                for memberIdx in zones[idx].groupMembers.indices {
-                    let memberId = zones[idx].groupMembers[memberIdx].id
-                    let memberVol = restoreVolumes[memberId] ?? 15
-                    zones[idx].groupMembers[memberIdx].volume = memberVol
-                    let host = zones[idx].groupMembers[memberIdx].host
-                    Task { await SonosCommands.sendSetVolume(host: host, volume: memberVol) }
-                }
-            }
+    /// Mute or unmute a whole group, using SONOS'S MUTE rather than volume zero.
+    ///
+    /// This used to set every speaker to volume 0 and hand back a dictionary of the old
+    /// levels for the caller to hold until unmute. That was a private definition of mute
+    /// that the Sonos app and Alexa could not see, it lost the levels if the app was
+    /// killed while muted, and — the reason it was replaced — it could not REPRESENT a
+    /// zone muted by anything other than Sorriva. Sonos preserves the volume across a
+    /// mute itself, so no bookkeeping is needed here at all.
+    func muteGroup(zoneID: String, mute: Bool) {
+        guard let idx = zones.firstIndex(where: { $0.id == zoneID }) else { return }
+        let host = zones[idx].host
+        zones[idx].muted = mute
+        volumeCommandTimes[zoneID] = Date()
+        Task { await SonosCommands.sendSetMute(host: host, mute: mute) }
+        for memberIdx in zones[idx].groupMembers.indices {
+            zones[idx].groupMembers[memberIdx].muted = mute
+            let memberHost = zones[idx].groupMembers[memberIdx].host
+            Task { await SonosCommands.sendSetMute(host: memberHost, mute: mute) }
         }
+    }
+
+    /// Mute or unmute ONE speaker inside a group.
+    func setMemberMute(zoneID: String, memberID: String, mute: Bool) {
+        guard let zoneIdx = zones.firstIndex(where: { $0.id == zoneID }),
+              let memberIdx = zones[zoneIdx].groupMembers.firstIndex(where: { $0.id == memberID })
+        else { return }
+        let host = zones[zoneIdx].groupMembers[memberIdx].host
+        zones[zoneIdx].groupMembers[memberIdx].muted = mute
+        volumeCommandTimes[zoneID] = Date()
+        Task { await SonosCommands.sendSetMute(host: host, mute: mute) }
     }
 
     /// What a zone is playing, expressed as a declaration another zone can inherit —

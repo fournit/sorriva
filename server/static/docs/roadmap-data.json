@@ -3041,6 +3041,18 @@
           "createdAt": "2026-08-17",
           "completedAt": "2026-08-17",
           "requires": []
+        },
+        {
+          "id": "bMuteInvisibleToSorriva",
+          "name": "A muted zone looks normal in Sorriva — mute is never read, and Sorriva's own mute is volume zero",
+          "desc": "Sorriva had no concept of Sonos's mute switch, so a muted zone was invisible and unfixable from the app.\n\nWHAT HAPPENED. Tom started Bossa Beyond on the Living Room from Sorriva. Playback ran, Sorriva showed a volume of 10 and an un-slashed speaker icon, and no sound came out. All five Living Room speakers were reporting Mute=1 at Volume=10 (Arc Ultra 192.168.1.219, two Era 300s, two Era 100s). Sorriva had no way to show it and no way to undo it.\n\nROOT CAUSE. Sonos keeps volume and mute as two independent things. Sorriva only ever read GetVolume — GetMute appeared nowhere in the app, and neither SonosZone nor SonosGroupMember had a field to hold it. VolumeControlView inferred mute as `volume == 0`, which is wrong in both directions: a speaker muted at 10 drew as fine at 10, and a slider legitimately dragged to 0 drew as muted when it was not.\n\nAND THE MUTE BUTTON WAS A DIFFERENT THING WEARING THE SAME CLOTHES. Sorriva's mute set every speaker's volume to 0 and kept the previous levels in view state to restore on unmute. That was a private definition of mute: invisible to the Sonos app and to Alexa, lost if the app was killed while muted, and — the reason it had to go — incapable of REPRESENTING a mute set by anything other than Sorriva. Pressing it on the genuinely muted Living Room would have raised the volume and still produced no sound.\n\nTHE FIX, in three parts, built and verified 2026-08-18:\n  1. READ IT. The zone poll asks GetMute alongside GetVolume, for group coordinators and for each member. `muted` is a real field on SonosZone and SonosGroupMember, included in equality and preserved across topology merges — without that last part a fresh member arrives unmuted and the slash flickers off a silenced speaker on every merge, the same defect member volumes had on 2026-08-08.\n  2. SHOW IT. isMuted reads the speaker's actual state rather than inferring it from the level.\n  3. USE IT. The mute button calls Sonos's SetMute. Sonos preserves the volume across a mute, so the remember-and-restore bookkeeping was deleted rather than reimplemented. Mute now means the same thing in Sorriva, the Sonos app and Alexa.\n\nVERIFIED. GetMute/SetMute round trip against the Workout speaker (0 → set 1 → reads 1 → restored to 0), confirmed by reading the state back rather than by the 200. Tom confirmed the fix in the room.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-08-18",
+          "completedAt": "2026-08-18",
+          "requires": []
         }
       ]
     },

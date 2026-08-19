@@ -501,6 +501,52 @@ enum SonosCommands {
         return 0
     }
 
+    // MARK: - Mute
+    //
+    // MUTE IS NOT VOLUME ZERO, and treating them as one thing is what hid a silent
+    // Living Room on 2026-08-18: five speakers reporting Mute=1 at volume 10, while
+    // Sorriva drew an un-slashed speaker icon at 10 and had no way to say otherwise.
+    //
+    // Sonos keeps the two independently — muting preserves the level, so unmuting
+    // restores it without anyone remembering the old number. Sorriva used to fake mute
+    // by setting the volume to 0 and storing the previous value itself, which is both a
+    // worse mechanism and invisible to the Sonos app and Alexa.
+
+    static func sendSetMute(host: String, mute: Bool) async {
+        do {
+            let reply = try await soap.send(host: host, service: .renderingControl, action: "SetMute",
+                                            innerXML: """
+              <InstanceID>0</InstanceID>
+              <Channel>Master</Channel>
+              <DesiredMute>\(mute ? 1 : 0)</DesiredMute>
+            """, timeout: SonosTimeout.quick)
+            print("SORRIVA: SetMute \(host) → \(mute) status=\(reply.status)")
+        } catch {
+            print("SORRIVA: SetMute error \(host): \(error.localizedDescription)")
+        }
+    }
+
+    /// Whether a speaker is muted. Defaults to FALSE when the read fails — a zone that
+    /// cannot be reached should not be drawn as silenced, which would be a claim we
+    /// cannot support.
+    static func muteInfo(host: String) async -> Bool {
+        do {
+            let reply = try await soap.send(host: host, service: .renderingControl, action: "GetMute",
+                                            innerXML: """
+              <InstanceID>0</InstanceID>
+              <Channel>Master</Channel>
+            """, timeout: SonosTimeout.quick)
+            let raw = reply.text ?? ""
+            if let start = raw.range(of: "<CurrentMute>"),
+               let end = raw.range(of: "</CurrentMute>") {
+                return String(raw[start.upperBound..<end.lowerBound]) == "1"
+            }
+        } catch {
+            print("SORRIVA: GetMute error \(host): \(error.localizedDescription)")
+        }
+        return false
+    }
+
     /// Read back what a zone is actually doing shortly after a play command.
     ///
     /// A 200 on Play only means the command was well-formed. Sonos will accept every
