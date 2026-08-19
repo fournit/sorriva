@@ -41,6 +41,7 @@ struct SonosZone: Identifiable, Equatable {
         lhs.currentTrack == rhs.currentTrack &&
         lhs.currentArtist == rhs.currentArtist &&
         lhs.currentTrackArtURL == rhs.currentTrackArtURL &&
+        lhs.currentAlbum == rhs.currentAlbum &&
         lhs.isHDMI == rhs.isHDMI &&
         lhs.currentTrackURI == rhs.currentTrackURI &&
         lhs.currentStationURI == rhs.currentStationURI &&
@@ -72,6 +73,12 @@ struct SonosZone: Identifiable, Equatable {
     /// none, and leave this empty. It outranks the station logo when present — a
     /// station's logo is a stand-in for the artwork we could not get.
     var currentTrackArtURL: String = ""
+    /// The album the current song belongs to, where the service says so.
+    ///
+    /// Radio has no album — a station name goes in the card's subtitle instead — so this
+    /// stayed unread until Apple Music, where a track genuinely belongs to one and the
+    /// subtitle would otherwise be blank. Only `upnp:album` fills it; nothing infers.
+    var currentAlbum: String = ""
     var isHDMI: Bool = false        // TV/HDMI source — Arc/Beam specific
     var currentTrackURI: String = ""   // x-file-cifs URI — used by PlaybackContextService
     /// WHAT IS LOADED, as opposed to which track is playing — Sonos's `CurrentURI` from
@@ -265,6 +272,7 @@ enum SonosTopology {
             merged.currentTrack    = prior.currentTrack
             merged.currentArtist   = prior.currentArtist
             merged.currentTrackArtURL = prior.currentTrackArtURL
+            merged.currentAlbum    = prior.currentAlbum
             merged.currentTrackURI = prior.currentTrackURI
             merged.currentStationURI = prior.currentStationURI
             merged.isHDMI          = prior.isHDMI
@@ -448,6 +456,9 @@ enum SonosTopology {
         }
         if let artist = tagValue("dc:creator", in: decoded), !artist.isEmpty {
             zone.currentArtist = artist
+        }
+        if let album = tagValue("upnp:album", in: decoded), !album.isEmpty {
+            zone.currentAlbum = album
         }
         // Artwork is handled by the caller now, for every service that has any — see the
         // note there. It is deliberately NOT held on a miss: a cover that outlives its

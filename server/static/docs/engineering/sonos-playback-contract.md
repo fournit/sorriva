@@ -576,18 +576,48 @@ Stop → RemoveAllTracksFromQueue → AddURIToQueue(uri, didl)
      → SetAVTransportURI("x-rincon-queue:<UUID>#0") → Play
 ```
 
-**The DIDL must contain a `<res protocolInfo>` element.** Omitting it returns
-**errorCode 800** on AddURIToQueue — the first attempt failed exactly there. Copy the shape
-Sonos itself puts in the queue rather than inventing one:
+### THE `<res>` RULE — and it is the reverse of what this section first recorded
+
+**The DIDL must NOT contain a `<res>` element.** Supply one and Sonos takes your word for
+the resource: it stores the item as an opaque `application/octet-stream` and reports
+`TrackDuration 0:00:00` **forever**. The track plays, the elapsed clock climbs, and the
+progress bar has nothing to draw against — which is exactly how it presented in the app.
+
+Omit `<res>`, give the item its **object id** and the **household token**, and Sonos
+resolves the track *through the service*, returning the real mime type
+(`application/x-mpegURL`) and the real length.
 
 ```xml
-<item id="-1" parentID="-1" restricted="true">
-  <res protocolInfo="sonos.com-http:*:audio/mp4:*">x-sonos-http:song%3a…mp4?sid=204…</res>
+<item id="10032028song%3a1443195687" parentID="-1" restricted="true">
   <dc:title>…</dc:title>
   <upnp:class>object.item.audioItem.musicTrack</upnp:class>
   <desc id="cdudn" nameSpace="urn:schemas-rinconnetworks-com:metadata-1-0/">SA_RINCON52231_X_#Svc…</desc>
 </item>
 ```
+
+Object id prefixes: `10032028song%3a<catalogueId>` for a track,
+`00040000album%3a<collectionId>` for an album container.
+
+**How this was got wrong, because the shape of the error matters more than the fix.** The
+first attempt omitted `<res>` **and** used `id="-1"` **and** carried no token. It failed
+with `errorCode 800`, and "res is required" was written down as the lesson — one variable
+blamed out of three that were all wrong together. A duration attribute, its tests and an
+argument for containers were then built on top of it. Sonos's own favorite metadata carries
+no `<res>` at all, which is what finally gave it away.
+
+### The token, and where it actually comes from
+
+Read it from **any Sonos favorite of that service** (`FV:2`, §11) — every favorite of a
+given service embeds the same `cdudn`, so ONE saved Apple Music favorite is enough.
+
+**Do not look for it in Sorriva's database.** Apple Music is not imported as a Sorriva
+service and has no `stations` rows, so a local lookup finds nothing even when the household
+plainly has the credential. That was a real bug on 2026-08-18: the user saved a favorite in
+the Sonos app and Sorriva still said Apple Music needed setting up.
+
+`SA_RINCON<n>` where **n = sid × 256 + 7** — verified across the household (iHeart 6→1543,
+Spotify 12→3079, SiriusXM 37→9479, Sonos Radio 303→77575, Apple 204→52231). Only the
+account half ever needs discovering.
 
 ### What is proven, and what is not
 
@@ -605,8 +635,33 @@ Sonos itself puts in the queue rather than inventing one:
   this needed no entitlement work at all.
   Corollary worth keeping: catalogue SEARCH needs no MusicKit. MusicKit is required for the
   user's own LIBRARY and playlists, not for finding public content.
-- Whether the **cdudn token is required**. Both a with-token and a no-token item enqueued
-  successfully; only the with-token one demonstrably played.
+- ~~Whether the cdudn token is required.~~ **SETTLED, AND THE ANSWER IS "IT DEPENDS ON WHAT
+  YOU WANT BACK."**
+
+  **To merely PLAY a track, nothing household-specific is needed.** A track played with no
+  `cdudn` at all, then with a deliberately WRONG account handle (`sn=1`), then with no `sn`
+  and no `flags` whatsoever. All three played. The minimal address is:
+
+  ```
+  x-sonos-http:song%3a<appleCatalogueId>.mp4?sid=204
+  ```
+
+  The speaker resolves the service from `sid=204` and uses its OWN linked account, exactly
+  as it does for SiriusXM favorites (§11).
+
+  **But a bare-URI play gives you octet-stream and no duration** — the same outcome as
+  supplying `<res>`, and for the same reason: Sonos never asks the service what the item
+  is. **The token IS required** for a container, and for any track you want resolved with
+  real metadata and a real length. Since Sorriva wants the duration, it wants the token.
+
+- **A container album plays**, expanding to its full track list — measured at 25, 19, 11 and
+  7 tracks across four albums.
+- **The catalogue is not the service.** Apple's public lookup and Apple Music's own
+  catalogue disagree, and not only at the margins: Vanessa Daou's "Slow to Burn" reported 11
+  tracks and returned **none**, while Sonos resolved all 11 through the service. One Metheny
+  album reported 9 and returned 8. **Consequence for any UI: an empty track list must never
+  disable Play**, and an album must stay playable as a container or it is not playable at
+  all.
 - Playback beyond a few seconds. Transport reported PLAYING with the clock advancing,
   which is the real evidence (§0 — a 200 means nothing), but no full track was played.
 

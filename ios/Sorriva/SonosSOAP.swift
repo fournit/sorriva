@@ -33,6 +33,10 @@ enum SonosService {
     case renderingControl
     case contentDirectory
     case deviceProperties
+    /// Which streaming services this household has linked. Read-only, and the only
+    /// honest way to know whether Apple Music is usable here — a hardcoded list would
+    /// claim a service the speakers cannot play.
+    case musicServices
 
     var path: String {
         switch self {
@@ -40,6 +44,7 @@ enum SonosService {
         case .renderingControl: return "/MediaRenderer/RenderingControl/Control"
         case .contentDirectory: return "/MediaServer/ContentDirectory/Control"
         case .deviceProperties: return "/DeviceProperties/Control"
+        case .musicServices:    return "/MusicServices/Control"
         }
     }
 
@@ -49,6 +54,7 @@ enum SonosService {
         case .renderingControl: return "urn:schemas-upnp-org:service:RenderingControl:1"
         case .contentDirectory: return "urn:schemas-upnp-org:service:ContentDirectory:1"
         case .deviceProperties: return "urn:schemas-upnp-org:service:DeviceProperties:1"
+        case .musicServices:    return "urn:schemas-upnp-org:service:MusicServices:1"
         }
     }
 }

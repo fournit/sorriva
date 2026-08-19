@@ -263,6 +263,89 @@ enum SonosCommands {
 
     /// Add a single URI to the Sonos queue — required for x-file-cifs:// URIs
     /// (AddMultipleURIsToQueue rejects x-file-cifs:// with error 402)
+    /// The Sonos service ids this household has linked.
+    ///
+    /// Derived from the speakers rather than hardcoded: whether Apple Music is usable
+    /// here is a property of the household, and claiming a service the speakers cannot
+    /// play is the same broken promise as a play button on a dead transport.
+    static func availableServiceIds(host: String) async -> Set<Int> {
+        guard let reply = try? await soap.send(host: host, service: .musicServices,
+                                               action: "ListAvailableServices",
+                                               innerXML: "", timeout: SonosTimeout.action),
+              reply.ok else { return [] }
+        // `<Service Id="204" Name="Apple Music" …>` — entity-encoded inside the response.
+        let text = reply.text
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+        var ids: Set<Int> = []
+        var search = text.startIndex
+        while let open = text.range(of: "<Service Id=\"", range: search..<text.endIndex),
+              let close = text.range(of: "\"", range: open.upperBound..<text.endIndex) {
+            if let id = Int(text[open.upperBound..<close.lowerBound]) { ids.insert(id) }
+            search = close.upperBound
+        }
+        return ids
+    }
+
+    // MARK: - Apple Music
+
+    /// Play Apple Music tracks on a zone. Addresses, metadata rules and the reason the
+    /// DIDL carries no `<res>` element all live in AppleMusicPlayback.
+    ///
+    /// TRACKS INDIVIDUALLY, NOT A CONTAINER. Both work — a container gets Sonos to expand
+    /// an album for us — but enqueuing tracks keeps the queue ours: an album, a hand-made
+    /// playlist and a mix of local FLAC with streaming tracks are then all the same
+    /// operation. Containers would make the album case slightly simpler and every other
+    /// case harder.
+    ///
+    /// Returns false when the household has no Apple Music token, which is not a failure
+    /// to retry — it means no Apple Music favorite has been saved in the Sonos app yet.
+    /// Play a whole Apple Music album by handing Sonos the container.
+    ///
+    /// Sonos expands it through the service, which is the only way to play an album whose
+    /// tracks the public catalogue will not enumerate — and it also means Sonos supplies
+    /// every track's title, mime type and duration.
+    static func playAppleMusicAlbum(collectionId: Int, title: String,
+                                    token: String, on zone: SonosZone) async -> Bool {
+        guard !token.isEmpty else { return false }
+        await sendTransportAction(host: zone.host, action: "Stop")
+        await removeAllTracksFromQueue(host: zone.host)
+        await addURIToQueue(host: zone.host,
+                            uri: AppleMusicPlayback.albumContainerURI(collectionId: collectionId),
+                            didl: AppleMusicPlayback.albumDIDL(collectionId: collectionId,
+                                                               title: title, token: token))
+        await setAVTransportURIWithMetadata(host: zone.host,
+                                            streamURL: "x-rincon-queue:\(zone.id)#0",
+                                            didl: "")
+        await sendTransportAction(host: zone.host, action: "Play")
+        return true
+    }
+
+    static func playAppleMusicTracks(_ tracks: [(id: Int, title: String)],
+                                     token: String,
+                                     on zone: SonosZone) async -> Bool {
+        guard !tracks.isEmpty, !token.isEmpty else { return false }
+
+        await sendTransportAction(host: zone.host, action: "Stop")
+        await removeAllTracksFromQueue(host: zone.host)
+
+        for track in tracks {
+            await addURIToQueue(
+                host: zone.host,
+                uri: AppleMusicPlayback.trackURI(catalogueId: track.id),
+                didl: AppleMusicPlayback.didl(catalogueId: track.id,
+                                              title: track.title,
+                                              token: token))
+        }
+
+        await setAVTransportURIWithMetadata(host: zone.host,
+                                            streamURL: "x-rincon-queue:\(zone.id)#0",
+                                            didl: "")
+        await sendTransportAction(host: zone.host, action: "Play")
+        return true
+    }
+
     static func addURIToQueue(host: String, uri: String, didl: String = "") async {
         let escapedURI = uri.replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "\"", with: "&quot;")

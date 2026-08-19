@@ -177,7 +177,12 @@ final class PlaybackContextService: ObservableObject {
                     stationName = existing?.albumName ?? ""
                     stationArt  = existing?.artURL ?? ""
                 case .notAStation:
-                    stationName = ""
+                    // AN ALBUM IS NOT A STATION. Apple Music plays from the queue, so the
+                    // loaded URI names no station — but the track genuinely belongs to an
+                    // album, and the card's subtitle is the only place to say so.
+                    // Without this an Apple Music track shows the right song over a blank
+                    // line. Radio services leave currentAlbum empty and are unaffected.
+                    stationName = zone.currentAlbum
                     stationArt  = ""
                 }
 

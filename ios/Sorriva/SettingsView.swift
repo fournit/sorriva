@@ -395,6 +395,13 @@ struct ServicesView: View {
     @State private var iHeartStationCount: Int = 0
     @State private var somaFMStationCount: Int = 0
 
+    /// Apple Music is CONNECTED when the household's speakers report service 204 —
+    /// asked of Sonos, not of Sorriva's database. It has no stations table of its own
+    /// (the whole catalogue is reachable from Discover without an account), so the
+    /// count-based test every other service uses would say "not connected" forever.
+    @State private var appleMusicOnSonos = false
+    @State private var appleMusicHasToken = false
+
     /// Station counts for the services Sorriva reaches through Sonos favorites,
     /// keyed by services.id. CONNECTED versus AVAILABLE is derived from these rather
     /// than written into the view: a service with saved content is connected, one
@@ -451,6 +458,21 @@ struct ServicesView: View {
                      destination: AnyView(ServiceSetupView(source: SomaFMSetupSource())))
     }
 
+    /// Apple Music. Connected or not, the same screen — because unlike the others there
+    /// is nothing to set up here: searching works either way, and what changes is whether
+    /// the speakers can play what you find.
+    private var appleMusicEntry: ServiceEntry {
+        ServiceEntry(id: "applemusic", name: "Apple Music", icon: "music.note",
+                     color: Color(hex: "#FC3C44"),
+                     detail: appleMusicOnSonos
+                        ? (appleMusicHasToken
+                            ? "Search the catalogue in Discover"
+                            : "One step left — save a Sonos favourite")
+                        : "Add it in the Sonos app to play it on your speakers",
+                     destination: AnyView(AppleMusicServiceView(linked: appleMusicOnSonos,
+                                                               hasToken: appleMusicHasToken)))
+    }
+
     private func entry(for d: FavoriteServiceDescriptor) -> ServiceEntry {
         ServiceEntry(id: d.id, name: d.name, icon: d.icon, color: d.color,
                      detail: "\(count(d)) station\(count(d) == 1 ? "" : "s")",
@@ -462,23 +484,22 @@ struct ServicesView: View {
         var out: [ServiceEntry] = []
         if isIHeartConnected { out.append(iHeartEntry) }
         if isSomaFMConnected { out.append(somaFMEntry) }
+        if appleMusicOnSonos { out.append(appleMusicEntry) }
         out.append(contentsOf: connectedFavoriteServices.map(entry(for:)))
         return sortedByName(out)
     }
 
-    private var availableRadioServices: [ServiceEntry] {
+    private var availableServices: [ServiceEntry] {
         var out: [ServiceEntry] = []
         if !isIHeartConnected { out.append(iHeartEntry) }
         if !isSomaFMConnected { out.append(somaFMEntry) }
+        if !appleMusicOnSonos { out.append(appleMusicEntry) }
         return sortedByName(out)
     }
 
     private var isIHeartConnected: Bool { iHeartStationCount > 0 }
     private var isSomaFMConnected: Bool { somaFMStationCount > 0 }
-    private var hasAnyConnected: Bool {
-        isIHeartConnected || isSomaFMConnected || !connectedFavoriteServices.isEmpty
-    }
-    private var allRadioConnected: Bool { isIHeartConnected && isSomaFMConnected }
+    private var hasAnyConnected: Bool { !connectedServices.isEmpty }
 
     var body: some View {
         ZStack {
@@ -510,12 +531,12 @@ struct ServicesView: View {
                         .padding(.horizontal, 16)
                     }
 
-                    // AVAILABLE section — radio services not yet connected
-                    if !allRadioConnected {
+                    // AVAILABLE section — services Sorriva can reach that aren't set up yet
+                    if !availableServices.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             SettingsSectionLabel(title: "Available")
 
-                            ForEach(availableRadioServices) { svc in
+                            ForEach(availableServices) { svc in
                                 NavigationLink(destination: svc.destination) {
                                     AvailableServiceRow(icon: svc.icon, iconColor: svc.color,
                                                         name: svc.name, description: svc.detail)
@@ -552,11 +573,11 @@ struct ServicesView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         SettingsSectionLabel(title: "Coming Soon")
                         VStack(spacing: 8) {
-                            // Spotify left this list on 2026-08-12. Coming Soon means
-                            // nothing is built; Spotify playlists saved as Sonos
-                            // favorites are now reachable by the same route as SiriusXM,
-                            // so leaving it here would advertise less than the app does.
-                            ComingSoonRow(name: "Apple Music",               iconColor: Color(hex: "#FC3C44"))
+                            // Spotify left this list on 2026-08-12, Apple Music on
+                            // 2026-08-18. Coming Soon means nothing is built — Apple's
+                            // catalogue is searchable in Discover and plays on the
+                            // speakers, so leaving it here would advertise less than the
+                            // app does.
                             ComingSoonRow(name: "Qobuz",                     iconColor: Color(hex: "#1A56DB"))
                         }
                     }
@@ -569,9 +590,25 @@ struct ServicesView: View {
         .navigationTitle("Services")
         .navigationBarTitleDisplayMode(.large)
         .onAppear { refreshCounts() }
+        .task { await refreshAppleMusic() }
         .onReceive(NotificationCenter.default.publisher(for: .stationsDidUpdate)) { _ in
             refreshCounts()
         }
+    }
+
+    /// Asks a speaker what services the household has, rather than inferring it. With no
+    /// speakers reachable the answer is "don't know", and the row stays in Available —
+    /// the same thing it would say if Apple Music genuinely were not set up, and the
+    /// honest answer either way.
+    private func refreshAppleMusic() async {
+        let hosts = discovery.zones.map(\.host)
+        guard let host = hosts.first else { return }
+        let linked = await SonosCommands.availableServiceIds(host: host)
+            .contains(AppleMusicPlayback.serviceId)
+        appleMusicOnSonos = linked
+        // Only worth the favorites round-trip once we know the service is there.
+        guard linked else { appleMusicHasToken = false; return }
+        appleMusicHasToken = await AppleMusicPlayback.token(hosts: hosts) != nil
     }
 
     private func refreshCounts() {

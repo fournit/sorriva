@@ -369,6 +369,61 @@ struct SiriusXMAdapter: RadioServiceAdapter {
     }
 }
 
+// MARK: - Apple Music
+
+/// Apple Music, played by Sonos from an address Sorriva builds.
+///
+/// NOT A FAVORITES-BACKED SERVICE. iHeart and SomaFM are addressed by stream URL,
+/// SiriusXM and Spotify only through saved favorites — Apple Music is neither. Sorriva
+/// finds content in Apple's public catalogue and hands the speaker a track address
+/// directly, so the whole catalogue is reachable rather than a saved subset. See
+/// sonos-playback-contract.md §13 and AppleMusicCatalog.
+///
+/// TWO ID SPACES, both of which arrive here:
+///
+///     catalogue   x-sonos-http:song%3a358211473.mp4?sid=204&flags=8232&sn=5
+///     library     x-sonos-http:librarytrack%3ai.MoxKqdpsDk4Mg.mp4?sid=204&flags=8232&sn=5
+///
+/// Apple issues a global catalogue id for everything and an ADDITIONAL per-account
+/// library id for whatever the listener has added. Both appeared on one speaker within an
+/// hour, so both must be claimed or half of what plays goes unrecognised.
+///
+/// THIS ADAPTER IS WHY SKIPPING WORKS. Without it nothing claimed these URIs, the service
+/// fell back to `r:streamContent` — which Apple Music leaves EMPTY — and the no-blank rule
+/// held the previous song's title, artist and cover on screen through every skip.
+/// Measured 2026-08-18; the first track looked correct only because the app's own
+/// declaration was still inside its grace window.
+struct AppleMusicAdapter: RadioServiceAdapter {
+    let source = "applemusic"
+
+    /// Everything is in the DIDL block: dc:title, dc:creator, upnp:album and a per-song
+    /// upnp:albumArtURI served by the speaker itself.
+    var nowPlaying: NowPlayingSource { .trackMetadata }
+    var providesTrackArt: Bool { true }
+
+    private static let scheme = "x-sonos-http:"
+
+    func stationKey(for uri: String) -> String? {
+        let lower = uri.lowercased()
+        guard lower.hasPrefix(Self.scheme) else { return nil }
+        // `sid=204` is Apple Music. Checked because x-sonos-http: is a generic Sonos
+        // transport — Sonos Radio uses it too, with a different service id — so the
+        // scheme alone would make this adapter answer for a service it knows nothing
+        // about, exactly the trap SonosRadioAdapter documents for SiriusXM.
+        guard lower.contains("sid=204") else { return nil }
+
+        var body = String(lower.dropFirst(Self.scheme.count))
+        if let query = body.firstIndex(of: "?") { body = String(body[..<query]) }
+        if body.hasSuffix(".mp4") { body = String(body.dropLast(4)) }
+        for space in ["song%3a", "librarytrack%3a"] {
+            guard body.hasPrefix(space) else { continue }
+            let id = String(body.dropFirst(space.count))
+            return id.isEmpty ? nil : "\(space.replacingOccurrences(of: "%3a", with: "")):\(id)"
+        }
+        return nil
+    }
+}
+
 // MARK: - Registry
 
 enum RadioServiceRegistry {
@@ -380,6 +435,7 @@ enum RadioServiceRegistry {
         SonosRadioAdapter(),
         SpotifyAdapter(),
         SiriusXMAdapter(),
+        AppleMusicAdapter(),
     ]
 
     /// Where to read now-playing for what a zone is currently playing.
