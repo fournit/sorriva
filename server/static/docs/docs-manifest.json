@@ -32,12 +32,6 @@
       "category": "marketing"
     },
     {
-      "file": "passione-session-protocol.html",
-      "display_name": "Session Protocol",
-      "description": "Cross-product session conventions — start checklist, iteration workflow, session close, zip spec, manifest schemas, rollback, Hub workflow.",
-      "category": "arch"
-    },
-    {
       "file": "sonos-upnp-reference.html",
       "display_name": "Sonos UPnP Reference",
       "description": "Complete Sonos UPnP/SOAP API reference. Discovery, topology, transport, volume, EQ, zone grouping, station playback. Includes S2 firmware quirks (x-rincon: single colon, IdleState behavior, Arc Ultra extended EQ). Validated against live hardware July 2026.",
@@ -126,12 +120,6 @@
       "display_name": "Reliability Gate Readiness Assessment",
       "description": "Honest, tiered audit of what's actually verified vs merely marked done ahead of the 7-day reliability gate. Surfaces bMissingTracksInAlbum and bScannerTestSeam as previously-unconnected High-priority gaps found via a full roadmap pass. Recommends next diagnostic steps before trusting the gate clock.",
       "category": "handoff"
-    },
-    {
-      "file": "passione-deploy-reference.html",
-      "display_name": "Passione Deploy Reference",
-      "description": "Deploy mechanics across Passione products -- iosdeploy target codes (so, so-test), gitops, session-close zip structure, and Hub workflow. Note: iosdeploy so-test is required for files belonging to the test target; using so places them at repo root where they compile into nothing.",
-      "category": "engineering"
     },
     {
       "file": "xcode-wifi-deploy.html",
