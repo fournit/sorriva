@@ -4078,10 +4078,12 @@
           "done": false,
           "priority": "Normal",
           "name": "iOS widgets",
-          "desc": "WidgetKit widgets for lock screen, home screen, and standby mode. Now Playing widget (album art, track, zone). Quick zone switcher widget. Library shortcut widget. Data bridge via App Intents. Pure SwiftUI — no third-party widget framework. (React Native widget extension reference removed.)",
+          "desc": "WidgetKit widgets for lock screen, home screen, and standby mode. Now Playing widget (album art, track, zone). Quick zone switcher widget. Library shortcut widget. Data bridge via App Intents. Pure SwiftUI — no third-party widget framework. (React Native widget extension reference removed.)\n\n===================== RESCOPED 2026-08-20 =====================\n\nThis entry now covers HOME AND LOCK SCREEN WIDGETS ONLY. The lock-screen playback control Tom asked for is fLiveActivity, and the plumbing every surface shares is fAppIntents. Dynamic Island is a presentation of a Live Activity, not a separate build.\n\nTWO THINGS DO NOT EXIST YET and are part of this entry: a widget extension target, and an APP GROUP. The App Group is not optional - a widget runs in its own process and cannot reach the GRDB database in the app container without one.\n\nButtons run through fAppIntents rather than being wired per-widget. Widget refresh budgets are stingy, so a home-screen widget is suited to STARTING something - a zone switcher, a library shortcut - rather than tracking live now-playing state, which is fLiveActivity's job.\n\nDeployment target is iOS 26.5, so nothing here is version-gated.\n\nHOME ONLY. Sorriva reaches speakers over the LAN; a widget is inert away from the network. Accepted - see fLiveActivity for why parity with Sonos is not available without a backend.",
           "tag": "feature",
           "createdAt": "2026-06-24",
-          "requires": [],
+          "requires": [
+            "fAppIntents"
+          ],
           "completedAt": null
         },
         {
@@ -4169,6 +4171,45 @@
           "createdAt": "2026-07-28",
           "completedAt": null,
           "requires": []
+        },
+        {
+          "id": "fSonosEventSubscriber",
+          "name": "Subscribe to speaker events instead of polling (GENA)",
+          "desc": "Sorriva polls. Sonos can PUSH: UPnP GENA lets a controller subscribe to a speaker's AVTransport and RenderingControl and receive an HTTP callback whenever state changes. Sorriva has no subscriber today.\n\nWHY IT IS FIRST. It is the prerequisite for a lock-screen widget that shows what is playing without being touched - the speaker is the only thing that knows, so either it tells us or we ask it, and asking requires us to be running.\n\nIT PAYS FOR ITSELF WITHOUT THE WIDGET. It is how Sorriva would notice a change made in the Sonos app - shuffle turned off, a track skipped - without polling for it. It exposes the fields that are EVENT ONLY and therefore invisible to Sorriva today: r:EnqueuedTransportURI and its metadata, which is where a queue's origin survives and whose absence cost a full session on Spotify (sonos-playback-contract.md 12). And it takes load off a 2-second poll running against nine zones.\n\nTHE LISTENER PATTERN ALREADY EXISTS. SorrivaHTTPServer runs an NWListener HTTP server on port 8080 for AirPlay streaming. A GENA callback endpoint is the same shape.\n\nEXIT QUESTION, AND IT IS THE POINT OF THE SPIKE: DOES A SUSPENDED APP STILL RECEIVE CALLBACKS? iOS suspends a process seconds after backgrounding and a suspended process is not servicing sockets. UNMEASURED - do not assume either way, and do not infer it from how the Sonos app behaves. Measure it on OUR app: subscribe, log every callback with a timestamp, background the app, lock the phone, change the track from another controller, and watch when they stop.\n\n- Callbacks keep arriving -> a live lock-screen widget is straightforward, at home, with no cloud and no account.\n- Callbacks stop at suspension -> fLiveActivity degrades to working controls with a last-known display, which is still shippable, and the alternative routes (a Network Extension app push provider, which needs an entitlement requested from Apple) get evaluated then rather than now.\n\nSubscriptions expire and must be renewed on a timer; renewal failure must be visible rather than silently reverting to stale state.",
+          "priority": "High",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-08-20",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fAppIntents",
+          "name": "App Intents - the shared foundation for every control surface",
+          "desc": "Play, pause, skip, volume, and 'play X in zone Y' expressed once as App Intents.\n\nWHY THIS IS ITS OWN ITEM. Widget buttons, Live Activity buttons, Control Center controls, Siri, Shortcuts and the Action button ALL run through App Intents. Build them once and each surface is a thin presentation layer; build them per-surface and the same plumbing gets written three times and drifts.\n\nAn intent runs in the app's process and gets enough execution to complete a SOAP call to a speaker on the LAN - that is the path that makes a lock-screen button actually move a volume slider in the room.\n\nDelivers value on its own before any widget exists: Siri and Shortcuts control, and the Action button.\n\nZone targeting is the design question - an intent needs to name a zone, and the zone list is dynamic. App Intents supports dynamic options for exactly this.",
+          "priority": "High",
+          "complexity": "S",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-08-20",
+          "completedAt": null,
+          "requires": []
+        },
+        {
+          "id": "fLiveActivity",
+          "name": "Live Activity and Dynamic Island for playback",
+          "desc": "A lock-screen playback control for the zone you are listening to, with the Dynamic Island presentation.\n\nDYNAMIC ISLAND IS NOT A SECOND FEATURE. It is one of the presentations of a Live Activity - compact, minimal, expanded. Build the activity and the Island comes with it.\n\nWHAT IT SHOWS: what is playing, on which zone, with transport controls and volume. Controls run through fAppIntents.\n\nHOME ONLY, BY ARCHITECTURE, AND THAT IS ACCEPTED. Sorriva reaches speakers over the LAN - no cloud, no account, no server. Off the network there is nothing to talk to. Tom, 2026-08-20: away-from-home playback 'would be nice but not a requirement or expectation'. The activity should END when the system is unreachable rather than sit there greyed with dead buttons - that is the behaviour observed on the Sonos widget and it is the right one. A stale control on a lock screen is worse than no control.\n\nWHY SONOS'S EQUIVALENT WORKS AWAY FROM HOME AND OURS WILL NOT: measured 2026-08-20 on Tom's phone - with wifi off, their widget kept working and the volume genuinely changed in the room, so it is cloud-relayed in both directions. Sorriva has no cloud by design. The Sonos Control API is not a route to parity either: local control is documented as 'not available for wide release', and event subscription REQUIRES a registered public HTTPS callback URL that WE would have to host - returning 403 without one. That is a backend, which is the thing Sorriva deliberately does not have. Commands away from home may be reachable through their cloud REST API without a backend; live state is not. Recorded so this is not re-investigated.\n\nDEPENDS ON fSonosEventSubscriber for live display. If its spike shows callbacks stop at suspension, this degrades to working controls with a last-known display - still shippable, and a decision point rather than a blocker.",
+          "priority": "Normal",
+          "complexity": "M",
+          "tag": "feature",
+          "done": false,
+          "createdAt": "2026-08-20",
+          "completedAt": null,
+          "requires": [
+            "fAppIntents",
+            "fSonosEventSubscriber"
+          ]
         }
       ]
     }
