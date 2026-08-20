@@ -156,6 +156,18 @@
       "display_name": "Sonos Playback Contract",
       "description": "THE authority for Sonos command sequences — seeding a speaker, playing local files via the queue, radio, transfer, grouping — each with its failure signature. Measured facts only. If another doc contradicts it, this one wins.",
       "category": "engineering"
+    },
+    {
+      "file": "engineering/apple-music-library-model.md",
+      "display_name": "Apple Music Library Model",
+      "description": "The agreed data model for Apple Music in the Library: one model with the source flagged on the media, normalized into common album/track/playlist tables joined to source-specific child tables. Covers the local migration and where its risk sits, feature parity with local playback, quality tiers, and the build sequencing. Agreed 2026-08-19, unbuilt.",
+      "category": "arch"
+    },
+    {
+      "file": "engineering/availability-model.md",
+      "display_name": "Availability Model",
+      "description": "What can actually play, given where you are and what is reachable. Because every row carries its source, availability is derived rather than labelled: at home without internet, service media is disabled; away from home, local media is unavailable. Applies to every source. Agreed 2026-08-19, unbuilt.",
+      "category": "arch"
     }
   ]
 }
