@@ -31,6 +31,12 @@ struct ZonePlaybackSnapshot: Identifiable, Equatable, Sendable {
     let artAlbum: Album?        // Non-nil for local tracks
     let artURL: String?         // Non-nil for streams
 
+    // Shuffle and repeat
+    let playMode: PlayMode
+    /// False for radio, where Sonos refuses every mode but NORMAL — the controls are
+    /// hidden entirely rather than shown dead. See SonosZone.isQueueBacked.
+    let supportsPlayMode: Bool
+
     // Group
     let groupMembers: [SonosGroupMember]
     let coordinatorID: String?
@@ -57,6 +63,8 @@ struct ZonePlaybackSnapshot: Identifiable, Equatable, Sendable {
         lhs.durationSeconds == rhs.durationSeconds &&
         lhs.artAlbum?.id == rhs.artAlbum?.id &&
         lhs.artURL == rhs.artURL &&
+        lhs.playMode == rhs.playMode &&
+        lhs.supportsPlayMode == rhs.supportsPlayMode &&
         lhs.groupMembers == rhs.groupMembers &&
         lhs.coordinatorID == rhs.coordinatorID
     }

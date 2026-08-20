@@ -96,6 +96,7 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
 
     // B-001: Volume command debounce — suppress poll overwrites for 3s after command
     private var volumeCommandTimes: [String: Date] = [:]  // zoneID → last command time
+    private var playModeCommandTimes: [String: Date] = [:]  // zoneID → last shuffle/repeat command
     private let volumeDebounceInterval: TimeInterval = 3.0
 
     // MARK: - Compatibility shim for ZonesView (uses devices/activeGroups/availableDevices)
@@ -1051,6 +1052,48 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
             }
         }
         Task { await SonosCommands.sendSetVolume(host: zone.host, volume: clamped) }
+    }
+
+    // MARK: - Shuffle and repeat
+
+    /// Set shuffle/repeat on a zone, updating the UI before the speaker confirms.
+    ///
+    /// Optimistic for the same reason volume is: the round trip is visible as a lag on
+    /// the icon otherwise. `playModeCommandTimes` stops the next poll snapping it back
+    /// while the speaker catches up — the same debounce shape as `volumeCommandTimes`.
+    ///
+    /// Addressed to the zone's own host, which for a group IS the coordinator: `zones`
+    /// holds coordinators, and members ride along in `groupMembers`. A member addressed
+    /// directly would refuse this with 712 (measured, contract §14).
+    func setPlayMode(zoneID: String, shuffle: Bool, repeatMode: PlayMode.Repeat) {
+        guard let idx = zones.firstIndex(where: { $0.id == zoneID }) else { return }
+        let mode = PlayMode(shuffle: shuffle, repeatMode: repeatMode)
+        let host = zones[idx].host
+        zones[idx].playMode = mode
+        playModeCommandTimes[zoneID] = Date()
+        sLog("ZONES: play mode \(zones[idx].name) → \(mode.rawValue)")
+        Task { await SonosCommands.setPlayMode(host: host, mode: mode) }
+    }
+
+    /// Read shuffle/repeat back for ONE zone — the one the user is looking at.
+    ///
+    /// Deliberately not part of the main poll. That would add a fourth SOAP call per
+    /// zone per cycle across the whole household for a setting that changes rarely;
+    /// this is one call for the zone on screen. The cost of the choice is that a mode
+    /// changed in the Sonos app on some OTHER zone is not noticed until that zone is
+    /// opened, which is the right trade for a control that lives on one screen.
+    func refreshPlayMode(zoneID: String) {
+        guard let zone = zones.first(where: { $0.id == zoneID }), zone.isQueueBacked else { return }
+        // Do not overwrite a tap the speaker has not acknowledged yet.
+        if let t = playModeCommandTimes[zoneID], Date().timeIntervalSince(t) < 3.0 { return }
+        let host = zone.host
+        Task { @MainActor in
+            let mode = await SonosCommands.playMode(host: host)
+            if let t = playModeCommandTimes[zoneID], Date().timeIntervalSince(t) < 3.0 { return }
+            if let idx = zones.firstIndex(where: { $0.id == zoneID }), zones[idx].playMode != mode {
+                zones[idx].playMode = mode
+            }
+        }
     }
 
     /// Mute or unmute a whole group, using SONOS'S MUTE rather than volume zero.

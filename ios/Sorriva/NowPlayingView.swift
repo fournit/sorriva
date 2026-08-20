@@ -38,6 +38,10 @@ struct NowPlayingView: View {
     private var duration: Int { snap?.durationSeconds ?? 0 }
     private var progress: Double { snap?.progress ?? 0 }
 
+    private var supportsPlayMode: Bool { snap?.supportsPlayMode ?? false }
+    private var isShuffled: Bool { snap?.playMode.isShuffled ?? false }
+    private var repeatMode: PlayMode.Repeat { snap?.playMode.repeatMode ?? .off }
+
     private var artPlaceholder: some View {
         RoundedRectangle(cornerRadius: 16)
             .fill(Color.sCard)
@@ -179,13 +183,40 @@ struct NowPlayingView: View {
                 Spacer().frame(height: 32)
 
                 // Transport controls
-                HStack(spacing: 48) {
+                //
+                // Shuffle and repeat flank the three transport buttons, smaller than
+                // prev/next so play stays the dominant control. They are OMITTED, not
+                // disabled, when the loaded content has no queue — radio refuses every
+                // mode but NORMAL with errorCode 712, so a control there could never
+                // succeed. The row then re-centres and looks exactly as it did before
+                // this feature existed.
+                HStack(spacing: 0) {
+                    if supportsPlayMode {
+                        Button(action: {
+                            discovery.setPlayMode(zoneID: zoneID,
+                                                  shuffle: !isShuffled,
+                                                  repeatMode: repeatMode)
+                        }) {
+                            // ON is WHITE, matching the transport buttons; OFF is the
+                            // highlight blue. sTextMuted was too close to the gradient
+                            // to read as a state at all — the two were not tellable
+                            // apart on the device.
+                            Image(systemName: "shuffle")
+                                .font(.system(size: 20))
+                                .foregroundColor(isShuffled ? .sTextPrimary : .sHighlight)
+                        }
+                        .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity)
+                        .accessibilityLabel(isShuffled ? "Shuffle on" : "Shuffle off")
+                    }
+
                     Button(action: { discovery.skipPrevious(zoneID: zoneID) }) {
                         Image(systemName: "backward.fill")
                             .font(.system(size: 28))
                             .foregroundColor(.sTextPrimary)
                     }
                     .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity)
 
                     Button(action: { discovery.togglePlayPause(zoneID: zoneID) }) {
                         Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
@@ -193,6 +224,7 @@ struct NowPlayingView: View {
                             .foregroundColor(.sTextPrimary)
                     }
                     .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity)
 
                     Button(action: { discovery.skipNext(zoneID: zoneID) }) {
                         Image(systemName: "forward.fill")
@@ -200,7 +232,26 @@ struct NowPlayingView: View {
                             .foregroundColor(.sTextPrimary)
                     }
                     .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity)
+
+                    if supportsPlayMode {
+                        Button(action: {
+                            discovery.setPlayMode(zoneID: zoneID,
+                                                  shuffle: isShuffled,
+                                                  repeatMode: repeatMode.next)
+                        }) {
+                            // repeat.1 carries "one" on the glyph, so the row needs no
+                            // text label to distinguish it from repeat-all.
+                            Image(systemName: repeatMode == .one ? "repeat.1" : "repeat")
+                                .font(.system(size: 20))
+                                .foregroundColor(repeatMode == .off ? .sHighlight : .sTextPrimary)
+                        }
+                        .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity)
+                        .accessibilityLabel("Repeat \(repeatMode.rawValue)")
+                    }
                 }
+                .padding(.horizontal, supportsPlayMode ? 16 : 40)
 
                 Spacer().frame(height: 32)
 
@@ -248,6 +299,22 @@ struct NowPlayingView: View {
         }
         .onChange(of: snap?.artistName ?? "") { artist in
             if !artist.isEmpty { cachedArtist = artist }
+        }
+        // Shuffle/repeat is polled for THIS zone only, and only while this screen is up.
+        //
+        // Deliberately not in the main 2s transport poll: that runs for every zone in the
+        // household, and a fourth SOAP call each cycle is real cost for a setting that
+        // changes rarely. Here it is one call for the zone being looked at, and `.task`
+        // cancels it the moment the screen closes or the zone changes.
+        //
+        // It exists at all so a change made in the Sonos app shows up here rather than
+        // leaving Sorriva asserting a mode the speaker is not in.
+        .task(id: zoneID) {
+            guard !zoneID.isEmpty else { return }
+            while !Task.isCancelled {
+                discovery.refreshPlayMode(zoneID: zoneID)
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+            }
         }
     }
 

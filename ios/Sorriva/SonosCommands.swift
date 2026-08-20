@@ -223,6 +223,22 @@ enum SonosCommands {
         }
     }
 
+    /// Clear the queue — and reset shuffle/repeat, because Sonos will not.
+    ///
+    /// Play mode is STICKY SPEAKER STATE. Measured 2026-08-19: `SHUFFLE` survives
+    /// `RemoveAllTracksFromQueue` untouched, so without the reset below, shuffling one
+    /// album silently shuffles the next thing played too. Sorriva's rule is that
+    /// shuffle and repeat last only for the queue they were set for, and this is the
+    /// one place every load path passes through — local single track, local album,
+    /// favorite containers, both Apple Music paths, and the transfer.
+    ///
+    /// `.normal` IS THE ONLY MODE THAT CAN BE SET HERE. Every other value is refused
+    /// with errorCode 712 while the queue is empty. Do not "improve" this into setting
+    /// a real mode at clear time — it will fail silently. The mode a caller actually
+    /// wants goes on AFTER its queue is loaded. Contract §14.
+    ///
+    /// Harmless on the transfer path: the destination's mode is overwritten anyway when
+    /// it inherits the queue at the coordinator handover (measured, contract §14).
     static func removeAllTracksFromQueue(host: String) async {
         do {
             let reply = try await soap.send(host: host, service: .avTransport, action: "RemoveAllTracksFromQueue",
@@ -234,6 +250,47 @@ enum SonosCommands {
         } catch {
             print("SORRIVA: RemoveAllTracksFromQueue error: \(error.localizedDescription)")
         }
+        await setPlayMode(host: host, mode: .normal)
+    }
+
+    // MARK: - Shuffle and repeat
+
+    /// Set shuffle/repeat on a zone. Address the COORDINATOR — a grouped member has no
+    /// queue of its own loaded and refuses this with 712 (measured, contract §14).
+    ///
+    /// A queue must already be loaded for anything except `.normal`, so this goes AFTER
+    /// `SetAVTransportURI("x-rincon-queue:…#0")`, never before it.
+    static func setPlayMode(host: String, mode: PlayMode) async {
+        do {
+            let reply = try await soap.send(host: host, service: .avTransport, action: "SetPlayMode",
+                                            innerXML: """
+              <InstanceID>0</InstanceID>
+              <NewPlayMode>\(mode.rawValue)</NewPlayMode>
+            """, timeout: SonosTimeout.quick)
+            print("SORRIVA: SetPlayMode \(host) → \(mode.rawValue) status=\(reply.status)")
+        } catch {
+            print("SORRIVA: SetPlayMode error \(host): \(error.localizedDescription)")
+        }
+    }
+
+    /// What shuffle/repeat a zone is actually set to. Defaults to `.normal` when the
+    /// read fails — same reasoning as `muteInfo`: drawing shuffle as ON is a claim, and
+    /// an unreachable zone does not support one.
+    static func playMode(host: String) async -> PlayMode {
+        do {
+            let reply = try await soap.send(host: host, service: .avTransport, action: "GetTransportSettings",
+                                            innerXML: """
+              <InstanceID>0</InstanceID>
+            """, timeout: SonosTimeout.quick)
+            let raw = reply.text ?? ""
+            if let start = raw.range(of: "<PlayMode>"),
+               let end = raw.range(of: "</PlayMode>") {
+                return PlayMode(reported: String(raw[start.upperBound..<end.lowerBound]))
+            }
+        } catch {
+            print("SORRIVA: GetTransportSettings error \(host): \(error.localizedDescription)")
+        }
+        return .normal
     }
 
     static func addMultipleURIsToQueue(host: String, uris: [String], didls: [String]) async {

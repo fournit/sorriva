@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.76 — SiriusXM knows what it is playing, and albums stop pretending to be radio",
-  "version": "0.0.76",
-  "db_migrate": true
+  "message": "v0.0.78 - shuffle and repeat, lasting exactly as long as the music you set them on",
+  "version": "0.0.78",
+  "db_migrate": false
 }

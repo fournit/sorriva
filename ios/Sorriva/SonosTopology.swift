@@ -109,6 +109,24 @@ struct SonosZone: Identifiable, Equatable {
     var stationIdentityURI: String {
         currentStationURI.isEmpty ? currentTrackURI : currentStationURI
     }
+
+    /// Shuffle/repeat as the speaker reports it. Read on demand for the zone on screen,
+    /// not for every zone every poll — see ZoneDiscoveryService.refreshPlayMode.
+    var playMode: PlayMode = .normal
+
+    /// Whether shuffle and repeat mean anything for what is loaded.
+    ///
+    /// TRUE only for queue-backed content — local files, Apple Music, favorite
+    /// containers — all of which load `x-rincon-queue:`. A radio stream is pointed at
+    /// directly and has no queue, so Sonos refuses every mode except NORMAL with
+    /// errorCode 712 (measured, contract §14). Sorriva hides the controls rather than
+    /// offering ones that cannot succeed.
+    ///
+    /// Deliberately NOT `isLocal`: Apple Music is queue-backed but not local, and would
+    /// wrongly lose its controls.
+    var isQueueBacked: Bool {
+        currentStationURI.hasPrefix("x-rincon-queue:")
+    }
     var elapsedSeconds: Int = 0        // Playback position from GetPositionInfo
     var durationSeconds: Int = 0       // Track duration from GetPositionInfo
     var idleState: Bool = false     // IdleState from topology — true = idle even if transport says PLAYING
@@ -288,6 +306,10 @@ enum SonosTopology {
             merged.currentTrackURI = prior.currentTrackURI
             merged.currentStationURI = prior.currentStationURI
             merged.isHDMI          = prior.isHDMI
+            // Shuffle/repeat is read on demand for the zone on screen, never by the
+            // topology parse — so a merge that took the fresh default would blank it
+            // every 15 seconds and the icons would flicker off between reads.
+            merged.playMode        = prior.playMode
             merged.elapsedSeconds  = prior.elapsedSeconds
             merged.durationSeconds = prior.durationSeconds
             merged.capabilities    = prior.capabilities   // from the devices table

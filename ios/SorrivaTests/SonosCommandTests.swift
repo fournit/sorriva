@@ -141,6 +141,48 @@ final class SonosCommandTests: XCTestCase {
         XCTAssertEqual(fake.lastSend("RemoveAllTracksFromQueue")?.service, .avTransport)
     }
 
+    // MARK: - Shuffle and repeat
+    //
+    // Sonos keeps play mode as sticky speaker state: measured 2026-08-19, SHUFFLE
+    // survives RemoveAllTracksFromQueue untouched. Sorriva's rule is that shuffle and
+    // repeat last only for the queue they were set for, so the clear has to reset it —
+    // and the clear is the one place every load path passes through. Contract §14.
+
+    func testClearingTheQueueAlsoResetsShuffleAndRepeat() async {
+        await SonosCommands.removeAllTracksFromQueue(host: "10.0.0.9")
+        let reset = fake.lastSend("SetPlayMode")
+        XCTAssertNotNil(reset, "clearing the queue must normalise the mode, or shuffling "
+                             + "one album silently shuffles whatever is played next")
+        XCTAssertTrue(reset!.innerXML.contains("<NewPlayMode>NORMAL</NewPlayMode>"),
+                      "got: \(reset!.innerXML)")
+    }
+
+    /// Order matters and is not cosmetic: a mode set BEFORE the clear would be wiped by
+    /// nothing, but the assertion that matters is the reverse — NORMAL is the only value
+    /// Sonos accepts while the queue is empty, so the reset has to follow the clear
+    /// rather than race it.
+    func testTheResetFollowsTheClearRatherThanPrecedingIt() async {
+        await SonosCommands.removeAllTracksFromQueue(host: "10.0.0.9")
+        let clearIdx = fake.actions.firstIndex(of: "RemoveAllTracksFromQueue")
+        let modeIdx  = fake.actions.firstIndex(of: "SetPlayMode")
+        XCTAssertNotNil(clearIdx)
+        XCTAssertNotNil(modeIdx)
+        XCTAssertLessThan(clearIdx!, modeIdx!)
+    }
+
+    func testSetPlayModeCarriesTheSonosValueNotSorrivasTwoSwitches() async {
+        await SonosCommands.setPlayMode(host: "10.0.0.9", mode: .shuffleNoRepeat)
+        let sent = fake.lastSend("SetPlayMode")!
+        XCTAssertEqual(sent.service, .avTransport)
+        XCTAssertTrue(sent.innerXML.contains("<NewPlayMode>SHUFFLE_NOREPEAT</NewPlayMode>"),
+                      "got: \(sent.innerXML)")
+    }
+
+    func testReadingPlayModeUsesGetTransportSettings() async {
+        _ = await SonosCommands.playMode(host: "10.0.0.9")
+        XCTAssertEqual(fake.lastSend("GetTransportSettings")?.service, .avTransport)
+    }
+
     func testPointingAtTheQueueUsesSetAVTransportURI() async {
         await SonosCommands.setAVTransportURIWithMetadata(
             host: "10.0.0.9", streamURL: "x-rincon-queue:RINCON_ABC123#0", didl: "")

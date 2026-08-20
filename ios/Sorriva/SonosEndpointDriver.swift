@@ -231,22 +231,15 @@ final class SonosEndpointDriver {
         )
     }
 
+    /// Delegates rather than duplicating.
+    ///
+    /// This used to be its own copy of the SOAP call. Clearing the queue now also has to
+    /// reset shuffle/repeat (SonosCommands.removeAllTracksFromQueue explains why), and a
+    /// second implementation is a second place for that rule to be missing. That is
+    /// precisely how the zone sort was lost in v0.0.68 — an invariant honoured at one
+    /// call site and silently absent at the next. One clear in the codebase.
     func removeAllTracksFromQueue(host: String) async throws {
-        let soapBody = """
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-          <s:Body>
-            <u:RemoveAllTracksFromQueue xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-              <InstanceID>0</InstanceID>
-            </u:RemoveAllTracksFromQueue>
-          </s:Body>
-        </s:Envelope>
-        """
-        try await soapRequest(
-            host: host,
-            path: "/MediaRenderer/AVTransport/Control",
-            action: "AVTransport#RemoveAllTracksFromQueue",
-            body: soapBody
-        )
+        await SonosCommands.removeAllTracksFromQueue(host: host)
     }
 
     func setAVTransportURI(host: String, uri: String, metadata: String = "") async throws {

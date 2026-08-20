@@ -676,3 +676,172 @@ property that distinguishes Sorriva from a remote control.
 interface Sonos publishes for its own app. Worth a clear-eyed look before it ships, as
 opposed to before it is investigated.
 
+
+---
+
+## 14. Shuffle and repeat — `SetPlayMode`
+
+**Measured 2026-08-19** against Listening Room (Arc Ultra, `RINCON_74CA60698BE301400`) and
+Garage (Move 2), with an 8-track local FLAC queue from `Test Scan`. Sorriva does not use any
+of this yet; this section exists so the build is designed against measurements rather than
+against the general reputation of the UPnP spec.
+
+### The field
+
+`AVTransport` → `SetPlayMode(InstanceID, NewPlayMode)` writes it,
+`GetTransportSettings(InstanceID)` reads it back as `<PlayMode>`.
+
+Sonos models shuffle and repeat as **one field with six values**, not two switches. Read off
+the device's own `/xml/AVTransport1.xml`:
+
+| shuffle | repeat | value |
+|---|---|---|
+| off | off | `NORMAL` |
+| off | all | `REPEAT_ALL` |
+| off | one | `REPEAT_ONE` |
+| on  | off | `SHUFFLE_NOREPEAT` |
+| on  | all | `SHUFFLE` |
+| on  | one | `SHUFFLE_REPEAT_ONE` |
+
+Note `SHUFFLE` means **shuffle + repeat-all**, not shuffle alone. Shuffle-without-repeat is
+`SHUFFLE_NOREPEAT`. Getting these two the wrong way round is the obvious bug to write.
+
+### The ordering rule — set the mode AFTER the queue is loaded
+
+**A queue must already be loaded or `SetPlayMode` is refused.** With an empty queue, or with
+a radio stream as the current URI, every value except `NORMAL` returns **HTTP 500,
+`errorCode 712`**, and `GetTransportSettings` still reads `NORMAL`:
+
+```
+empty queue:        SetPlayMode SHUFFLE  -> 500 / 712, reads back NORMAL
+queue then loaded:  SetPlayMode SHUFFLE  -> 200,       reads back SHUFFLE
+```
+
+So in the §3 local-file sequence the mode goes **last**, after
+`SetAVTransportURI("x-rincon-queue:<UUID>#0")` and before or after `Play`:
+
+```
+Stop → RemoveAllTracksFromQueue → AddURIToQueue × N
+     → SetAVTransportURI("x-rincon-queue:<UUID>#0")
+     → SetPlayMode(mode)          // HERE. Earlier than this and it is silently NORMAL.
+     → Play
+```
+
+Setting it before the load does not fail loudly at the load — it fails at the `SetPlayMode`
+call itself, which is the one place a caller is likely not to be checking.
+
+**Once set, it persists across a full queue reload.** `REPEAT_ONE` set on a loaded queue
+survived `RemoveAllTracksFromQueue` + 8 × `AddURIToQueue` + `SetAVTransportURI` and still
+read `REPEAT_ONE` afterwards. It is sticky speaker state, not a property of the queue —
+so a caller that wants `NORMAL` must **say so**, not assume a fresh queue is unshuffled.
+
+**Loading a radio stream resets it to `NORMAL`.**
+
+### What shuffle actually does
+
+It shuffles the **successor order** and always starts on the **first queue item**. Three
+consecutive runs over the same 8-track queue, walking `Next`, reading the filename from
+`TrackURI`:
+
+```
+NORMAL (control)   01 02 03 04 05 06 07 08
+SHUFFLE run 1      01 08 02 03 06 05 04 07
+SHUFFLE run 2      01 06 08 03 04 02 07 05
+SHUFFLE run 3      01 03 07 02 05 06 08 04
+SHUFFLE_NOREPEAT   01 03 06 04 08 07 02 05
+```
+
+A fresh permutation each time, and file `01` first every time.
+
+**Consequence for a "Shuffle album" button:** the speaker will not pick a random *starting*
+track. If Sorriva wants one, the controller chooses the index and issues
+`Seek(Unit=TRACK_NR, Target=n)` before `Play` — measured working, HTTP 200, lands on that
+index.
+
+**`GetPositionInfo`'s `<Track>` is a sequence counter, not a queue slot.** Under shuffle it
+still counts `1 2 3 4 …` while the files played are in shuffled order. **Reading `Track` to
+tell whether shuffle is on will report that it is off.** Compare `TrackURI`, or read
+`GetTransportSettings`. This wasted a probe run on 2026-08-19 and read exactly like shuffle
+being accepted but ignored.
+
+`REPEAT_ALL` wraps: `Next` on the last queue item returns to the first. Confirmed.
+
+### Radio has no play mode
+
+Every non-`NORMAL` value on a playing radio stream returns **500 / `errorCode 712`** and the
+mode stays `NORMAL`. This is the speaker enforcing its own `CurrentValidPlayModes`, and it
+matches Sonos's own app greying the controls out. **A UI that offers shuffle on radio is
+offering a control that cannot succeed** — 712 is the signal, and it is a hard refusal
+rather than the usual silent no-op, which for once makes this easy to get right.
+
+`CurrentValidPlayModes` — the speaker's own statement of which modes the loaded content
+supports — is declared `sendEvents="no"` and has **no getter action**. It reaches a
+controller only inside the `LastChange` event blob. Sorriva polls and does not subscribe,
+so it cannot read this cheaply and must infer applicability from content type: queue-backed
+(local FLAC, Apple Music, favorite containers) yes, direct-URI stream no.
+
+### Grouping — it is a coordinator property
+
+Measured by grouping Garage into Listening Room:
+
+- Coordinator on `SHUFFLE`, member grouped in → **member still reads `NORMAL`**, coordinator
+  still reads `SHUFFLE`. The member's `GetTransportSettings` reports its *own* dormant
+  transport, not the group's.
+- `SetPlayMode` addressed at the **member** while grouped → **500 / 712**, refused, exactly
+  as for a stream. The member has no queue of its own loaded.
+- After separation both zones keep their own values, and the member's 6-track queue came
+  back intact (consistent with §6).
+
+**So: address `SetPlayMode` and `GetTransportSettings` at the coordinator host**, the same
+rule as every other transport command. Reading a member's play mode to display group state
+returns a stale `NORMAL` and is a bug waiting to happen.
+
+### Adjacent controls on the same service, not yet measured
+
+`SetCrossfadeMode` / `GetCrossfadeMode` (boolean) and `ConfigureSleepTimer` /
+`GetRemainingSleepTimerDuration` exist on `AVTransport`. Neither has been exercised.
+
+### Resetting on queue clear — and why `NORMAL` is the only value that can do it
+
+**Measured 2026-08-19.** Play mode is sticky speaker state: `SHUFFLE` survives
+`RemoveAllTracksFromQueue` untouched, so a cleared queue does **not** return to `NORMAL`
+on its own. A product rule of "shuffle lasts only for the queue it was set for" therefore
+needs an explicit reset, and the queue clear is the one choke point every load path shares.
+
+`SetPlayMode(NORMAL)` **is accepted on an empty queue** — 200, and it holds:
+
+```
+queue loaded, SetPlayMode SHUFFLE       -> 200, reads SHUFFLE
+RemoveAllTracksFromQueue                -> still reads SHUFFLE   (no implicit reset)
+SetPlayMode NORMAL, queue empty         -> 200, reads NORMAL
+load the next queue                     -> reads NORMAL, plays 01 02 03 04 05 in order
+```
+
+It also works while the zone is still PLAYING, which is the state the transfer path clears in.
+
+**`NORMAL` is the ONLY value this works for.** Every other mode is refused with 712 on an
+empty queue — that is the same ordering rule as above. So a reset attached to the queue
+clear is safe, and an attempt to attach any *real* mode there would silently fail.
+
+### Transfer carries the mode — no work required
+
+**Measured 2026-08-19** by running Sorriva's exact transfer sequence, Listening Room →
+Garage, with the destination deliberately pre-set to a *different* mode so inheritance
+could be told apart from coincidence:
+
+```
+destination pre-set                     REPEAT_ONE
+source: 6-track queue, SHUFFLE, playing
+step 0  destination queue cleared       destination still REPEAT_ONE
+step 1  destination joins source group  destination still REPEAT_ONE
+step 3  source BecomeCoordinator…       destination now SHUFFLE   <-- inherited
+                                        destination holds the 6-track queue
+```
+
+**The coordinator handover carries play mode along with the queue**, and it overwrites
+whatever the destination had. So "shuffle survives a transfer" is already true and needs
+no code. It also means a reset attached to the queue clear is harmless in the transfer
+path — step 0's value, whatever it is, is overwritten at step 3.
+
+The source keeps its mode after releasing the group. That is self-correcting: the next
+thing played there clears the queue, which resets it.

@@ -465,6 +465,8 @@ enum PlaybackStateReducer {
                 durationSeconds: duration,
                 artAlbum:        artAlbum,
                 artURL:          artURL,
+                playMode:        zone.playMode,
+                supportsPlayMode: zone.isQueueBacked,
                 groupMembers:    zone.groupMembers,
                 coordinatorID:   nil,
                 isAvailable:     !zone.idleState || isPlaying
