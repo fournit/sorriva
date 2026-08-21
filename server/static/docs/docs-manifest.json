@@ -156,6 +156,12 @@
       "display_name": "Availability Model",
       "description": "What can actually play, given where you are and what is reachable. Because every row carries its source, availability is derived rather than labelled: at home without internet, service media is disabled; away from home, local media is unavailable. Applies to every source. Agreed 2026-08-19, unbuilt.",
       "category": "arch"
+    },
+    {
+      "file": "engineering/live-activity-model.md",
+      "display_name": "Live Activity Model",
+      "description": "What a Live Activity is, why the standard backend-plus-APNs architecture is unavailable to Sorriva, and what is buildable without one. Covers the iOS suspension constraint, the GENA spike and its likely outcome, local push connectivity as a contingency, why Sonos's Control API is not a route, and the design decisions still open. Analysis 2026-08-20, unbuilt.",
+      "category": "arch"
     }
   ]
 }
