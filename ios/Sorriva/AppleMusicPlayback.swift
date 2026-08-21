@@ -73,6 +73,44 @@ enum AppleMusicPlayback {
         + "</desc></item></DIDL-Lite>"
     }
 
+    /// The container address for a catalogue playlist — Apple's own curated lists.
+    ///
+    /// PROVEN ON HARDWARE 2026-08-20, and it had never been. sonos-playback-contract.md §13
+    /// recorded this shape from a favorite, but only the SONG and ALBUM addresses had ever
+    /// been built from parts and played. Both of these were:
+    ///   pl.f4d106fed2bd41149aaacabb233eb5eb → 50 tracks, duration 0:03:04
+    ///   pl.ebe2805581da4c409cb07eacd1c7d8ec → 21 tracks, duration 0:04:52
+    /// The second id came out of MusicKit, which closes the loop end to end: MusicKit's id →
+    /// our address → the speaker playing it.
+    ///
+    /// A playlist's tracks come back as CATALOGUE songs (`song%3a…`), not library tracks, so
+    /// nothing account-specific is involved.
+    ///
+    /// Note the prefix is `0006`, against `0004` for an album — the same album/playlist split
+    /// Spotify's favorites show. `flags=0` works, as it does for albums.
+    static func playlistContainerURI(playlistId: String) -> String {
+        "x-rincon-cpcontainer:\(playlistObjectId(playlistId: playlistId))?sid=\(serviceId)&flags=0&sn=5"
+    }
+
+    static func playlistObjectId(playlistId: String) -> String {
+        "00060000playlist%3a\(playlistId)"
+    }
+
+    /// Metadata for a playlist. Same `<res>` rule; the class is a playlistContainer rather
+    /// than a musicAlbum.
+    static func playlistDIDL(playlistId: String, title: String, token: String) -> String {
+        "<DIDL-Lite xmlns:dc=\"http://purl.org/dc/elements/1.1/\""
+        + " xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\""
+        + " xmlns:r=\"urn:schemas-rinconnetworks-com:metadata-1-0/\""
+        + " xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\">"
+        + "<item id=\"\(playlistObjectId(playlistId: playlistId))\" parentID=\"-1\" restricted=\"true\">"
+        + "<dc:title>\(SonosCommands.escapingXML(title))</dc:title>"
+        + "<upnp:class>object.container.playlistContainer</upnp:class>"
+        + "<desc id=\"cdudn\" nameSpace=\"urn:schemas-rinconnetworks-com:metadata-1-0/\">"
+        + SonosCommands.escapingXML(token)
+        + "</desc></item></DIDL-Lite>"
+    }
+
     /// Metadata for one track. NO `<res>` — see the note at the top of this file.
     static func didl(catalogueId: Int, title: String, token: String) -> String {
         "<DIDL-Lite xmlns:dc=\"http://purl.org/dc/elements/1.1/\""

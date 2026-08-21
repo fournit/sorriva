@@ -336,6 +336,30 @@ order §6 gives them.
   before slice 7, and re-check the premise first (§7).
 - The inert canonical tables — own roadmap entry, not folded into this work (§7).
 
+## 6b. Settled 2026-08-20 — measured, not assumed
+
+Slice 1 shipped, and it answered three things this document had open or wrong.
+
+- **Curated playlists DO need MusicKit.** §6 slice 6 guessed they "may not". The public API
+  has no playlist entity at all — `entity=playlist` is rejected outright. Separately, the
+  extra playlists the Apple Music app shows for an artist are **user-generated**, which
+  catalogue search does not expose, so our counts will stay lower than Apple's app.
+- **"No 'this artist's albums' call" is wrong**, and browse no longer waits on anything.
+  MusicKit exposes `albums`, `singles`, `compilationAlbums`, `liveAlbums`, `appearsOnAlbums`,
+  `topSongs`, `playlists`, `similarArtists`, `latestRelease` and `station` as separate
+  relationships. **Not** available: upcoming concerts, and "Essential Albums" — Apple
+  editorial with no relationship behind it.
+- **Apple already separates credited from uncredited work.** `albums` and `appearsOnAlbums`
+  are different relationships, which is how the Apple Music app shows a compilation an artist
+  plays on without polluting their discography. Any credit-matching we do ourselves is a
+  stand-in for this and should be dropped wherever the relationship is available.
+
+**The search-quality complaint no longer reproduces.** "Pat Metheny" returns 25 genuine
+results with no duplicates. Looseness appears only when paging deep, and takes the form of
+records the artist is not credited on rather than unrelated ones.
+
+---
+
 ## 7. Open — not to be assumed
 
 - **Search design.** Tom: *"search and results needs to really be thought out."* Not

@@ -18,5 +18,7 @@
         <key>NSAllowsLocalNetworking</key>
         <true/>
     </dict>
+    <key>NSAppleMusicUsageDescription</key>
+    <string>Sorriva searches the Apple Music catalogue so you can find music and play it on your speakers.</string>
 </dict>
 </plist>

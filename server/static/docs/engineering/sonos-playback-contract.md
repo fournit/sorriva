@@ -624,6 +624,24 @@ account half ever needs discovering.
 **Proven, on hardware, muted:**
 - A **song** address built by us — a track the speaker had never been given — played.
 - A **container** address built by us expanded to **25 tracks** and played.
+- A **playlist container** built by us, 2026-08-20 on Garage. This was the last of the three
+  shapes still unproven — the address above was copied from a favorite and had never been
+  constructed. Both attempts worked first time, with `flags=0`:
+
+  ```
+  pl.f4d106fed2bd41149aaacabb233eb5eb  → 50 tracks, TrackDuration 0:03:04
+  pl.ebe2805581da4c409cb07eacd1c7d8ec  → 21 tracks, TrackDuration 0:04:52
+  ```
+
+  Real durations, so the `<res>` rule held. Object id `00060000playlist%3a<pl.id>`,
+  `<upnp:class>object.container.playlistContainer</upnp:class>`, household token required.
+  Note `0006` against `0004` for an album — the same split Spotify's favorites show.
+
+  **A playlist's tracks come back as CATALOGUE songs** (`x-sonos-http:song%3a…`), not library
+  tracks, so nothing account-specific is involved beyond the token.
+
+  **The second id came out of MusicKit**, which closes the loop end to end: MusicKit's id →
+  an address Sorriva builds → a speaker that had never been given it, playing.
 
 **Not proven:**
 - ~~That MusicKit's ids are the same numbers.~~ **PROVEN 2026-08-18, and cheaply.** Apple's

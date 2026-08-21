@@ -110,6 +110,110 @@ final class AppleMusicTests: XCTestCase {
                        "x-sonos-http:song%3a1443195687.mp4?sid=204&flags=8232&sn=5")
     }
 
+    // MARK: - Search relevance
+    //
+    // MEASURED 2026-08-20. Apple's raw catalogue search is looser than Apple's own app:
+    // paging "Pat Metheny" returned records by Ahn Trio, Fumiaki Miyamoto and California
+    // State University, which Metheny is not credited on. Tom: "it only delivers albums
+    // where pat metheny is listed." These pin the narrowing rule.
+
+    func testAnAlbumCreditedToTheSearchedArtistIsKept() {
+        XCTAssertTrue(AppleSearchRelevance.matches("Pat Metheny", "80/81", "Pat Metheny"))
+        XCTAssertTrue(AppleSearchRelevance.matches("Pat Metheny", "American Garage",
+                                                   "Pat Metheny Group"))
+        // A shared credit still counts — this is a real Metheny record.
+        XCTAssertTrue(AppleSearchRelevance.matches("Pat Metheny", "Beyond the Missouri Sky",
+                                                   "Charlie Haden & Pat Metheny"))
+    }
+
+    /// The three that actually came back from Apple and should not have been shown.
+    func testAnAlbumTheArtistIsNotCreditedOnIsDropped() {
+        XCTAssertFalse(AppleSearchRelevance.matches("Pat Metheny",
+                                                    "Lullaby for My Favorite Insomniac",
+                                                    "Ahn Trio"))
+        XCTAssertFalse(AppleSearchRelevance.matches("Pat Metheny", "Ao No Kaori",
+                                                    "Fumiaki Miyamoto"))
+        XCTAssertFalse(AppleSearchRelevance.matches("Pat Metheny",
+                                                    "ACDA 2011 National Convention",
+                                                    "California State University"))
+    }
+
+    /// The rule checks title AND artist, so searching an ALBUM name still works. Filtering
+    /// on the artist credit alone would have thrown this away.
+    func testSearchingAnAlbumTitleStillMatches() {
+        XCTAssertTrue(AppleSearchRelevance.matches("Bright Size Life", "Bright Size Life",
+                                                   "Pat Metheny"))
+        XCTAssertFalse(AppleSearchRelevance.matches("Bright Size Life", "Kin (<-->)",
+                                                    "Pat Metheny"))
+    }
+
+    /// Streaming metadata is inconsistently accented and cased; the local library learned
+    /// this already.
+    func testMatchingIgnoresCaseAndAccents() {
+        XCTAssertTrue(AppleSearchRelevance.matches("jobim", "Wave", "Antônio Carlos Jobím"))
+        XCTAssertTrue(AppleSearchRelevance.matches("METHENY", "80/81", "Pat Metheny"))
+    }
+
+    /// Word order should not matter, and punctuation should not split a match.
+    func testWordOrderAndPunctuationDoNotDefeatAMatch() {
+        XCTAssertTrue(AppleSearchRelevance.matches("metheny pat", "80/81", "Pat Metheny"))
+        XCTAssertTrue(AppleSearchRelevance.matches("  Pat   Metheny  ", "80/81", "Pat Metheny"))
+    }
+
+    /// An empty query must not filter everything away — the caller guards it, but a filter
+    /// that silently empties the list on a blank term is the wrong default.
+    func testAnEmptyQueryMatchesEverything() {
+        XCTAssertTrue(AppleSearchRelevance.matches("", "anything", "anyone"))
+        XCTAssertTrue(AppleSearchRelevance.matches("   ", "anything", "anyone"))
+    }
+
+    // MARK: - Playlists
+    //
+    // MEASURED ON HARDWARE 2026-08-20, and this shape had never been proven before. The
+    // contract recorded it from a favorite, but only the song and album addresses had ever
+    // been BUILT from parts and played. Two were, on Garage, muted:
+    //   pl.f4d106fed2bd41149aaacabb233eb5eb → 50 tracks, real duration 0:03:04
+    //   pl.ebe2805581da4c409cb07eacd1c7d8ec → 21 tracks, real duration 0:04:52
+    // The second id came from MusicKit, which proves the whole chain end to end.
+
+    private let playlistId = "pl.ebe2805581da4c409cb07eacd1c7d8ec"
+
+    /// `0006` for a playlist against `0004` for an album — the same split Spotify's own
+    /// favorites show. Getting this wrong is silent: Sonos returns 200 and plays nothing.
+    func testThePlaylistAddressUsesTheContainerPrefixForPlaylistsNotAlbums() {
+        XCTAssertEqual(
+            AppleMusicPlayback.playlistContainerURI(playlistId: playlistId),
+            "x-rincon-cpcontainer:00060000playlist%3apl.ebe2805581da4c409cb07eacd1c7d8ec?sid=204&flags=0&sn=5")
+    }
+
+    /// Playlist ids are `pl.`-prefixed rather than numeric — the one Apple id space that is
+    /// not a number, which is why ApplePlaylist.id is a String while albums and tracks are Int.
+    func testThePlaylistIdIsCarriedVerbatimIncludingItsPrefix() {
+        XCTAssertTrue(AppleMusicPlayback.playlistObjectId(playlistId: playlistId)
+                        .hasSuffix(playlistId),
+                      "the pl. prefix is part of the id, not decoration to strip")
+    }
+
+    /// Same `<res>` rule as tracks and albums — see the note above.
+    func testThePlaylistMetadataCarriesNoResElementAndIsAPlaylistContainer() {
+        let didl = AppleMusicPlayback.playlistDIDL(playlistId: playlistId,
+                                                   title: "Pat Metheny Essentials",
+                                                   token: token)
+        XCTAssertFalse(didl.contains("<res"),
+                       "a <res> element makes Sonos store an opaque octet-stream, no duration")
+        XCTAssertTrue(didl.contains("object.container.playlistContainer"),
+                      "an album class on a playlist container is the silent-failure case")
+        XCTAssertTrue(didl.contains(token), "containers require the household token")
+    }
+
+    /// A playlist name can carry an ampersand, and an unescaped one breaks the SOAP body.
+    func testAPlaylistTitleIsXMLEscaped() {
+        let didl = AppleMusicPlayback.playlistDIDL(playlistId: playlistId,
+                                                   title: "Rock & Roll", token: token)
+        XCTAssertTrue(didl.contains("Rock &amp; Roll"))
+        XCTAssertFalse(didl.contains("Rock & Roll"))
+    }
+
     /// THE RULE THAT LOOKS WRONG. Supplying a `<res>` element makes Sonos take our word
     /// for the resource: it stores `application/octet-stream` and reports TrackDuration
     /// 0:00:00 forever. Omit it, and Sonos resolves the track through the service and

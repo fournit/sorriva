@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.78 - shuffle and repeat, lasting exactly as long as the music you set them on",
-  "version": "0.0.78",
+  "message": "v0.0.79 - Discover becomes a real Apple Music client: search, artist pages, playlists, play in any room",
+  "version": "0.0.79",
   "db_migrate": false
 }

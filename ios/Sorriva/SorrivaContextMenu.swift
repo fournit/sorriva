@@ -177,6 +177,17 @@ extension View {
 
 enum SorrivaContextActions {
 
+    /// Anything found in Apple's catalogue — an album, a song, a playlist, an artist.
+    ///
+    /// ONE ACTION, on purpose. The builders below carry "Add to Favorites" and "Remove from
+    /// Library" entries whose closures are empty stubs; copying that here would put two dead
+    /// controls on a brand-new screen. Apple catalogue items cannot yet be saved at all —
+    /// nothing persists, by design, until the schema slice lands — so "Play on…" is the only
+    /// thing this menu can honestly offer. Saving joins it when there is somewhere to save to.
+    static func appleCatalogueItem(onPlayOn: @escaping () -> Void) -> [SorrivaContextAction] {
+        [SorrivaContextAction(label: "Play on...", icon: "hifispeaker.2", action: onPlayOn)]
+    }
+
     static func track(_ track: Track, album: Album? = nil,
                       onPlayOn: @escaping () -> Void = {},
                       onRemove: @escaping () -> Void) -> [SorrivaContextAction] {

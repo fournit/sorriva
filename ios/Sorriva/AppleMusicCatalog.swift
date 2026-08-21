@@ -23,7 +23,7 @@ import Foundation
 // - 200 results per search, with NO paging, and roughly 20 requests a minute.
 // - It knows nothing about the user's own library or playlists. That is MusicKit's job.
 
-struct AppleAlbum: Identifiable, Equatable {
+struct AppleAlbum: Identifiable, Hashable {
     let id: Int                 // collectionId — what a container address is built from
     let title: String
     let artist: String
@@ -35,6 +35,9 @@ struct AppleAlbum: Identifiable, Equatable {
     let genre: String?
     let trackCount: Int
     let copyright: String?
+    /// The full release date, for the footer under a track listing. `year` is kept because
+    /// most rows only ever show the year, and deriving it at every call site would be worse.
+    var releaseDate: Date? = nil
 
     /// Cover art at any edge length. Apple serves the same image scaled by rewriting the
     /// last path component; 100, 600, 1000 and 3000 were all verified to fetch.
@@ -48,7 +51,89 @@ struct AppleAlbum: Identifiable, Equatable {
     }
 }
 
-struct AppleTrack: Identifiable, Equatable {
+// MARK: - AppleSearchRelevance
+//
+// APPLE'S RAW SEARCH IS LOOSER THAN APPLE'S OWN APP. Measured 2026-08-20: searching
+// "Pat Metheny" and paging returns albums by Ahn Trio, Fumiaki Miyamoto and California
+// State University — records Metheny is not credited on at all. The Apple Music app does
+// not show those. Tom, 2026-08-20: "it only delivers albums where pat metheny is listed."
+//
+// So the depth was never the problem; the FILTER was. Apple pages deep on purpose and
+// narrows what it shows. This is that narrowing.
+//
+// THE RULE: every word of the query must appear somewhere in the item's own title or
+// artist credit. Deliberately checks BOTH, so that searching an album title still works —
+// filtering on artist alone would drop "Bright Size Life" from a title search.
+//
+// KNOWN LIMITS, so nobody is surprised later:
+//   - It drops records where the artist is a genuine but uncredited contributor — a
+//     compilation listing "Various Artists". Tom saw one such album in Apple's own results,
+//     so Apple is doing something slightly richer than this with its credits data.
+//   - A broad word search ("jazz") keeps only items with that word in the title or artist,
+//     where Apple's relevance is doing semantic work this cannot reproduce.
+// Both are the acceptable side of the trade: a short honest list beats a long noisy one.
+
+enum AppleSearchRelevance {
+
+    /// Whether an item genuinely answers the query.
+    static func matches(_ query: String, _ title: String, _ artist: String) -> Bool {
+        let words = tokens(query)
+        guard !words.isEmpty else { return true }
+        let haystack = fold(title + " " + artist)
+        return words.allSatisfy { haystack.contains($0) }
+    }
+
+    static func tokens(_ s: String) -> [String] {
+        fold(s).split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+    }
+
+    /// Case- and accent-insensitive, so "Jobim" matches "Jobím" and "METHENY" matches
+    /// "Metheny". The local library learned this lesson already; streaming metadata is worse.
+    private static func fold(_ s: String) -> String {
+        s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+    }
+}
+
+extension Array {
+    /// Sort by a text field the way a reader expects a list to be sorted.
+    ///
+    /// `localizedStandardCompare` rather than a plain `<`: it is case-insensitive, and it
+    /// orders embedded numbers numerically, so "Ep. 2" precedes "Ep. 10" instead of following
+    /// it. Foundation-only, so this stays in the fast suite.
+    func sortedByName(_ key: KeyPath<Element, String>) -> [Element] {
+        sorted { $0[keyPath: key].localizedStandardCompare($1[keyPath: key]) == .orderedAscending }
+    }
+}
+
+/// An artist, as a route to their music — not a profile page. Tom, 2026-08-20: Discover is
+/// "for finding music, not roon like commentary on the artist."
+///
+/// `artworkURL` is why this comes from MusicKit rather than the public endpoint: the public
+/// artist search carries no artwork field at all, so these rows would be blank squares.
+struct AppleArtist: Identifiable, Hashable {
+    let id: String              // numeric catalogue id, e.g. "113526"
+    let name: String
+    let artworkURL: String?
+    let genre: String?
+}
+
+/// A catalogue playlist — Apple's own curated lists.
+///
+/// The id is `pl.`-prefixed rather than numeric, which is why this is a String while albums
+/// and tracks are Int. Measured 2026-08-20: `pl.ebe2805581da4c409cb07eacd1c7d8ec` built into
+/// a container address expanded to 21 tracks and played. See AppleMusicPlayback.playlistURI.
+///
+/// The user's OWN playlists are a different thing — they need a signed-in subscriber and are
+/// not this type.
+struct ApplePlaylist: Identifiable, Hashable {
+    let id: String              // "pl.ebe2805581da4c409cb07eacd1c7d8ec"
+    let name: String
+    let curator: String?
+    let artworkURL: String?
+    let description: String?
+}
+
+struct AppleTrack: Identifiable, Hashable {
     let id: Int                 // trackId — the catalogue id Sonos plays
     let title: String
     let artist: String
@@ -58,6 +143,10 @@ struct AppleTrack: Identifiable, Equatable {
     /// Apple's own claim about whether this streams. A hint, not a guarantee — see the
     /// note at the top about the two catalogues differing.
     let isStreamable: Bool
+    /// Cover art for the track's own album. Present on search and top-song results, where a
+    /// row has no album header above it to supply one; a track inside an album listing does
+    /// not need it, because every row there shares the cover already on screen.
+    var artworkURL: String? = nil
 }
 
 enum AppleMusicCatalog {

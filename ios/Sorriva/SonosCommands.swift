@@ -379,6 +379,32 @@ enum SonosCommands {
         return true
     }
 
+    /// Play a whole Apple Music playlist by handing Sonos the container.
+    ///
+    /// Identical in shape to `playAppleMusicAlbum` — the only differences are the object id
+    /// prefix and the DIDL class, both in AppleMusicPlayback. Measured 2026-08-20: two
+    /// different catalogue playlists expanded to 21 and 50 tracks and played, reporting real
+    /// durations rather than 0:00:00.
+    ///
+    /// A container is the right call here for the same reason it is for albums: Sonos
+    /// expands it through the service, so Sorriva never needs the playlist's track list to
+    /// play it.
+    static func playAppleMusicPlaylist(playlistId: String, title: String,
+                                       token: String, on zone: SonosZone) async -> Bool {
+        guard !token.isEmpty, !playlistId.isEmpty else { return false }
+        await sendTransportAction(host: zone.host, action: "Stop")
+        await removeAllTracksFromQueue(host: zone.host)
+        await addURIToQueue(host: zone.host,
+                            uri: AppleMusicPlayback.playlistContainerURI(playlistId: playlistId),
+                            didl: AppleMusicPlayback.playlistDIDL(playlistId: playlistId,
+                                                                  title: title, token: token))
+        await setAVTransportURIWithMetadata(host: zone.host,
+                                            streamURL: "x-rincon-queue:\(zone.id)#0",
+                                            didl: "")
+        await sendTransportAction(host: zone.host, action: "Play")
+        return true
+    }
+
     static func playAppleMusicTracks(_ tracks: [(id: Int, title: String)],
                                      token: String,
                                      on zone: SonosZone) async -> Bool {

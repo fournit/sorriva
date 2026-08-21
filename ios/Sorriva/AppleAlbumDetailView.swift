@@ -54,7 +54,10 @@ struct AppleAlbumDetailView: View {
                     trackList
                 }
             }
-            .padding(.bottom, 48)
+            // 96, not 48. The tab bar and mini-player float ABOVE this scroll view rather
+            // than inseting it, so the last tracks sat underneath them and read as clipped.
+            // Tom, 2026-08-20: "tracks are buried behind the tab menu."
+            .padding(.bottom, AppleLayout.bottomChrome)
         }
         .background(Color.clear)
         .navigationTitle(album.title)
@@ -82,13 +85,12 @@ struct AppleAlbumDetailView: View {
 
     private var header: some View {
         VStack(alignment: .center, spacing: 12) {
-            AsyncImage(url: album.artworkURL(size: 600)) { image in
-                image.resizable().aspectRatio(contentMode: .fit)
-            } placeholder: {
-                RoundedRectangle(cornerRadius: 10).fill(Color.sSurface)
-            }
-            .frame(width: 220, height: 220)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            // 300pt rather than 220. Tom, 2026-08-20: "album artwork on the album detail
+            // page should be larger." Cached, because AsyncImage refetched this cover on
+            // every appearance.
+            AppleArtworkView(url: album.artworkURL(size: 600)?.absoluteString,
+                             fallbackLetter: album.title, size: 300)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
 
             VStack(spacing: 4) {
                 Text(album.title)
@@ -147,6 +149,29 @@ struct AppleAlbumDetailView: View {
                 .padding(.vertical, 11)
                 Divider().overlay(Color.sTextMuted.opacity(0.15)).padding(.leading, 56)
             }
+            footer
+        }
+    }
+
+    /// "12 March 1976 · 8 tracks · 38 min", under the last track — what Apple Music shows
+    /// there. Tom, 2026-08-20. Omitted entirely when none of the three facts are known,
+    /// rather than drawn as an empty line under the divider.
+    ///
+    /// The track count comes from the album rather than the fetched rows: Apple's own count
+    /// and the rows it returns genuinely disagree, and the album's figure is the honest one.
+    @ViewBuilder
+    private var footer: some View {
+        if let line = AppleFormat.footer([
+            AppleFormat.releaseDate(album.releaseDate),
+            AppleFormat.trackCount(album.trackCount > 0 ? album.trackCount : tracks.count),
+            AppleFormat.duration(tracks.reduce(0) { $0 + $1.durationSeconds }),
+        ]) {
+            Text(line)
+                .font(.system(size: 12))
+                .foregroundColor(.sTextMuted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
         }
     }
 
@@ -165,7 +190,11 @@ struct AppleAlbumDetailView: View {
     private func load() async {
         loading = true
         do {
-            if let found = try await AppleMusicCatalog.album(id: album.id) {
+            // MusicKit, not the public iTunes endpoint. The two catalogues genuinely
+            // disagree — measured 2026-08-18, one album reported 11 tracks and returned
+            // none while Sonos played all 11 — so reading the track list from a different
+            // catalogue than the one Sonos plays is how that mismatch got in.
+            if let found = try await AppleMusicKitSource.album(id: String(album.id)) {
                 tracks = found.tracks
             } else {
                 failed = true

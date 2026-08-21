@@ -77,9 +77,9 @@ struct ContentView: View {
                     }
 
                 case .discover:
-                    NavigationStack {
-                        DiscoverView()
-                    }
+                    // Drawn below, outside this switch, so it is never torn down. See the
+                    // note on the Discover layer.
+                    Color.clear
 
                 case .settings:
                     NavigationStack {
@@ -100,6 +100,28 @@ struct ContentView: View {
             }
             .ignoresSafeArea(edges: .bottom)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            // MARK: — Discover, kept alive
+            //
+            // The switch above REPLACES its content on every tab change, which tears the tab
+            // down and takes its @State and its NavigationStack with it — so leaving Discover
+            // and coming back lost the search, the results and how deep you had navigated.
+            // Tom, 2026-08-20: "make the discover screen persistent so that when you switch
+            // tabs and come back to discover you are where you were."
+            //
+            // So Discover lives OUTSIDE the switch and is only hidden. It stays mounted, which
+            // is what preserves both its state and its navigation depth. Hidden rather than
+            // removed also means no re-fetch on return.
+            //
+            // Only Discover, deliberately. Keeping every tab alive would change the lifecycle
+            // of the zone polling in ZonesView, which is a separate question from this one.
+            NavigationStack {
+                DiscoverView()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea(edges: .bottom)
+            .opacity(tabState.selectedTab == .discover ? 1 : 0)
+            .allowsHitTesting(tabState.selectedTab == .discover)
 
             // MARK: — Mini player (fixed at very bottom, always visible, floats over content)
             MiniPlayerView(
