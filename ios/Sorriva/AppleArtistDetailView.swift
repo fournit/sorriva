@@ -19,6 +19,9 @@ import SwiftUI
 // exists (fShuffleRepeat), and upcoming concerts, which MusicKit does not expose at all.
 
 struct AppleArtistDetailView: View {
+    /// Scroll target for the biography section.
+    private static let aboutAnchor = "about"
+
     let artist: AppleArtist
 
     @EnvironmentObject private var discovery: ZoneDiscoveryService
@@ -26,7 +29,13 @@ struct AppleArtistDetailView: View {
     @State private var detail: AppleMusicKitSource.ArtistDetail?
     @State private var loading = true
     @State private var aboutExpanded = false
+    /// Biography and identity from outside Apple — see ArtistInfoService.
+    @State private var info: ArtistInfo?
+    @State private var loadingBio = true
     @State private var pending: PendingPlay?
+    /// Held so the More/Less control can put the reader back on the paragraph after a
+    /// collapse — see the note there.
+    @State private var scrollProxy: ScrollViewProxy?
 
     var body: some View {
         ZStack {
@@ -34,13 +43,34 @@ struct AppleArtistDetailView: View {
                            startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    hero
-                    about
-                    shelves
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        // THE SCROLL TARGET LIVES INSIDE THE HERO, 70pt up from its bottom.
+                        //
+                        // Anchoring to the `about` section itself did not work: its height is
+                        // mid-animation while the scroll resolves, so the target moved under
+                        // the scroll and landed wherever the paragraph happened to be that
+                        // frame. Anchoring to the hero's bottom edge worked but put the first
+                        // line of the biography UNDER THE STATUS BAR, because the hero
+                        // deliberately ignores the top safe area — so "top of the viewport" is
+                        // behind the notch.
+                        //
+                        // 70pt of headroom leaves the bottom sliver of the photograph showing
+                        // and the text clear of the clock.
+                        hero
+                            .overlay(alignment: .bottom) {
+                                Color.clear
+                                    .frame(height: 1)
+                                    .offset(y: -70)
+                                    .id(Self.aboutAnchor)
+                            }
+                        about
+                        shelves
+                    }
+                    .padding(.bottom, AppleLayout.bottomChrome)
                 }
-                .padding(.bottom, AppleLayout.bottomChrome)
+                .onAppear { scrollProxy = proxy }
             }
         }
         .ignoresSafeArea(edges: .top)
@@ -48,6 +78,28 @@ struct AppleArtistDetailView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
+        // COLLAPSING HAS TO MOVE THE READER, expanding does not. Scroll offset is measured
+        // from the top of the CONTENT, so removing several paragraphs from above the fold
+        // leaves you as far down a page that just got shorter — somewhere in the shelves,
+        // with nothing explaining why.
+        //
+        // AND IT MUST HAPPEN AFTER THE RELAYOUT. Scrolling in the same action that toggles
+        // the state resolves the target against the still-expanded paragraph, which lands on
+        // its BOTTOM once it shrinks — the first attempt did exactly that. onChange runs once
+        // the new layout exists, so the anchor means what it says.
+        .onChange(of: aboutExpanded) { _, expanded in
+            guard !expanded else { return }
+            // NO ANIMATION ON EITHER SIDE OF THIS. Three earlier attempts animated the
+            // collapse and then scrolled — and each landed somewhere different, because
+            // scrollTo resolves against whatever the layout happens to be that frame while
+            // several hundred points of text are still shrinking. First it landed at the
+            // bottom of the old paragraph, then at the top of Albums.
+            //
+            // Collapsing instantly makes the target unambiguous: the layout is final before
+            // the scroll is asked for. Losing the collapse animation is a small price for a
+            // control that goes where it says.
+            scrollProxy?.scrollTo(Self.aboutAnchor, anchor: .top)
+        }
         // "See all" hands the destination the rows the shelf already fetched, rather than
         // re-querying for what is sitting in memory.
         .navigationDestination(item: $seeAllAlbums) { group in
@@ -182,22 +234,69 @@ struct AppleArtistDetailView: View {
     /// run long and would otherwise push every shelf below the fold.
     @ViewBuilder
     private var about: some View {
-        if let text = detail?.about, !text.isEmpty {
+        if loadingBio && info?.bio == nil {
+            // A SKELETON, not a spinner. The bio is a chain of up to five requests against
+            // rate-limited services and can take seconds; without something here, "still
+            // fetching" and "there is no biography" look identical, which is exactly how this
+            // read as broken while it was in fact working. Tom, 2026-08-21: "show the row for
+            // bio and something to indicate it is loading; an island in a subdued color,
+            // pulsating."
+            //
+            // Shaped like the paragraph it is replacing — three lines, last one short — so the
+            // page does not jump when the real text lands.
+            BioSkeleton()
+                .padding(.horizontal, 20)
+                .padding(.top, 22)
+                .padding(.bottom, 24)
+        } else if let text = info?.bio, !text.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
+                // PRIMARY, not muted. This is body copy several paragraphs long sitting under
+                // a dark hero image — at muted weight Tom found it "near impossible to read".
+                // Muted is right for a one-line subtitle and wrong for prose.
                 Text(text)
-                    .font(.system(size: 13))
-                    .foregroundColor(.sTextMuted)
-                    .lineLimit(aboutExpanded ? nil : 3)
+                    .font(.system(size: 14))
+                    .foregroundColor(.sTextPrimary)
+                    .lineSpacing(3)
+                    .lineLimit(aboutExpanded ? nil : 4)
                     .fixedSize(horizontal: false, vertical: true)
-                Button(aboutExpanded ? "Less" : "More") {
-                    withAnimation { aboutExpanded.toggle() }
+
+                HStack(spacing: 10) {
+                    Button(aboutExpanded ? "Less" : "More") {
+                        // Expanding animates; collapsing does not — see the onChange above.
+                        if aboutExpanded {
+                            aboutExpanded = false
+                        } else {
+                            withAnimation { aboutExpanded = true }
+                        }
+                    }
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.sHighlight)
+                    .buttonStyle(.plain)
+
+                    Spacer()
+
+                    // ATTRIBUTED, on purpose. These are other people's words under other
+                    // people's licences, and the reader deserves to know whether they are
+                    // reading Discogs or Wikipedia — the two do not agree, and Last.fm is
+                    // years out of date.
+                    if let source = info?.bioSource {
+                        Text(credit(source))
+                            .font(.system(size: 11))
+                            .foregroundColor(.sTextMuted)
+                    }
                 }
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.sHighlight)
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, 20)
+            .padding(.top, 22)
             .padding(.bottom, 24)
+        }
+    }
+
+    private func credit(_ source: ArtistInfo.BioSource) -> String {
+        switch source {
+        case .discogs:   return "via Discogs"
+        case .wikipedia: return "via Wikipedia"
+        case .lastfm:    return "via Last.fm"
         }
     }
 
@@ -329,5 +428,47 @@ struct AppleArtistDetailView: View {
         loading = true
         detail = try? await AppleMusicKitSource.artistDetail(id: artist.id)
         loading = false
+
+        // The biography comes from OUTSIDE Apple, and deliberately after the shelves rather
+        // than with them. MusicKit declares editorialNotes and never fills it — measured with
+        // and without a subscription — so this is Discogs, then Wikipedia, then Last.fm.
+        //
+        // Separate and last because it is a chain of up to five requests against rate-limited
+        // services, and the music must not wait on prose.
+        loadingBio = true
+        info = await ArtistInfoService.lookup(name: artist.name)
+        loadingBio = false
+    }
+}
+
+
+// MARK: - BioSkeleton
+
+/// The placeholder shown while an artist biography is being fetched.
+///
+/// Deliberately subdued and slow: this sits under a large photograph, and anything brighter or
+/// faster reads as an alert rather than as patience.
+private struct BioSkeleton: View {
+    @State private var pulsing = false
+
+    /// Line widths as fractions of the container — an uneven last line is what makes this read
+    /// as a paragraph rather than as a loading bar.
+    private let widths: [CGFloat] = [1.0, 0.96, 0.62]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(widths.enumerated()), id: \.offset) { _, fraction in
+                GeometryReader { geo in
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.sTextMuted)
+                        .frame(width: geo.size.width * fraction, height: 10)
+                }
+                .frame(height: 10)
+            }
+        }
+        .opacity(pulsing ? 0.28 : 0.12)
+        .animation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true), value: pulsing)
+        .onAppear { pulsing = true }
+        .accessibilityLabel("Looking up biography")
     }
 }

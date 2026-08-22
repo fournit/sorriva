@@ -14,3 +14,7 @@ ios/FastTests/.build/
 # Xcode per-user state — window layout, breakpoints, scheme ordering.
 # Rewritten on every click, which is what broke `deploy` mid-rebase on 2026-08-08.
 xcuserdata/
+
+# Last.fm API key — remove this line once the repo is private (see Secrets.swift)
+ios/Sorriva/Secrets.swift
+ios/FastTests/Tests/FastTests/Secrets.swift

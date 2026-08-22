@@ -78,6 +78,11 @@ struct SorrivaApp: App {
             diskCapacity:   500 * 1024 * 1024,  // 500MB disk
             diskPath: "sorriva_image_cache"
         )
+
+        // Give ArtistInfoService its database hooks. They are inert until this runs, because
+        // the service is compiled Foundation-only into the fast test suite and cannot see
+        // GRDB — see ArtistInfoCache.
+        ArtistInfoCache.install()
     }
 
     var body: some Scene {

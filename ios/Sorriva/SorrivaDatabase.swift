@@ -1280,6 +1280,33 @@ final class SorrivaDatabase {
             print("SORRIVA DB: v27 reclassified \(fixed) station(s) the insert path had missed")
         }
 
+        // Artist biographies fetched from outside Apple — see ArtistInfoService.
+        //
+        // KEYED ON THE MUSICBRAINZ ID, not on a library row, and that is the whole point. An
+        // artist bio is a property of the ARTIST, not of where the music came from, so one
+        // fetched biography serves the same person whether they arrive as a NAS FLAC, an
+        // Apple Music album, or a Tidal one later. Keying it to a library row would mean
+        // fetching it again per source and letting the copies drift.
+        //
+        // It therefore sits outside the media tables entirely and is untouched by
+        // fSourceNormalizedSchema, which splits MEDIA by source. `artists` is the one table
+        // that design says needs no change at all, which is why this can land ahead of it.
+        //
+        // ONLY GOOD BIOS ARE STORED. Tom, 2026-08-21: "i don't like the idea of storing the
+        // lesser of a bio." A Discogs or Wikipedia result is cached; a Last.fm fallback is
+        // shown and deliberately NOT written, so the next visit tries the better sources
+        // again and upgrades itself. See ArtistInfoService.cacheable.
+        migrator.registerMigration("v28_artist_metadata") { db in
+            try db.create(table: "artist_metadata") { t in
+                t.column("mbid", .text).primaryKey()
+                t.column("name", .text).notNull()
+                t.column("disambiguation", .text)
+                t.column("bio", .text)
+                t.column("bioSource", .text)
+                t.column("fetchedAt", .integer).notNull()
+            }
+        }
+
         try migrator.migrate(dbQueue)
         print("SORRIVA DB: Migrations complete")
     }
@@ -3291,5 +3318,21 @@ final class SorrivaDatabase {
                 )
             }
         }
+    }
+}
+
+// MARK: - Artist metadata
+
+extension SorrivaDatabase {
+
+    /// A cached biography, or nil when this artist has never been fetched.
+    func artistMetadata(mbid: String) -> ArtistMetadata? {
+        try? dbQueue.read { db in try ArtistMetadata.fetchOne(db, key: mbid) }
+    }
+
+    /// Store a biography. Called ONLY for Discogs and Wikipedia results — see the v28
+    /// migration note and ArtistInfoService.cacheable.
+    func saveArtistMetadata(_ meta: ArtistMetadata) {
+        try? dbQueue.write { db in try meta.save(db) }
     }
 }

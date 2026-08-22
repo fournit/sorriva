@@ -572,3 +572,25 @@ enum ArtworkSource: String {
     case online     // matched against a provider — see artMatchedName / artMatchScore
     case manual     // the user chose it; beats every automated pass
 }
+
+// MARK: - ArtistMetadata
+//
+// A cached artist biography, keyed on the MusicBrainz id rather than on any library row —
+// see the v28 migration for why that is the point rather than a detail.
+//
+// Only Discogs and Wikipedia results are ever written here. A Last.fm fallback is shown but
+// not stored, so it retries and upgrades on the next visit instead of freezing a poor
+// biography into the database.
+struct ArtistMetadata: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "artist_metadata"
+
+    var mbid: String
+    var name: String
+    var disambiguation: String?
+    var bio: String?
+    /// Which tier answered — "discogs" or "wikipedia". Recorded so the credit under the
+    /// biography stays accurate after a restart, and so a future upgrade path can tell what
+    /// it is replacing.
+    var bioSource: String?
+    var fetchedAt: Int
+}

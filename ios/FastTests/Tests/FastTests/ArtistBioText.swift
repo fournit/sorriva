@@ -1,0 +1,1 @@
+../../../Sorriva/ArtistBioText.swift

@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.79 - Discover becomes a real Apple Music client: search, artist pages, playlists, play in any room",
-  "version": "0.0.79",
-  "db_migrate": false
+  "message": "v0.0.80 - artist biographies, and a fix that unblocks installing on a real phone",
+  "version": "0.0.80",
+  "db_migrate": true
 }
