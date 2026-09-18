@@ -15,6 +15,17 @@ struct ZonePickerSheet: View {
     let subtitle: String
     @ObservedObject var discovery: ZoneDiscoveryService
     @ObservedObject var store: PlaybackStore
+    // Ask before taking a room that is actively playing TV audio. Defaulted ON so a
+    // play flow added later inherits the guard rather than silently missing it; the
+    // one caller that uses this sheet to SELECT a zone rather than send audio to it
+    // (ContentView's "Select Zone") passes false.
+    //
+    // Declared BEFORE onPick deliberately. Callers pass onPick as a trailing closure,
+    // and Swift's forward-scan matching stops tolerating that once a SECOND defaulted
+    // parameter follows the closure — putting this one after selectedZoneID broke all
+    // nine existing call sites at once.
+    var warnsOnTVTakeover: Bool = true
+
     let onPick: (SonosZone) -> Void
 
     // Optional: pre-highlight a zone as "currently selected"
@@ -22,6 +33,7 @@ struct ZonePickerSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var showGroupSheet = false
+    @State private var pendingTVZone: SonosZone?
 
     var body: some View {
         ZStack {
@@ -69,6 +81,13 @@ struct ZonePickerSheet: View {
                                 isSelected: zone.id == selectedZoneID,
                                 onTap: {
                                     print("ZONEPICKER: tapped zone — \(zone.name)")
+                                    // Deliberately do NOT dismiss when the guard trips:
+                                    // the alert rides over this sheet, so cancelling
+                                    // leaves the room list up to pick somewhere else.
+                                    if warnsOnTVTakeover, TVTakeover.isActive(zone) {
+                                        pendingTVZone = zone
+                                        return
+                                    }
                                     dismiss()
                                     onPick(zone)
                                 },
@@ -129,6 +148,10 @@ struct ZonePickerSheet: View {
                 }
                 .padding(.bottom, 8)
             }
+        }
+        .tvTakeoverAlert(zone: $pendingTVZone) { zone in
+            dismiss()
+            onPick(zone)
         }
         .sheet(isPresented: $showGroupSheet) {
             // Grouping sheet — to be built

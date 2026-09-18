@@ -509,6 +509,10 @@ struct GroupPickerSheet: View {
 
     @State private var selectedIDs: Set<String> = []
     @State private var hasChanges = false
+    // Rooms being ADDED that are currently on their TV input with sound coming out.
+    // Held while the confirmation is up; the pending grouping work is recomputed on
+    // confirm rather than stashed, since selectedIDs cannot change behind the alert.
+    @State private var pendingTVNames: [String]?
 
     // Flat list of ALL rooms — coordinators + their members, minus invisible satellites
     private var allRooms: [RoomEntry] {
@@ -684,6 +688,9 @@ struct GroupPickerSheet: View {
         .onAppear {
             selectedIDs = Set(coordinatorZone.groupMembers.map { $0.id })
         }
+        .tvTakeoverAlert(zoneNames: $pendingTVNames) {
+            commitChanges()
+        }
     }
 
     private func toggleRoom(_ room: RoomEntry) {
@@ -697,6 +704,27 @@ struct GroupPickerSheet: View {
     }
 
     private func applyChanges() {
+        // Adding a room to a group that is playing music takes that room just as surely
+        // as pressing play in it. Only ask when the coordinator is actually playing
+        // music — grouping an idle group, or a group that is itself on TV, into a TV
+        // room interrupts nothing and must not prompt.
+        let currentMembers = Set(coordinatorZone.groupMembers.map { $0.id })
+        let toAdd = Array(selectedIDs.subtracting(currentMembers))
+        if coordinatorZone.isPlaying, !coordinatorZone.isHDMI {
+            let onTV = toAdd
+                .compactMap { id in discovery.zones.first(where: { $0.id == id }) }
+                .filter { TVTakeover.isActive($0) }
+                .map(\.name)
+                .sorted()
+            if !onTV.isEmpty {
+                pendingTVNames = onTV
+                return
+            }
+        }
+        commitChanges()
+    }
+
+    private func commitChanges() {
         let currentMembers = Set(coordinatorZone.groupMembers.map { $0.id })
         let toAdd = Array(selectedIDs.subtracting(currentMembers))
         let toRemove = Array(currentMembers.subtracting(selectedIDs))

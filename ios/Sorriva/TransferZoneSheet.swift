@@ -13,6 +13,7 @@ struct TransferZoneSheet: View {
     // Observed so a row updates when what a zone is playing changes while the sheet is up.
     @ObservedObject private var store = PlaybackStore.shared
     @Environment(\.dismiss) private var dismiss
+    @State private var pendingTVZone: SonosZone?
 
     // Destination zones — all zones except the source
     private var destinationZones: [SonosZone] {
@@ -113,9 +114,22 @@ struct TransferZoneSheet: View {
                 }
             }
         }
+        .tvTakeoverAlert(zone: $pendingTVZone) { zone in
+            commitTransfer(to: zone)
+        }
     }
 
     private func transferPlayback(to destination: SonosZone) {
+        // A transfer takes the destination room exactly as a fresh play would.
+        // Hold the sheet up while asking, so Cancel leaves the room list in place.
+        if TVTakeover.isActive(destination) {
+            pendingTVZone = destination
+            return
+        }
+        commitTransfer(to: destination)
+    }
+
+    private func commitTransfer(to destination: SonosZone) {
         discovery.transferPlayback(fromZoneID: sourceZone.id, toZoneID: destination.id)
         dismiss()
     }

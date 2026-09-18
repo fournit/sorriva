@@ -13,6 +13,9 @@ struct AlbumDetailView: View {
     @State private var showRemoveConfirm = false
     @State private var activeSheet: ActiveSheet? = nil
     @State private var isFavorite = false
+    // The Play capsule plays straight into the selected zone with no picker, so it
+    // bypasses the guard ZonePickerSheet carries and needs its own.
+    @State private var pendingTVZone: SonosZone?
 
     private enum ActiveSheet: Identifiable {
         case trackPicker(Track)
@@ -83,6 +86,10 @@ struct AlbumDetailView: View {
                         Button(action: {
                             guard let zone = discovery.zones.first(where: { $0.id == selectedZoneID })
                                     ?? discovery.zones.first else { return }
+                            if TVTakeover.isActive(zone) {
+                                pendingTVZone = zone
+                                return
+                            }
                             PlaybackCoordinator.shared.submit(.playAlbum(tracks, zoneID: zone.id))
                         }) {
                             HStack(spacing: 8) {
@@ -170,6 +177,9 @@ struct AlbumDetailView: View {
             Button("Cancel", role: .cancel) { trackToRemove = nil }
         } message: {
             Text("This removes the track from your Sorriva library. The original file is not affected.")
+        }
+        .tvTakeoverAlert(zone: $pendingTVZone) { zone in
+            PlaybackCoordinator.shared.submit(.playAlbum(tracks, zoneID: zone.id))
         }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {

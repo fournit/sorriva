@@ -380,7 +380,7 @@ struct IHeartStationBrowserView: View {
 
         Task {
             do {
-                let toSave = try SorrivaDatabase.shared.dbQueue.read { db in
+                let toSave = try await SorrivaDatabase.shared.dbQueue.read { db in
                     try Row.fetchAll(db,
                         sql: "SELECT * FROM iheart_catalog WHERE id IN (\(selectedIDs.sorted().map { "\($0)" }.joined(separator: ",")))")
                 }

@@ -182,6 +182,9 @@ struct ContentView: View {
                 subtitle: "Choose a zone to control",
                 discovery: discovery,
                 store: store,
+                // Selection only — this picker sends no audio, so there is nothing
+                // to take a room away from.
+                warnsOnTVTakeover: false,
                 selectedZoneID: selectedZoneID
             ) { zone in
                 selectedZoneID = zone.id
