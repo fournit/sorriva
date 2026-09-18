@@ -39,6 +39,38 @@ enum TVTakeover {
         "Press Play to play the new audio in the zone."
     }
 
+    // MARK: - Starting volume when taking a room off its TV input
+
+    // A soundbar's volume is whatever the television left it at, and that is not a music
+    // level. Measured 2026-09-17 on the household: the Living Room Arc Ultra sat at 6
+    // straight after a film, where the rooms playing music sat at 12. Taking the room
+    // without touching the volume therefore starts music almost inaudible — the failure
+    // is quietness, not a blast, which is why a fixed default is safe here.
+    //
+    // Keyed on isHDMI ALONE, deliberately wider than isActive above. The volume is wrong
+    // whether or not the television is still making sound: an input held since a film
+    // that finished an hour ago has left the level behind just the same.
+
+    static let volumeEnabledKey = "sorriva.tvVolumeOverrideEnabled"
+    static let volumeLevelKey   = "sorriva.tvStartingVolume"
+    static let defaultVolume    = 7
+    static let volumeRange      = 1...30
+
+    /// The volume to set before starting playback in this zone, or nil to leave it alone.
+    ///
+    /// Absent defaults mean ON at `defaultVolume` — a fresh install gets the behaviour
+    /// without having to visit Settings. `object(forKey:)` rather than `bool(forKey:)`
+    /// because the latter cannot tell "switched off" from "never set".
+    static func startingVolume(for zone: SonosZone,
+                               defaults: UserDefaults = .standard) -> Int? {
+        guard zone.isHDMI else { return nil }
+        if let stored = defaults.object(forKey: volumeEnabledKey) as? Bool, stored == false {
+            return nil
+        }
+        let level = defaults.object(forKey: volumeLevelKey) as? Int ?? defaultVolume
+        return min(max(level, volumeRange.lowerBound), volumeRange.upperBound)
+    }
+
     /// Title for the grouping case, where more than one room being added can be on TV.
     static func title(zoneNames: [String]) -> String {
         guard zoneNames.count > 1 else {

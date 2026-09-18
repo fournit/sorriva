@@ -1219,6 +1219,13 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         let coordinatorHost = coordinator.host
         let coordinatorName = coordinator.name
 
+        // Rooms being added that are on their TV input inherit the television's volume
+        // when the group's audio arrives. Captured here with the other host data, before
+        // the async Task, for the same reason: zones can change while it runs.
+        let tvVolumeTargets = addZoneIDs.compactMap { id in
+            zones.first(where: { $0.id == id && $0.isHDMI })
+        }
+
         print("SORRIVA: groupZone — host map: \(addHostMap)")
 
         // Same protection as persistStationPlay/setPlaybackGrace/togglePlayPause —
@@ -1263,6 +1270,13 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
                     await SonosCommands.sendTransportAction(host: host, action: "Stop")
                     print("SORRIVA: Removed zone \(id) from group")
                 }
+            }
+
+            // Ahead of the join, so the room is at a music level before the group's
+            // audio reaches it. Only the added TV room changes — the coordinator and the
+            // other members keep the balance they were set to.
+            for zone in tvVolumeTargets {
+                await SonosCommands.applyTVStartingVolume(on: zone)
             }
 
             // Add new zones to this group
@@ -1394,6 +1408,11 @@ final class ZoneDiscoveryService: NSObject, ObservableObject {
         }
 
         Task {
+            // The destination inherits the audio, so it inherits the volume problem too:
+            // a room coming off its TV input is sitting at the television's level.
+            // Applied to the DESTINATION only — the source keeps whatever it had.
+            await SonosCommands.applyTVStartingVolume(on: destZone)
+
             // Step 0: register NAS shares with destination before transfer
             // so x-file-cifs:// URIs work immediately when dest becomes coordinator
             if let sources = try? SorrivaDatabase.shared.allLibrarySources(), !sources.isEmpty {

@@ -408,6 +408,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Sorriva/Info.plist;
+				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Sorriva searches the Apple Music catalogue so you can find music and play it on your speakers.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Sorriva needs access to your local network to discover and control Sonos and Bluesound speakers.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -442,6 +443,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Sorriva/Info.plist;
+				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Sorriva searches the Apple Music catalogue so you can find music and play it on your speakers.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Sorriva needs access to your local network to discover and control Sonos and Bluesound speakers.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

@@ -148,6 +148,7 @@ enum SonosCommands {
                                stationName: String = "", artURL: String = "",
                                resMD: String? = nil) async {
         print("SORRIVA: Playing \(streamURL) on \(zone.name)\(resMD == nil ? "" : " [favorite metadata]")")
+        await applyTVStartingVolume(on: zone)
         // A CONTAINER IS NOT A STREAM. Spotify playlists arrive as
         // x-rincon-cpcontainer: and cannot be pointed at with SetAVTransportURI —
         // measured 2026-08-12: 500 with errorCode 714, after which Play returns 200 and
@@ -366,6 +367,7 @@ enum SonosCommands {
     static func playAppleMusicAlbum(collectionId: Int, title: String,
                                     token: String, on zone: SonosZone) async -> Bool {
         guard !token.isEmpty else { return false }
+        await applyTVStartingVolume(on: zone)
         await sendTransportAction(host: zone.host, action: "Stop")
         await removeAllTracksFromQueue(host: zone.host)
         await addURIToQueue(host: zone.host,
@@ -392,6 +394,7 @@ enum SonosCommands {
     static func playAppleMusicPlaylist(playlistId: String, title: String,
                                        token: String, on zone: SonosZone) async -> Bool {
         guard !token.isEmpty, !playlistId.isEmpty else { return false }
+        await applyTVStartingVolume(on: zone)
         await sendTransportAction(host: zone.host, action: "Stop")
         await removeAllTracksFromQueue(host: zone.host)
         await addURIToQueue(host: zone.host,
@@ -409,6 +412,7 @@ enum SonosCommands {
                                      token: String,
                                      on zone: SonosZone) async -> Bool {
         guard !tracks.isEmpty, !token.isEmpty else { return false }
+        await applyTVStartingVolume(on: zone)
 
         await sendTransportAction(host: zone.host, action: "Stop")
         await removeAllTracksFromQueue(host: zone.host)
@@ -545,6 +549,20 @@ enum SonosCommands {
         } catch {
             sLog("TRANSFER: BecomeCoordinator error: \(error.localizedDescription)")
         }
+    }
+
+    // MARK: - TV starting volume
+
+    /// Set the room's volume before audio starts, when it is coming off its TV input.
+    ///
+    /// Sent BEFORE the transport command on purpose, so the first second of music plays
+    /// at the music level rather than the television's. Targets the zone's OWN host
+    /// rather than ZoneDiscoveryService.setVolume, which is group-aware — only the room
+    /// that inherited the TV's level should change, never the balance across a group.
+    static func applyTVStartingVolume(on zone: SonosZone) async {
+        guard let volume = TVTakeover.startingVolume(for: zone) else { return }
+        print("SORRIVA: TV starting volume — \(zone.name) → \(volume)")
+        await sendSetVolume(host: zone.host, volume: volume)
     }
 
     static func sendSetVolume(host: String, volume: Int) async {

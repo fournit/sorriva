@@ -55,6 +55,65 @@ final class TVTakeoverTests: XCTestCase {
         XCTAssertFalse(TVTakeover.isActive(zone(hdmi: true, idle: true, playing: true)))
     }
 
+    // MARK: - Starting volume
+
+    // A fresh UserDefaults per test — the real suite must never be written by a test run.
+    private func emptyDefaults(_ name: String = #function) -> UserDefaults {
+        let d = UserDefaults(suiteName: "tvtakeover.\(name)")!
+        d.removePersistentDomain(forName: "tvtakeover.\(name)")
+        return d
+    }
+
+    func testDefaultsToSevenWithNothingStored() {
+        XCTAssertEqual(TVTakeover.startingVolume(for: zone(hdmi: true, idle: false),
+                                                 defaults: emptyDefaults()), 7,
+                       "a fresh install gets the behaviour without visiting Settings")
+    }
+
+    func testAppliesEvenWhenTheTVIsSilent() {
+        // Deliberately WIDER than isActive. An input held since a film that finished an
+        // hour ago has left the television's level behind just the same.
+        XCTAssertEqual(TVTakeover.startingVolume(for: zone(hdmi: true, idle: true),
+                                                 defaults: emptyDefaults()), 7)
+    }
+
+    func testLeavesNonTVRoomsAlone() {
+        XCTAssertNil(TVTakeover.startingVolume(for: zone(hdmi: false, idle: false),
+                                               defaults: emptyDefaults()),
+                     "a room already playing music keeps whatever volume it is at")
+    }
+
+    func testTurningTheSettingOffLeavesTheVolumeAlone() {
+        let d = emptyDefaults()
+        d.set(false, forKey: TVTakeover.volumeEnabledKey)
+        XCTAssertNil(TVTakeover.startingVolume(for: zone(hdmi: true, idle: false), defaults: d))
+    }
+
+    func testStoredLevelIsUsed() {
+        let d = emptyDefaults()
+        d.set(14, forKey: TVTakeover.volumeLevelKey)
+        XCTAssertEqual(TVTakeover.startingVolume(for: zone(hdmi: true, idle: false), defaults: d), 14)
+    }
+
+    func testStoredLevelIsClampedToTheRange() {
+        let low = emptyDefaults("low")
+        low.set(0, forKey: TVTakeover.volumeLevelKey)
+        XCTAssertEqual(TVTakeover.startingVolume(for: zone(hdmi: true, idle: false), defaults: low), 1)
+
+        let high = emptyDefaults("high")
+        high.set(90, forKey: TVTakeover.volumeLevelKey)
+        XCTAssertEqual(TVTakeover.startingVolume(for: zone(hdmi: true, idle: false), defaults: high), 30,
+                       "a stored level must never send a soundbar to 90")
+    }
+
+    // bool(forKey:) returns false for an absent key, which would read as "switched off"
+    // and silently disable the feature for everyone who never opened Settings.
+    func testAbsentToggleIsOnNotOff() {
+        let d = emptyDefaults()
+        XCTAssertNil(d.object(forKey: TVTakeover.volumeEnabledKey))
+        XCTAssertNotNil(TVTakeover.startingVolume(for: zone(hdmi: true, idle: false), defaults: d))
+    }
+
     func testTitleNamesTheRoom() {
         XCTAssertEqual(TVTakeover.title(zoneName: "Living Room"),
                        "Living Room is actively playing TV audio")

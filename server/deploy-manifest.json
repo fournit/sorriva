@@ -1,5 +1,5 @@
 {
-  "message": "v0.0.80 - artist biographies, and a fix that unblocks installing on a real phone",
-  "version": "0.0.80",
-  "db_migrate": true
+  "message": "v0.0.81 - Sorriva asks before taking a room from the television, and starts the music at a volume you can hear",
+  "version": "0.0.81",
+  "db_migrate": false
 }

@@ -93,14 +93,16 @@ struct SettingsView: View {
                                 isStub: true
                             )
 
-                            // Playback (stub)
-                            SettingsMenuRow(
-                                icon: "slider.horizontal.3",
-                                iconColor: Color(hex: "#6B5EA8"),
-                                title: "Playback",
-                                subtitle: "Coming in Phase 4",
-                                isStub: true
-                            )
+                            // Playback
+                            NavigationLink(destination: PlaybackSettingsView()) {
+                                SettingsMenuRow(
+                                    icon: "slider.horizontal.3",
+                                    iconColor: Color(hex: "#6B5EA8"),
+                                    title: "Playback",
+                                    subtitle: "Volume and playback behaviour"
+                                )
+                            }
+                            .buttonStyle(.plain)
 
                             // About
                             NavigationLink(destination: AboutView()) {

@@ -1633,6 +1633,18 @@
           "requires": [
             "fMusicKitAdapter"
           ]
+        },
+        {
+          "id": "bIHeartStationSaveBlocksBuild",
+          "name": "An untouched iHeart file stopped the whole app compiling",
+          "desc": "The app stopped compiling for everyone, on a file nobody had edited since 2026-08-12.\n\nFIXED 2026-09-17. Inside a Task, Swift began resolving GRDB's dbQueue.read to the ASYNC overload where it previously took the sync one, so the call needed an await it did not have. Nothing in the repository changed to cause this -- it is a toolchain or GRDB shift underneath, which means main had been unbuildable for some time before anyone tried.\n\nWORTH KNOWING: the fast suite cannot see this class of break at all. It runs on the Mac against Foundation-only sources and was green throughout. Only building the app surfaced it.\n\nThe flow it affects -- saving selected iHeart stations -- compiles and takes the semantically correct overload, but has not been exercised at runtime since the change.",
+          "priority": "Critical",
+          "complexity": "XS",
+          "tag": "bug",
+          "done": true,
+          "createdAt": "2026-09-17",
+          "completedAt": "2026-09-17",
+          "requires": []
         }
       ]
     },
@@ -2784,6 +2796,34 @@
           "createdAt": "2026-08-08",
           "completedAt": null,
           "requires": []
+        },
+        {
+          "id": "fTVTakeoverGuard",
+          "name": "Ask before taking a room that is playing TV audio",
+          "desc": "Sonos switches a room to its TV input on its own when the television comes on. Nothing asks Sorriva and Sorriva cannot veto it. Until now the app would send an album, station or transfer straight into that room on one tap, cutting the TV audio with no warning.\n\nBUILT AND VERIFIED ON DEVICE 2026-09-17, against a live television.\n\nTHE RULE: warn when the target zone is on its external input AND sound is actually coming out of it -- isHDMI && !idleState. Both halves are required and the second is the interesting one. isHDMI alone is wrong: Sonos holds the TV input for HOURS after the set is switched off (sonos-playback-contract.md section 6a, three-stage hold/release), so a guard written on it would have put a dialog in front of every evening's listening. idleState is Sonos's own 'nothing is coming out of this room' flag from IdleState on the ZoneGroupMember, and it is the ONLY discriminator -- over AVTransport a live TV and a held-but-silent input are byte-identical, same state, same status, same empty metadata. Both facts were already parsed and carried on SonosZone; this feature added no Sonos work at all.\n\nMEASURED, NOT ESTIMATED: on 2026-09-17 with the television on, a read-only sweep of all 13 transport-capable zones had exactly one zone satisfy the predicate -- the Living Room Arc Ultra, htastream URI with IdleState=0. The household's OTHER Arc Ultra (Listening Room) read false. That is the evidence the rule keys on the input being live rather than on the speaker being a soundbar.\n\nACCEPTED LATENCY: IdleState is debounced roughly 20s at the speaker (deliberate -- a room that flipped to idle during a quiet passage of dialogue would be worse than one that settles slowly), and Sorriva refreshes it on the topology pass. So a film paused for a minute will not warn, and a TV quiet for 20s still will. The bias is toward asking. Re-querying the speaker at the moment of the tap was considered and rejected: the speaker's own debounce dominates, so it buys little for a round trip in the tap path.\n\nCOVERAGE, and why it is four edits rather than one. Playback is not funnelled through a single choke point -- the local library goes via PlaybackCoordinator, Apple Music and radio call SonosCommands directly, and transfer and grouping are their own paths. The guard is raised at: ZonePickerSheet (the shared 'choose a room' moment, covering the eight album, track, Apple Music and radio flows), AlbumDetailView's Play capsule (which plays into the selected zone with no picker), TransferZoneSheet, and GroupPickerSheet. Restructuring playback behind one door was explicitly NOT attempted here.\n\nGROUPING is guarded only when the coordinator is actually playing music and is not itself on TV -- grouping an idle group into a TV room interrupts nothing and must not prompt.\n\nDECISIONS TAKEN: buttons are Cancel and Play, not Cancel and OK, because the confirm button names the action it performs. The warning repeats every time rather than going quiet after a dismissal -- it only fires when a TV is genuinely making sound, so it should be rare, and each firing is a real interruption about to happen. isHDMI is also set for line-in (x-rincon-stream), so a turntable on a Sonos line-in would be described as 'TV audio'; that wording was accepted deliberately rather than splitting the message.\n\nONE TRAP WORTH KEEPING: the opt-out flag was first declared AFTER onPick on ZonePickerSheet and broke all nine existing call sites at once -- Swift stops tolerating a trailing closure once a SECOND defaulted parameter follows it. Declared before onPick, every caller compiles untouched. Commented in the file so it is not tidied back.\n\nNine fast tests cover the predicate and the copy, including one asserting that the transport's own isPlaying is deliberately NOT part of the rule -- an HDMI zone reports PLAYING whether the television is on or off, so it carries no signal.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-09-17",
+          "completedAt": "2026-09-17",
+          "requires": [
+            "bZoneShowsStaleStationWhenTVTakesOver"
+          ]
+        },
+        {
+          "id": "fTVDefaultVolume",
+          "name": "Start at a set volume when taking a room off its TV input",
+          "desc": "A soundbar sits at whatever volume the television left it at, and that is not a music level. Taking the room for music without touching the volume therefore starts the music almost inaudible.\n\nBUILT AND VERIFIED ON DEVICE 2026-09-17.\n\nMEASURED, NOT ASSUMED, and it inverts the obvious guess. Straight after a film the Living Room Arc Ultra read volume 6, while the rooms playing music sat at 12. The failure mode is quietness, not a blast -- which is what makes a fixed default safe here, since nobody can be startled by it.\n\nTHE RULE: when Sorriva starts playback in a zone whose current input is TV or line-in, set that zone's volume before the audio starts. Keyed on isHDMI ALONE, deliberately WIDER than the fTVTakeoverGuard warning, which also requires the television to be making sound. The volume is wrong either way: an input held since a film that finished an hour ago has left the level behind just the same.\n\nORDERING: the volume command is sent BEFORE the transport command, so the first second of music plays at the music level rather than the television's.\n\nGROUPING: only the room that inherited the TV's level changes. This falls out of construction rather than being enforced -- the helper targets the zone's own host instead of ZoneDiscoveryService.setVolume, which is group-aware. A balance set across a group is never rewritten.\n\nUSER CONFIGURABLE. Settings -> Playback, which was a stub row labelled 'Coming in Phase 4' and is now a real screen: a toggle ('Set volume when taking a room from TV', on by default) and a slider ('Starting volume', range 1-30, default 7). Stored in UserDefaults via AppStorage, with the keys and the default owned by TVTakeover so the control and the decision cannot drift apart. An ABSENT toggle reads as ON, not off -- bool(forKey:) returns false for a missing key, which would have silently disabled the feature for everyone who never opened Settings. There is a test for exactly that.\n\n7 was chosen by Tom against the measured evidence of 6 on TV and 12 for music. Stored levels are clamped to 1-30 so a bad value can never send a soundbar to 90.\n\nSCOPE NOT TAKEN: the level is global rather than per-room. An Arc Ultra and an Era 100 do not sound the same at 7, so a household with two televisions would want revisiting. Remembering each room's last music volume is the shape that solves it properly and was set aside deliberately.\n\nCOVERAGE is seven call sites across three files -- LocalPlaybackService for the local library, SonosCommands for radio and the three Apple Music routes, ZoneDiscoveryService for transfer (destination only) and grouping (added TV rooms only). Same scatter as the guard, same reason: playback has no single choke point, and restructuring it was not attempted here.",
+          "priority": "Normal",
+          "complexity": "S",
+          "tag": "feature",
+          "done": true,
+          "createdAt": "2026-09-17",
+          "completedAt": "2026-09-17",
+          "requires": [
+            "fTVTakeoverGuard"
+          ]
         },
         {
           "id": "fHomeTheatreSettings",

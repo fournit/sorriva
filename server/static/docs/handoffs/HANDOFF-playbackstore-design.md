@@ -419,3 +419,58 @@ A wedged zone accepts `SetAVTransportURI`, reports the new track, updates artwor
 zone truly entered PLAYING. This cost three wrong theories before raw-SOAP testing
 found it. **Do not diagnose playback from what the UI reflects back.**
 5. **Confirm start at Phase A** and the A→E order.
+
+### 14.8 External inputs are a THIRD case, not a variant of playing
+
+**Added 2026-09-17, after `fTVTakeoverGuard` and `fTVDefaultVolume`.**
+
+The store's whole design divides the world into "this zone is playing" and "this zone is
+idle". A room on its TV input is neither, and every question asked about it needs two
+facts rather than one:
+
+| Fact | Field | Owner | Answers |
+|---|---|---|---|
+| Which input is selected | `SonosZone.isHDMI` | the 2s transport poll, via the URI | *source* |
+| Whether sound is coming out | `SonosZone.idleState` | `IdleState` in ZoneGroupTopology | *activity* |
+
+They move independently and code that conflates them breaks visibly — that is
+`bZoneShowsStaleStationWhenTVTakesOver`, already recorded. What the two features above add
+is that **the right pairing differs per question**, and getting it wrong is silent:
+
+- **"Would starting playback interrupt a television?"** needs BOTH — `isHDMI && !idleState`.
+  On `isHDMI` alone it warns all evening, because Sonos holds the input for hours after the
+  set is off (contract §6a).
+- **"Is this room's volume wrong?"** needs `isHDMI` ALONE. The television left its level
+  behind whether or not it is still making sound.
+
+So the two features look like one rule and are not. The narrower one is in
+`TVTakeover.isActive`, the wider in `TVTakeover.startingVolume`, deliberately in the same
+file so the difference is visible rather than inferred.
+
+**Neither uses the transport's own `isPlaying`.** An HDMI zone reports `PLAYING` whether the
+television is on or off, so it carries no signal here at all. There is a test asserting
+this, because it is exactly the kind of condition a later simplification would add back.
+
+**Latency, and why the UI must not assume promptness.** `IdleState` is debounced ~20s at the
+speaker and refreshed on the topology pass. A warning can therefore appear for a television
+that has just gone quiet, and not appear for one paused a minute ago. That was accepted, not
+overlooked: the bias is toward asking.
+
+### 14.9 Playback still has no choke point, and each new rule pays for it
+
+Both features above had to be applied at **seven call sites across three files** — the local
+library goes through `PlaybackCoordinator`, Apple Music and radio call `SonosCommands`
+directly, and transfer and grouping are their own paths in `ZoneDiscoveryService`. Only
+`ZonePickerSheet` acts as a *UI-level* choke point, and it covers eight of roughly fourteen
+flows, never the Play capsule on album detail and never the transfer sheet.
+
+This is the second time a cross-cutting playback rule has cost seven edits. Anything that
+must happen "whenever Sorriva starts audio" will cost seven again. The fix is promoting
+`PlaybackIntent` to cover radio, Apple Music, transfer and grouping so `submit` is the only
+door — deliberately NOT attempted alongside a behaviour change, but the price is now
+measured twice and should inform when it is scheduled.
+
+**One Swift trap worth keeping.** A defaulted parameter added *after* a trailing-closure
+parameter broke all nine `ZonePickerSheet` call sites at once: forward-scan matching stops
+tolerating the trailing closure once a SECOND defaulted parameter follows it. Declared
+before `onPick`, every caller compiles untouched.

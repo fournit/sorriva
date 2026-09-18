@@ -2,23 +2,19 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>NSLocalNetworkUsageDescription</key>
-    <string>Sorriva needs access to your local network to discover and control Sonos and Bluesound speakers.</string>
-    <key>NSBonjourServices</key>
-    <array>
-        <string>_sonos._tcp</string>
-        <string>_musc._tcp</string>
-        <string>_musp._tcp</string>
-        <string>_musz._tcp</string>
-        <string>_mush._tcp</string>
-        <string>_smb._tcp</string>
-    </array>
-    <key>NSAppTransportSecurity</key>
-    <dict>
-        <key>NSAllowsLocalNetworking</key>
-        <true/>
-    </dict>
-    <key>NSAppleMusicUsageDescription</key>
-    <string>Sorriva searches the Apple Music catalogue so you can find music and play it on your speakers.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_sonos._tcp</string>
+		<string>_musc._tcp</string>
+		<string>_musp._tcp</string>
+		<string>_musz._tcp</string>
+		<string>_mush._tcp</string>
+		<string>_smb._tcp</string>
+	</array>
 </dict>
 </plist>

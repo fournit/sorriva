@@ -60,6 +60,7 @@ final class LocalPlaybackService {
     private func playTracks(_ tracks: [Track], on zone: SonosZone) async {
         guard !tracks.isEmpty else { return }
         sLog("LOCALPLAY: playTracks — \(tracks.count) track(s) on \(zone.name)")
+        await SonosCommands.applyTVStartingVolume(on: zone)
 
         // Build (track, source) pairs — each track knows its sourceId
         var trackSourcePairs: [(Track, LibrarySource)] = []
